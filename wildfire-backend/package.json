@@ -1,0 +1,21 @@
+{
+  "name": "wildfire-backend",
+  "version": "1.0.0",
+  "description": "Wildfire LoRa gateway backend API and MongoDB serial bridge",
+  "main": "src/server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "mongoose": "^8.9.5",
+    "serialport": "^12.0.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
