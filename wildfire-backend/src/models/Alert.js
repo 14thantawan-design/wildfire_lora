@@ -13,6 +13,13 @@ const alertSchema = new mongoose.Schema(
     ended_at: { type: Date },
     active: { type: Boolean, default: true, index: true },
     max_confidence: { type: Number, default: 0 },
+    max_risk_score: { type: Number, default: 0 },
+    max_state: {
+      type: String,
+      enum: ['WATCH', 'WARNING', 'CRITICAL', 'SENSOR_FAULT'],
+      index: true
+    },
+    reasons: { type: [String], default: [] },
     message: { type: String },
     last_reading: { type: mongoose.Schema.Types.Mixed }
   },

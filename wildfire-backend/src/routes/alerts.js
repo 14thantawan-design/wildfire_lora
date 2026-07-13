@@ -1,4 +1,5 @@
 const express = require('express');
+const mongoose = require('mongoose');
 const Alert = require('../models/Alert');
 
 const router = express.Router();
@@ -29,6 +30,23 @@ router.get('/', async (req, res, next) => {
     res.json(alerts);
   } catch (error) {
     next(error);
+  }
+});
+
+router.delete('/:id', async (req, res, next) => {
+  try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ error: 'invalid alert id' });
+    }
+
+    const alert = await Alert.findByIdAndDelete(req.params.id);
+    if (!alert) {
+      return res.status(404).json({ error: 'alert not found' });
+    }
+
+    return res.json({ deleted: true, alert_id: req.params.id });
+  } catch (error) {
+    return next(error);
   }
 });
 

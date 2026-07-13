@@ -9,6 +9,11 @@ class SerialBridge {
     this.buffer = '';
     this.pendingParsed = null;
     this.lineQueue = Promise.resolve();
+    this.openedAt = null;
+    this.closedAt = null;
+    this.openError = null;
+    this.lastLineAt = null;
+    this.lastPacketAt = null;
   }
 
   start() {
@@ -28,15 +33,20 @@ class SerialBridge {
       console.error(`serial error: ${error.message}`);
     });
     this.port.on('close', () => {
+      this.closedAt = new Date();
       console.warn('serial bridge closed');
     });
 
     this.port.open((error) => {
       if (error) {
+        this.openError = error.message;
         console.error(`serial bridge failed to open ${this.path}: ${error.message}`);
         return;
       }
 
+      this.openedAt = new Date();
+      this.closedAt = null;
+      this.openError = null;
       console.log(`serial bridge started: ${this.path} @ ${this.baudRate}`);
     });
   }
@@ -44,6 +54,7 @@ class SerialBridge {
   async saveParsed(parsed) {
     try {
       const result = await handlePacket(parsed.packet, parsed.meta);
+      this.lastPacketAt = new Date();
       if (!result.ignored) {
         console.log(`packet saved: type=${result.type} node=${result.node_id}`);
       }
@@ -60,6 +71,7 @@ class SerialBridge {
   }
 
   async handleLine(line) {
+    this.lastLineAt = new Date();
     const parsed = parsePacketLine(line);
     if (parsed) {
       await this.flushPending();
@@ -106,6 +118,20 @@ class SerialBridge {
     if (this.port && this.port.isOpen) {
       this.port.close();
     }
+  }
+
+  status() {
+    return {
+      enabled: Boolean(this.path),
+      path: this.path,
+      baud_rate: this.baudRate,
+      is_open: Boolean(this.port && this.port.isOpen),
+      open_error: this.openError,
+      opened_at: this.openedAt,
+      closed_at: this.closedAt,
+      last_line_at: this.lastLineAt,
+      last_packet_at: this.lastPacketAt
+    };
   }
 }
 

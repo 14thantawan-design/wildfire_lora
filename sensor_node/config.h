@@ -78,7 +78,13 @@
 #define GPS_TX_PIN -1
 #define GPS_BAUD 9600
 #define GPS_POWER_PIN -1
-#define GPS_FIX_TIMEOUT_MS 180000UL
+#if TEST_MODE
+  #define GPS_FIX_TIMEOUT_MS 300000UL       // 5 minutes for cold-start bench/field testing
+  #define GPS_RETRY_INTERVAL_MS 60000UL     // retry soon while you are finding a good GPS spot
+#else
+  #define GPS_FIX_TIMEOUT_MS 600000UL       // 10 minutes for outdoor cold starts
+  #define GPS_RETRY_INTERVAL_MS 3600000UL   // retry hourly until an install location is saved
+#endif
 #define GPS_MIN_SATELLITES 4
 #define GPS_SAVE_TO_NVS 1
 #define GPS_FORCE_RECALIBRATE 0
@@ -118,16 +124,16 @@
 // =========================
 // Sensor health checks
 // =========================
-// Some GP2Y1014 circuits can read near 0 in very clean air.
-// Therefore low/stuck readings are treated as diagnostics by default, not fatal faults.
-// Enable SHARP_LOW_FAULT_ENABLED only after you confirm your Sharp sensor normally never reads 0.
+// Some Sharp GP2Y1014 circuits can read near 0 in clean indoor air.
+// Treat low readings as a diagnostic note first; test with smoke/dust before marking it as a fault.
 #define SHARP_MIN_VALID_RAW 2
 #define SHARP_MAX_VALID_RAW 4092
 #define SHARP_BAD_STREAK_LIMIT 3
 #define SHARP_STUCK_EPS 1
 #define SHARP_STUCK_STREAK_LIMIT 40
 #define SHARP_LOW_FAULT_ENABLED 0
-#define SHARP_HIGH_FAULT_ENABLED 1
+// Dense real smoke can drive Sharp raw values very high, so keep high readings as fire evidence.
+#define SHARP_HIGH_FAULT_ENABLED 0
 #define SHARP_STUCK_FAULT_ENABLED 0
 
 #define SHT31_MIN_TEMP_C -20.0f

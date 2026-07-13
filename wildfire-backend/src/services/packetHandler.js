@@ -1,6 +1,7 @@
 const NodeModel = require('../models/Node');
 const Reading = require('../models/Reading');
 const { processAlertForReading } = require('./alertService');
+const { evaluateRisk } = require('./riskEngine');
 
 function firstDefined(...values) {
   return values.find((value) => value !== undefined && value !== null);
@@ -16,6 +17,15 @@ function toNumber(value) {
   if (value === undefined || value === null || value === '') return undefined;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function toNullableNumber(value) {
+  const parsed = toNumber(value);
+  return parsed === undefined ? null : parsed;
+}
+
+function packetNumber(packet, key) {
+  return Object.prototype.hasOwnProperty.call(packet, key) ? toNullableNumber(packet[key]) : undefined;
 }
 
 function parseMetaFromLine(line) {
@@ -72,20 +82,41 @@ async function handleSensorPacket(packet, meta = {}) {
   const now = new Date();
   const rssi = extractRssi(packet, meta);
   const snr = extractSnr(packet, meta);
+  const recentReadings = await Reading.find({ node_id: nodeId })
+    .sort({ timestamp: -1 })
+    .limit(10)
+    .lean();
+  const history = recentReadings.reverse();
+  const risk = evaluateRisk(packet, history, { timestamp: now });
+  const nodeConfidence = toNumber(packet.c);
+  const airTemp = packetNumber(packet, 'at');
+  const humidity = packetNumber(packet, 'h');
+  const smokeRaw = packetNumber(packet, 'sm');
+  const smokeDelta = packetNumber(packet, 'sd');
+  const smokeBaselineDelta = packetNumber(packet, 'sr');
+  const airBaselineDelta = packetNumber(packet, 'ar');
+  const humidityBaselineDelta = packetNumber(packet, 'hr');
 
   const reading = await Reading.create({
     node_id: nodeId,
     seq: toNumber(packet.q),
     timestamp: now,
-    state: packet.st,
-    confidence: toNumber(packet.c),
-    air_temp: toNumber(packet.at),
-    humidity: toNumber(packet.h),
-    smoke_raw: toNumber(packet.sm),
-    smoke_delta: toNumber(packet.sd),
-    smoke_baseline_delta: toNumber(packet.sr),
-    air_baseline_delta: toNumber(packet.ar),
-    humidity_baseline_delta: toNumber(packet.hr),
+    state: risk.server_state,
+    confidence: nodeConfidence,
+    node_state: packet.st,
+    node_confidence: nodeConfidence,
+    server_state: risk.server_state,
+    server_risk_score: risk.server_risk_score,
+    server_reasons: risk.server_reasons,
+    fire_danger_level: risk.fire_danger_level,
+    evidence: risk.evidence,
+    air_temp: airTemp,
+    humidity,
+    smoke_raw: smokeRaw,
+    smoke_delta: smokeDelta,
+    smoke_baseline_delta: smokeBaselineDelta,
+    air_baseline_delta: airBaselineDelta,
+    humidity_baseline_delta: humidityBaselineDelta,
     sensor_health: packet.sh,
     rssi,
     snr,
@@ -93,11 +124,18 @@ async function handleSensorPacket(packet, meta = {}) {
   });
 
   const nodeSet = {
-    state: packet.st,
-    confidence: toNumber(packet.c),
-    air_temp: toNumber(packet.at),
-    humidity: toNumber(packet.h),
-    smoke_raw: toNumber(packet.sm),
+    state: risk.server_state,
+    confidence: nodeConfidence,
+    node_state: packet.st,
+    node_confidence: nodeConfidence,
+    server_state: risk.server_state,
+    server_risk_score: risk.server_risk_score,
+    server_reasons: risk.server_reasons,
+    fire_danger_level: risk.fire_danger_level,
+    evidence: risk.evidence,
+    air_temp: airTemp,
+    humidity,
+    smoke_raw: smokeRaw,
     sensor_health: packet.sh,
     last_seen: now,
     last_seq: toNumber(packet.q),
@@ -119,6 +157,7 @@ async function handleSensorPacket(packet, meta = {}) {
     type: 'sensor',
     node_id: nodeId,
     reading_id: reading._id,
+    risk,
     alert: alertResult
   };
 }
@@ -174,7 +213,7 @@ async function handlePacket(packet, meta = {}) {
     return { ignored: true, reason: 'invalid packet' };
   }
 
-  if (packet.t === 's') {
+  if (packet.t === 's' || packet.t === 'c') {
     return handleSensorPacket(packet, meta);
   }
 

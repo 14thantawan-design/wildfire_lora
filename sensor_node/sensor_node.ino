@@ -117,6 +117,7 @@ enum GpsOneShotState {
 GpsOneShotState gpsOneShotState = GPS_ONE_SHOT_IDLE;
 unsigned long gpsStartMs = 0;
 unsigned long gpsLastDebugMs = 0;
+unsigned long gpsLastAttemptMs = 0;
 uint32_t gpsByteCount = 0;
 bool gpsFixReportPending = false;
 bool gpsFailureReportPending = false;
@@ -230,6 +231,16 @@ bool isShtReadingSane(float t, float h) {
   return true;
 }
 
+bool beginSht31() {
+  bool shtOk = sht31.begin(SHT31_I2C_ADDRESS_PRIMARY);
+  activeSht31Address = SHT31_I2C_ADDRESS_PRIMARY;
+  if (!shtOk) {
+    shtOk = sht31.begin(SHT31_I2C_ADDRESS_SECONDARY);
+    activeSht31Address = SHT31_I2C_ADDRESS_SECONDARY;
+  }
+  return shtOk;
+}
+
 // =========================
 // Initialization
 // =========================
@@ -245,12 +256,7 @@ void initSensors() {
   digitalWrite(SHARP_LED_PIN, HIGH);
   analogReadResolution(12);
 
-  bool shtOk = sht31.begin(SHT31_I2C_ADDRESS_PRIMARY);
-  activeSht31Address = SHT31_I2C_ADDRESS_PRIMARY;
-  if (!shtOk) {
-    shtOk = sht31.begin(SHT31_I2C_ADDRESS_SECONDARY);
-    activeSht31Address = SHT31_I2C_ADDRESS_SECONDARY;
-  }
+  bool shtOk = beginSht31();
 
 #if USE_DS18B20
   ds18b20.begin();
@@ -306,6 +312,13 @@ SensorData readSensors() {
 
   float t = sht31.readTemperature();
   float h = sht31.readHumidity();
+  if (!isShtReadingSane(t, h)) {
+    beginSht31();
+    delay(20);
+    t = sht31.readTemperature();
+    h = sht31.readHumidity();
+  }
+
   if (isShtReadingSane(t, h)) {
     data.airTemp = t;
     data.humidity = h;
@@ -345,7 +358,7 @@ void updateDerivedSensorHealth(SensorData &data) {
   bool sharpFault = false;
 
 #if SHARP_LOW_FAULT_ENABLED
-  // Disabled by default because some circuits legitimately read 0 in clean air.
+  // Field mode: repeated near-zero values indicate Sharp wiring, ADC, or LED-drive trouble.
   if (sharpLowStreak >= SHARP_BAD_STREAK_LIMIT) sharpFault = true;
 #endif
 
@@ -915,6 +928,7 @@ void startGpsAcquisition() {
   powerGps(true);
   Serial2.begin(GPS_BAUD, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
   gpsStartMs = millis();
+  gpsLastAttemptMs = gpsStartMs;
   gpsLastDebugMs = 0;
   gpsByteCount = 0;
   gpsOneShotState = GPS_ONE_SHOT_ACQUIRING;
@@ -938,6 +952,12 @@ void sendPendingGpsReports() {
 
 void serviceOneShotGps() {
   sendPendingGpsReports();
+
+  if (gpsOneShotState == GPS_ONE_SHOT_FAILED && !nodeGpsLocation.valid) {
+    if (millis() - gpsLastAttemptMs >= GPS_RETRY_INTERVAL_MS) {
+      startGpsAcquisition();
+    }
+  }
 
   if (gpsOneShotState != GPS_ONE_SHOT_ACQUIRING) return;
 

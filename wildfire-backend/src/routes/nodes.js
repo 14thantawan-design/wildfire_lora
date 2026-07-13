@@ -11,6 +11,12 @@ function withOnlineStatus(node) {
   const obj = node.toObject ? node.toObject() : { ...node };
   const lastSeen = obj.last_seen ? new Date(obj.last_seen).getTime() : 0;
   obj.online = lastSeen > 0 && Date.now() - lastSeen <= offlineTimeoutMs();
+  obj.node_state = obj.node_state || obj.state || 'UNKNOWN';
+  obj.node_confidence = obj.node_confidence ?? obj.confidence ?? 0;
+  obj.server_state = obj.online ? obj.server_state || obj.state || 'NORMAL' : 'OFFLINE';
+  obj.server_risk_score = obj.server_risk_score ?? 0;
+  obj.server_reasons = obj.server_reasons || [];
+  obj.fire_danger_level = obj.fire_danger_level || 'LOW';
   return obj;
 }
 

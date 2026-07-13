@@ -22,7 +22,8 @@ app.get('/api/health', (req, res) => {
     ok: true,
     uptime_sec: Math.round(process.uptime()),
     mongo_state: mongoose.connection.readyState,
-    serial_enabled: Boolean(process.env.SERIAL_PORT)
+    serial_enabled: Boolean(process.env.SERIAL_PORT),
+    serial: serialBridge ? serialBridge.status() : { enabled: false }
   });
 });
 

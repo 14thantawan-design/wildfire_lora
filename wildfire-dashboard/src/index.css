@@ -1,0 +1,58 @@
+@import 'leaflet/dist/leaflet.css';
+
+:root {
+  font-family: "Leelawadee UI", "Noto Sans Thai", "Tahoma", system-ui, sans-serif;
+  color: #1d2923;
+  background: #eeeee9;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  --forest-950: #10251d;
+  --forest-900: #173127;
+  --forest-800: #244438;
+  --forest-600: #377e5d;
+  --paper: #f8f7f2;
+  --card: #ffffff;
+  --line: #e0e1da;
+  --muted: #747d77;
+  --ember: #eb7043;
+  --amber: #f3aa43;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+button,
+select {
+  font: inherit;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button {
+  color: inherit;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+::selection {
+  color: #fff;
+  background: var(--forest-600);
+}

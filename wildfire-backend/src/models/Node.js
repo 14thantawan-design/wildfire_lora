@@ -5,6 +5,23 @@ const nodeSchema = new mongoose.Schema(
     node_id: { type: String, required: true, unique: true, index: true, trim: true },
     state: { type: String, default: 'UNKNOWN', index: true },
     confidence: { type: Number, default: 0 },
+    node_state: { type: String, default: 'UNKNOWN', index: true },
+    node_confidence: { type: Number, default: 0 },
+    server_state: {
+      type: String,
+      default: 'NORMAL',
+      enum: ['CALIBRATING', 'NORMAL', 'WATCH', 'WARNING', 'CRITICAL', 'SENSOR_FAULT', 'OFFLINE'],
+      index: true
+    },
+    server_risk_score: { type: Number, default: 0 },
+    server_reasons: { type: [String], default: [] },
+    fire_danger_level: {
+      type: String,
+      default: 'LOW',
+      enum: ['LOW', 'MODERATE', 'HIGH', 'VERY_HIGH'],
+      index: true
+    },
+    evidence: { type: mongoose.Schema.Types.Mixed },
     air_temp: { type: Number },
     humidity: { type: Number },
     smoke_raw: { type: Number },
