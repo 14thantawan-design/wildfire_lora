@@ -3,6 +3,7 @@
 #include <LoRa.h>
 #include <ArduinoJson.h>
 #include <WiFi.h>
+#include <HTTPClient.h>
 #include "config.h"
 
 #if defined(BLUETOOTH_ENABLED) || defined(CONFIG_BT_ENABLED)
@@ -82,9 +83,95 @@ NodeStatus nodes[MAX_NODES];
 unsigned long lastSummaryPrintMs = 0;
 
 void disableUnusedRadios() {
+#if WIFI_HTTP_ENABLED
+  WiFi.mode(WIFI_STA);
+#else
   WiFi.mode(WIFI_OFF);
+#endif
   btStop();
 }
+
+#if WIFI_HTTP_ENABLED
+bool ensureWiFiConnected() {
+  if (WiFi.status() == WL_CONNECTED) return true;
+
+  Serial.print("Connecting Wi-Fi: ");
+  Serial.println(WIFI_SSID);
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+
+  unsigned long startedAt = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - startedAt < WIFI_CONNECT_TIMEOUT_MS) {
+    delay(250);
+    Serial.print(".");
+  }
+  Serial.println();
+
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("Wi-Fi connect failed");
+    return false;
+  }
+
+  Serial.print("Wi-Fi connected: ");
+  Serial.println(WiFi.localIP());
+  return true;
+}
+
+bool postPacketToBackend(const String &payload, int rssi, float snr) {
+  if (!ensureWiFiConnected()) return false;
+
+  StaticJsonDocument<HTTP_JSON_SIZE> doc;
+  DeserializationError error = deserializeJson(doc, payload);
+  if (error) {
+    Serial.print("HTTP forward JSON parse error: ");
+    Serial.println(error.c_str());
+    return false;
+  }
+
+  doc["rssi"] = rssi;
+  doc["snr"] = snr;
+
+  String body;
+  serializeJson(doc, body);
+
+  for (int attempt = 1; attempt <= HTTP_POST_RETRY_COUNT; attempt++) {
+    HTTPClient http;
+    http.setTimeout(HTTP_POST_TIMEOUT_MS);
+
+    if (!http.begin(BACKEND_PACKETS_URL)) {
+      Serial.println("HTTP begin failed");
+      http.end();
+      continue;
+    }
+
+    http.addHeader("Content-Type", "application/json");
+    int statusCode = http.POST(body);
+    String response = http.getString();
+    http.end();
+
+    if (statusCode >= 200 && statusCode < 300) {
+      Serial.print("Packet posted to backend: HTTP ");
+      Serial.println(statusCode);
+      return true;
+    }
+
+    Serial.print("Backend POST failed attempt ");
+    Serial.print(attempt);
+    Serial.print(": HTTP ");
+    Serial.print(statusCode);
+    if (response.length() > 0) {
+      Serial.print(" ");
+      Serial.println(response);
+    } else {
+      Serial.println();
+    }
+
+    delay(250);
+  }
+
+  return false;
+}
+#endif
 
 bool initLoRa() {
   SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS);
@@ -486,6 +573,10 @@ void handleIncomingLoRa() {
 
   updateNodeStatus(idx, parsed, rssi, snr);
   printReceivedPacket(parsed, rssi, snr);
+
+#if WIFI_HTTP_ENABLED
+  postPacketToBackend(payload, rssi, snr);
+#endif
 }
 
 void setup() {
@@ -510,6 +601,13 @@ void setup() {
   Serial.println("Starting Wildfire LoRa Gateway ROBUST...");
   Serial.print("Mode: ");
   Serial.println(TEST_MODE ? "TEST_MODE" : "DEPLOY_MODE");
+#if WIFI_HTTP_ENABLED
+  ensureWiFiConnected();
+  Serial.print("Backend URL: ");
+  Serial.println(BACKEND_PACKETS_URL);
+#else
+  Serial.println("Backend uplink: USB Serial prototype mode");
+#endif
   initLoRa();
 }
 

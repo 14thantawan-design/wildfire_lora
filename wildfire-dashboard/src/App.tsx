@@ -285,7 +285,7 @@ function App() {
   const [activeSection, setActiveSection] = useState<NavSection>(getHashSection)
   const [chartRange, setChartRange] = useState<TimeRangeKey>('1h')
   const [deletingAlertId, setDeletingAlertId] = useState<string>()
-  const { nodes, alerts, readings, loading, demoMode, lastUpdated, refresh, deleteAlert } =
+  const { nodes, alerts, readings, loading, demoMode, apiError, lastUpdated, refresh, deleteAlert } =
     useDashboard(selectedNodeId, chartRange)
 
   const selectedNode = nodes.find((node) => node.node_id === selectedNodeId) ?? nodes[0]
@@ -435,9 +435,12 @@ function App() {
           >
             <Menu size={21} />
           </button>
-          <div className="live-status">
+          <div
+            className="live-status"
+            title={apiError ? `API error: ${apiError}` : undefined}
+          >
             <i className={demoMode ? 'demo' : ''} />
-            {demoMode ? 'โหมดข้อมูลตัวอย่าง' : 'เชื่อมต่อข้อมูลสด'}
+            {demoMode ? 'ข้อมูลทดลอง: backend ไม่พร้อม' : 'เชื่อมต่อข้อมูลสด'}
           </div>
           <div className="topbar-actions">
             <span><Clock3 size={15} /> อัปเดต {formatTime(lastUpdated)}</span>

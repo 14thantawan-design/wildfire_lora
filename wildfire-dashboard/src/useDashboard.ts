@@ -68,6 +68,7 @@ export function useDashboard(selectedNodeId: string, timeRange: TimeRangeKey) {
   const [readings, setReadings] = useState<Reading[]>([])
   const [loading, setLoading] = useState(true)
   const [demoMode, setDemoMode] = useState(false)
+  const [apiError, setApiError] = useState<string>()
   const [lastUpdated, setLastUpdated] = useState<Date>()
 
   const load = useCallback(async () => {
@@ -89,11 +90,13 @@ export function useDashboard(selectedNodeId: string, timeRange: TimeRangeKey) {
       setAlerts(alertData)
       setReadings(readingData.reverse())
       setDemoMode(false)
-    } catch {
+      setApiError(undefined)
+    } catch (error) {
       setNodes(mockNodes)
       setAlerts(mockAlerts)
       setReadings(mockReadings[selectedNodeId] ?? mockReadings.NODE01)
       setDemoMode(true)
+      setApiError(error instanceof Error ? error.message : 'API unavailable')
     } finally {
       setLoading(false)
       setLastUpdated(new Date())
@@ -121,5 +124,5 @@ export function useDashboard(selectedNodeId: string, timeRange: TimeRangeKey) {
     [load],
   )
 
-  return { nodes, alerts, readings, loading, demoMode, lastUpdated, refresh: load, deleteAlert }
+  return { nodes, alerts, readings, loading, demoMode, apiError, lastUpdated, refresh: load, deleteAlert }
 }

@@ -29,6 +29,25 @@
 #define SERIAL_BAUD 115200
 #define PRINT_RAW_PAYLOAD 1   // useful while testing; set 0 later if too noisy
 
+// =========================
+// Backend uplink
+// =========================
+// Prototype mode:
+//   WIFI_HTTP_ENABLED 0 -> Gateway prints LoRa packets to USB Serial.
+//   Backend reads that USB port with SERIAL_PORT=COM3.
+//
+// Field mode:
+//   WIFI_HTTP_ENABLED 1 -> Gateway posts packets directly to backend over Wi-Fi.
+//   Backend .env should use SERIAL_PORT= because no USB serial bridge is needed.
+#define WIFI_HTTP_ENABLED 1
+#define WIFI_SSID "IOT-RMUTI"
+#define WIFI_PASSWORD "@1111111111111!"
+#define BACKEND_PACKETS_URL "http://172.24.162.55:4000/api/packets"
+#define WIFI_CONNECT_TIMEOUT_MS 15000UL
+#define HTTP_POST_TIMEOUT_MS 5000UL
+#define HTTP_POST_RETRY_COUNT 2
+#define HTTP_JSON_SIZE 768
+
 #if TEST_MODE
   #define OFFLINE_TIMEOUT_MS 60000UL      // 60 sec for bench testing
   #define SUMMARY_PRINT_INTERVAL_MS 10000UL

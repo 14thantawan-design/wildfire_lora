@@ -1,14 +1,21 @@
 # Wildfire Backend
 
-Node.js API and serial bridge for the Wildfire LoRa project.
+Node.js API for the Wildfire LoRa project.
 
-The TTGO Gateway prints LoRa packets over USB serial. This backend reads those packets, stores node status and sensor history in MongoDB, and exposes API endpoints for the future dashboard.
+The backend stores node status and sensor history in MongoDB and exposes API endpoints for the dashboard.
+
+There are two supported uplink modes:
+
+- Field mode: Gateway posts LoRa packets over Wi-Fi or cellular to `POST /api/packets`.
+- Prototype mode: Gateway prints LoRa packets over USB serial and this backend reads that serial port.
+
+For the real forest deployment, use field mode. USB serial is only a bench-test bridge.
 
 ## Requirements
 
 - Node.js 20+
 - MongoDB running locally or in the cloud
-- Gateway board connected over USB serial, optional
+- Gateway with Wi-Fi/cellular access to this backend, or USB serial for bench testing only
 
 ## Install
 
@@ -23,12 +30,12 @@ Edit `.env`:
 ```bash
 PORT=4000
 MONGODB_URI=mongodb://127.0.0.1:27017/wildfire_lora
-SERIAL_PORT=COM3
+SERIAL_PORT=
 SERIAL_BAUD=115200
 OFFLINE_TIMEOUT_MS=60000
 ```
 
-If `SERIAL_PORT` is empty, the API still runs and the serial bridge is disabled.
+Leave `SERIAL_PORT` empty for field mode. Set it only for prototype mode, for example `SERIAL_PORT=COM3` on Windows.
 
 ## Run
 
@@ -41,13 +48,13 @@ Expected logs:
 ```text
 connected MongoDB: wildfire_lora
 API running: http://localhost:4000
-serial bridge started: COM3 @ 115200
+serial disabled: SERIAL_PORT is not set
 ```
 
-or, when serial is disabled:
+or, in prototype mode:
 
 ```text
-serial disabled: SERIAL_PORT is not set
+serial bridge started: COM3 @ 115200
 ```
 
 ## API
