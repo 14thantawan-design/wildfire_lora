@@ -122,6 +122,7 @@ uint32_t gpsByteCount = 0;
 bool gpsFixReportPending = false;
 bool gpsFailureReportPending = false;
 #endif
+String lastHandledCommandId;
 
 RTC_DATA_ATTR uint32_t seq = 0;
 RTC_DATA_ATTR bool hasPreviousData = false;
@@ -788,6 +789,8 @@ String buildJsonPacket(const SensorData &data, const DeltaData &delta, const Evi
   return payload;
 }
 
+void listenForGatewayCommand();
+
 bool sendLoRaPacket(const String &payload, bool useRandomDelay) {
   if (useRandomDelay) {
     long d = random(RANDOM_TX_DELAY_MIN_MS, RANDOM_TX_DELAY_MAX_MS + 1);
@@ -802,7 +805,8 @@ bool sendLoRaPacket(const String &payload, bool useRandomDelay) {
   LoRa.beginPacket();
   LoRa.print(payload);
   bool ok = LoRa.endPacket();
-  LoRa.sleep();
+  if (ok) listenForGatewayCommand();
+  else LoRa.sleep();
 
 #if SERIAL_DEBUG
   Serial.print("TX bytes: ");
@@ -873,6 +877,14 @@ void saveGpsLocationToNvs(const GpsLocation &fix) {
 #endif
 }
 
+void clearGpsLocationFromNvs() {
+#if GPS_SAVE_TO_NVS
+  if (!gpsPrefs.begin("node_gps", false)) return;
+  gpsPrefs.clear();
+  gpsPrefs.end();
+#endif
+}
+
 String buildGpsPacket(const GpsLocation &fix, bool gpsFix, const char *errorCode) {
   StaticJsonDocument<MAX_JSON_SIZE> doc;
   seq++;
@@ -925,6 +937,7 @@ void stopGpsAcquisition() {
 
 void startGpsAcquisition() {
   resetGpsLocation(gpsWorkingLocation);
+  gps = TinyGPSPlus();
   powerGps(true);
   Serial2.begin(GPS_BAUD, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
   gpsStartMs = millis();
@@ -935,6 +948,22 @@ void startGpsAcquisition() {
 
 #if SERIAL_DEBUG
   Serial.println("GPS one-shot: acquisition started in background");
+#endif
+}
+
+void startGpsReacquisition() {
+  if (gpsOneShotState == GPS_ONE_SHOT_ACQUIRING) stopGpsAcquisition();
+
+  resetGpsLocation(nodeGpsLocation);
+  resetGpsLocation(gpsWorkingLocation);
+  clearGpsLocationFromNvs();
+  gpsFixReportPending = false;
+  gpsFailureReportPending = false;
+  gpsOneShotState = GPS_ONE_SHOT_IDLE;
+  startGpsAcquisition();
+
+#if SERIAL_DEBUG
+  Serial.println("GPS re-acquire command accepted");
 #endif
 }
 
@@ -1045,6 +1074,44 @@ bool isOneShotGpsActive() {
          gpsFailureReportPending;
 }
 #endif
+
+void handleGatewayCommand(const String &payload) {
+  StaticJsonDocument<COMMAND_MAX_JSON_SIZE> doc;
+  if (deserializeJson(doc, payload)) return;
+  if (String((const char *)(doc["t"] | "")) != "cmd") return;
+  if (String((const char *)(doc["id"] | "")) != NODE_ID) return;
+
+  String commandId = String((const char *)(doc["cid"] | ""));
+  String command = String((const char *)(doc["cmd"] | ""));
+  if (commandId.length() == 0 || commandId == lastHandledCommandId) return;
+
+  if (command == "gps_reacquire") {
+#if USE_GPS
+    lastHandledCommandId = commandId;
+    startGpsReacquisition();
+#endif
+  }
+}
+
+void listenForGatewayCommand() {
+  unsigned long startedAt = millis();
+  LoRa.receive();
+
+  while (millis() - startedAt < COMMAND_RX_WINDOW_MS) {
+    int packetSize = LoRa.parsePacket();
+    if (!packetSize) {
+      delay(2);
+      continue;
+    }
+
+    String payload;
+    while (LoRa.available()) payload += (char)LoRa.read();
+    handleGatewayCommand(payload);
+    LoRa.receive();
+  }
+
+  LoRa.sleep();
+}
 
 void delayWithBackgroundTasks(unsigned long durationMs) {
   unsigned long startMs = millis();

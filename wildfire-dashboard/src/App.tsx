@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useState, type FormEvent } from 'react'
 import {
   Bell,
   ChevronRight,
@@ -8,6 +8,7 @@ import {
   History,
   LayoutDashboard,
   Map,
+  MapPin,
   Menu,
   RadioTower,
   RefreshCw,
@@ -285,8 +286,28 @@ function App() {
   const [activeSection, setActiveSection] = useState<NavSection>(getHashSection)
   const [chartRange, setChartRange] = useState<TimeRangeKey>('1h')
   const [deletingAlertId, setDeletingAlertId] = useState<string>()
-  const { nodes, alerts, readings, loading, demoMode, apiError, lastUpdated, refresh, deleteAlert } =
-    useDashboard(selectedNodeId, chartRange)
+  const [gpsRequestingNodeId, setGpsRequestingNodeId] = useState<string>()
+  const [gpsRequestError, setGpsRequestError] = useState<{ nodeId: string; message: string }>()
+  const [manualLocation, setManualLocation] = useState<{
+    nodeId: string
+    latitude: string
+    longitude: string
+  }>()
+  const [manualLocationSaving, setManualLocationSaving] = useState(false)
+  const [manualLocationError, setManualLocationError] = useState<string>()
+  const {
+    nodes,
+    alerts,
+    readings,
+    loading,
+    demoMode,
+    apiError,
+    lastUpdated,
+    refresh,
+    deleteAlert,
+    reacquireGps,
+    saveManualLocation,
+  } = useDashboard(selectedNodeId, chartRange)
 
   const selectedNode = nodes.find((node) => node.node_id === selectedNodeId) ?? nodes[0]
   const activeAlerts = alerts.filter((alert) => alert.active)
@@ -313,11 +334,46 @@ function App() {
   const isSafe = !hasUnsafeNode && !hasActiveDangerAlert
   const visibleAlerts = showAllAlerts ? alerts : alerts.slice(0, 5)
   const hiddenAlertCount = Math.max(0, alerts.length - visibleAlerts.length)
+  const gpsRequesting = gpsRequestingNodeId === selectedNode?.node_id
+  const gpsStatus = (() => {
+    if (!selectedNode) return { tone: 'muted', text: 'ยังไม่มีจุดตรวจ' }
+    if (gpsRequesting) return { tone: 'searching', text: `${selectedNode.node_id} · กำลังส่งคำสั่ง` }
+    if (gpsRequestError?.nodeId === selectedNode.node_id) {
+      return { tone: 'error', text: gpsRequestError.message }
+    }
+    if (selectedNode.location_source === 'manual') {
+      if (selectedNode.gps_error === 'gps_reacquiring') {
+        return { tone: 'searching', text: `${selectedNode.node_id} · ใช้พิกัดที่กรอก · กำลังหา GPS` }
+      }
+      if (selectedNode.gps_error === 'gps_failed') {
+        return { tone: 'manual', text: `${selectedNode.node_id} · พิกัดกำหนดเอง · GPS ไม่พร้อม` }
+      }
+      return { tone: 'manual', text: `${selectedNode.node_id} · พิกัดกำหนดเอง` }
+    }
+    if (selectedNode.gps_error === 'gps_reacquiring') {
+      return { tone: 'searching', text: `${selectedNode.node_id} · รอพิกัดใหม่` }
+    }
+    if (selectedNode.gps_error === 'gps_failed') {
+      return { tone: 'error', text: `${selectedNode.node_id} · ยังหา GPS ไม่พบ` }
+    }
+    if (selectedNode.gps_fixed) {
+      const satelliteText = selectedNode.gps_satellites
+        ? ` · ${selectedNode.gps_satellites} ดาวเทียม`
+        : ''
+      return { tone: 'ready', text: `${selectedNode.node_id} · GPS พร้อม${satelliteText}` }
+    }
+    return { tone: 'muted', text: `${selectedNode.node_id} · ยังไม่มีพิกัด GPS` }
+  })()
 
   const selectNode = (nodeId: string) => {
     setActiveSection('trends')
     setSelectedNodeId(nodeId)
     document.querySelector('#trends')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
+  const selectMapNode = (nodeId: string) => {
+    setSelectedNodeId(nodeId)
+    setGpsRequestError(undefined)
   }
 
   const scrollToAlerts = () => {
@@ -339,6 +395,73 @@ function App() {
     void deleteAlert(alertId).finally(() => setDeletingAlertId(undefined))
   }
 
+  const requestSelectedNodeGps = async () => {
+    if (!selectedNode) return
+
+    setGpsRequestingNodeId(selectedNode.node_id)
+    setGpsRequestError(undefined)
+    try {
+      await reacquireGps(selectedNode.node_id)
+    } catch {
+      setGpsRequestError({
+        nodeId: selectedNode.node_id,
+        message: `${selectedNode.node_id} · ส่งคำสั่งไม่สำเร็จ`,
+      })
+    } finally {
+      setGpsRequestingNodeId(undefined)
+    }
+  }
+
+  const openManualLocation = () => {
+    if (!selectedNode) return
+    setManualLocation({
+      nodeId: selectedNode.node_id,
+      latitude: selectedNode.lat?.toFixed(6) ?? '',
+      longitude: selectedNode.lng?.toFixed(6) ?? '',
+    })
+    setManualLocationError(undefined)
+  }
+
+  const closeManualLocation = () => {
+    if (manualLocationSaving) return
+    setManualLocation(undefined)
+    setManualLocationError(undefined)
+  }
+
+  const submitManualLocation = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!manualLocation) return
+
+    const latitude = Number(manualLocation.latitude)
+    const longitude = Number(manualLocation.longitude)
+    const coordinatesValid =
+      manualLocation.latitude.trim() !== ''
+      && manualLocation.longitude.trim() !== ''
+      && Number.isFinite(latitude)
+      && Number.isFinite(longitude)
+      && latitude >= -90
+      && latitude <= 90
+      && longitude >= -180
+      && longitude <= 180
+      && (Math.abs(latitude) >= 0.000001 || Math.abs(longitude) >= 0.000001)
+
+    if (!coordinatesValid) {
+      setManualLocationError('กรุณาตรวจสอบละติจูดและลองจิจูดอีกครั้ง')
+      return
+    }
+
+    setManualLocationSaving(true)
+    setManualLocationError(undefined)
+    try {
+      await saveManualLocation(manualLocation.nodeId, { lat: latitude, lng: longitude })
+      setManualLocation(undefined)
+    } catch {
+      setManualLocationError('บันทึกพิกัดไม่สำเร็จ กรุณาลองใหม่')
+    } finally {
+      setManualLocationSaving(false)
+    }
+  }
+
   const navClass = (section: NavSection) => (activeSection === section ? 'active' : undefined)
 
   useEffect(() => {
@@ -346,6 +469,22 @@ function App() {
     window.addEventListener('hashchange', syncNavWithHash)
     return () => window.removeEventListener('hashchange', syncNavWithHash)
   }, [])
+
+  useEffect(() => {
+    if (!manualLocation) return
+
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !manualLocationSaving) closeManualLocation()
+    }
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    window.addEventListener('keydown', closeOnEscape)
+
+    return () => {
+      document.body.style.overflow = previousOverflow
+      window.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [manualLocation, manualLocationSaving])
 
   return (
     <div className="app-shell">
@@ -522,10 +661,48 @@ function App() {
             <article className="panel map-panel" id="map">
               <div className="panel-head">
                 <div><span className="panel-kicker">LIVE MAP</span><h2>แผนที่จุดตรวจวัด</h2></div>
-                <span className="panel-meta"><i /> อัปเดตอัตโนมัติ</span>
+                <div className="map-head-actions">
+                  <label className="map-node-picker">
+                    <span>จุดตรวจ</span>
+                    <select
+                      aria-label="เลือกจุดตรวจสำหรับจัดการพิกัด"
+                      value={selectedNode?.node_id ?? ''}
+                      onChange={(event) => selectMapNode(event.target.value)}
+                    >
+                      {nodes.map((node) => (
+                        <option key={node.node_id} value={node.node_id}>{node.node_id}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <span className={`gps-state ${gpsStatus.tone}`}><i /> {gpsStatus.text}</span>
+                  <div className="location-action-buttons">
+                    <button
+                      aria-label={`ค้นหา GPS ใหม่สำหรับ ${selectedNode?.node_id ?? 'จุดตรวจ'}`}
+                      className="gps-refresh-button"
+                      disabled={!selectedNode || demoMode || gpsRequesting}
+                      onClick={() => void requestSelectedNodeGps()}
+                      title={demoMode ? 'เชื่อมต่อระบบจริงก่อนจึงจะส่งคำสั่งได้' : 'ล้างพิกัดเดิมและค้นหา GPS ใหม่'}
+                      type="button"
+                    >
+                      <RefreshCw className={gpsRequesting ? 'spin' : ''} size={14} />
+                      <span>{gpsRequesting ? 'กำลังส่ง' : 'ค้นหา GPS ใหม่'}</span>
+                    </button>
+                    <button
+                      aria-label={`กรอกพิกัดเองสำหรับ ${selectedNode?.node_id ?? 'จุดตรวจ'}`}
+                      className="manual-location-button"
+                      disabled={!selectedNode || demoMode}
+                      onClick={openManualLocation}
+                      title={demoMode ? 'เชื่อมต่อระบบจริงก่อนจึงจะบันทึกพิกัดได้' : 'กรอกพิกัดเอง'}
+                      type="button"
+                    >
+                      <MapPin size={14} />
+                      <span>กรอกพิกัด</span>
+                    </button>
+                  </div>
+                </div>
               </div>
               <Suspense fallback={<div className="panel-loading">กำลังโหลดแผนที่…</div>}>
-                <MapPanel nodes={nodes} selectedNodeId={selectedNode?.node_id ?? ''} onSelect={selectNode} />
+                <MapPanel nodes={nodes} selectedNodeId={selectedNode?.node_id ?? ''} onSelect={selectMapNode} />
               </Suspense>
             </article>
 
@@ -632,6 +809,79 @@ function App() {
           </footer>
         </div>
       </main>
+
+      {manualLocation && (
+        <div className="location-modal-backdrop" onMouseDown={closeManualLocation} role="presentation">
+          <section
+            aria-labelledby="manual-location-title"
+            aria-modal="true"
+            className="location-modal"
+            onMouseDown={(event) => event.stopPropagation()}
+            role="dialog"
+          >
+            <header>
+              <div>
+                <span>MANUAL LOCATION</span>
+                <h2 id="manual-location-title">กำหนดพิกัดเอง · {manualLocation.nodeId}</h2>
+              </div>
+              <button
+                aria-label="ปิดหน้าต่างกรอกพิกัด"
+                disabled={manualLocationSaving}
+                onClick={closeManualLocation}
+                title="ปิด"
+                type="button"
+              >
+                <X size={18} />
+              </button>
+            </header>
+            <form onSubmit={(event) => void submitManualLocation(event)}>
+              <div className="coordinate-fields">
+                <label>
+                  <span>ละติจูด</span>
+                  <input
+                    autoFocus
+                    inputMode="decimal"
+                    max="90"
+                    min="-90"
+                    onChange={(event) => setManualLocation((current) => current
+                      ? { ...current, latitude: event.target.value }
+                      : current)}
+                    placeholder="เช่น 18.788300"
+                    required
+                    step="any"
+                    type="number"
+                    value={manualLocation.latitude}
+                  />
+                </label>
+                <label>
+                  <span>ลองจิจูด</span>
+                  <input
+                    inputMode="decimal"
+                    max="180"
+                    min="-180"
+                    onChange={(event) => setManualLocation((current) => current
+                      ? { ...current, longitude: event.target.value }
+                      : current)}
+                    placeholder="เช่น 98.985300"
+                    required
+                    step="any"
+                    type="number"
+                    value={manualLocation.longitude}
+                  />
+                </label>
+              </div>
+              {manualLocationError && <p className="location-form-error" role="alert">{manualLocationError}</p>}
+              <footer>
+                <button disabled={manualLocationSaving} onClick={closeManualLocation} type="button">ยกเลิก</button>
+                <button className="save-location-button" disabled={manualLocationSaving} type="submit">
+                  <MapPin size={15} />
+                  {manualLocationSaving ? 'กำลังบันทึก' : 'บันทึกพิกัด'}
+                </button>
+              </footer>
+            </form>
+          </section>
+        </div>
+      )}
     </div>
   )
 }

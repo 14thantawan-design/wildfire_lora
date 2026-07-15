@@ -32,6 +32,8 @@ const nodeSchema = new mongoose.Schema(
     gps_hdop: { type: Number },
     gps_fixed: { type: Boolean, default: false },
     gps_error: { type: String },
+    location_source: { type: String, enum: ['gps', 'manual'] },
+    location_updated_at: { type: Date },
     last_seen: { type: Date },
     last_seq: { type: Number },
     rssi: { type: Number },

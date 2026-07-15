@@ -49,6 +49,10 @@
 #define RANDOM_TX_DELAY_MIN_MS 0
 #define RANDOM_TX_DELAY_MAX_MS 5000
 
+// Listen briefly after each uplink so the gateway can deliver queued commands.
+#define COMMAND_RX_WINDOW_MS 1800UL
+#define COMMAND_MAX_JSON_SIZE 192
+
 // =========================
 // Sensor pins
 // =========================

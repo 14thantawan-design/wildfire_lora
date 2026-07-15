@@ -135,7 +135,11 @@ export function MapPanel({ nodes, selectedNodeId, onSelect }: MapPanelProps) {
                   </span>
                 </div>
                 <span className="sensor-tooltip-sub">
-                  {node.gps_fixed ? 'ค่าล่าสุดของจุดนี้' : 'กำลังรอพิกัด GPS'}
+                  {node.location_source === 'manual'
+                    ? 'พิกัดกำหนดเอง'
+                    : node.gps_fixed
+                      ? 'พิกัด GPS ล่าสุด'
+                      : 'กำลังรอพิกัด GPS'}
                 </span>
                 {node.server_reasons && node.server_reasons.length > 0 && (
                   <span className="sensor-tooltip-reason">

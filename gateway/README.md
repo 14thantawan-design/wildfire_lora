@@ -24,7 +24,7 @@ In `gateway/config.h` set:
 #define WIFI_HTTP_ENABLED 1
 #define WIFI_SSID "your-wifi-name"
 #define WIFI_PASSWORD "your-wifi-password"
-#define BACKEND_PACKETS_URL "http://your-backend-host:4000/api/packets"
+#define BACKEND_API_BASE_URL "http://your-backend-host:4000/api"
 ```
 
 In `wildfire-backend/.env` leave serial disabled:
@@ -35,6 +35,17 @@ SERIAL_PORT=
 
 The gateway receives LoRa packets and posts them directly to `POST /api/packets`.
 No computer or COM port is needed at the gateway site.
+
+## GPS Re-acquire Command
+
+The dashboard button `ค้นหา GPS ใหม่` queues a command for the selected node.
+The gateway downloads pending commands and sends one immediately after that node's
+next LoRa uplink, while the node is awake and listening. After receiving it, the
+node clears its saved install location and starts a fresh GPS acquisition.
+
+Upload the updated sketches to both the gateway and every sensor node before using
+the button. In prototype mode, the same command travels over the existing USB serial
+connection instead of Wi-Fi.
 
 ## Prototype Mode
 

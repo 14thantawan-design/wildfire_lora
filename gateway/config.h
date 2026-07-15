@@ -42,11 +42,21 @@
 #define WIFI_HTTP_ENABLED 1
 #define WIFI_SSID "IOT-RMUTI"
 #define WIFI_PASSWORD "@1111111111111!"
-#define BACKEND_PACKETS_URL "http://172.24.162.55:4000/api/packets"
+#define BACKEND_API_BASE_URL "http://172.24.163.106:4000/api"
+#define BACKEND_PACKETS_URL BACKEND_API_BASE_URL "/packets"
+#define BACKEND_COMMANDS_PENDING_URL BACKEND_API_BASE_URL "/commands/pending"
+#define BACKEND_COMMANDS_URL BACKEND_API_BASE_URL "/commands"
 #define WIFI_CONNECT_TIMEOUT_MS 15000UL
 #define HTTP_POST_TIMEOUT_MS 5000UL
 #define HTTP_POST_RETRY_COUNT 2
 #define HTTP_JSON_SIZE 768
+
+// Downlink commands are held until the target node sends its next LoRa packet.
+#define MAX_PENDING_COMMANDS 10
+#define COMMAND_POLL_INTERVAL_MS 2000UL
+#define COMMAND_REPEAT_COUNT 3
+#define COMMAND_REPEAT_DELAY_MS 80UL
+#define COMMAND_HTTP_JSON_SIZE 2048
 
 #if TEST_MODE
   #define OFFLINE_TIMEOUT_MS 60000UL      // 60 sec for bench testing

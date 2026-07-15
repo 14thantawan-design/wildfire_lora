@@ -7,6 +7,7 @@ const connectDB = require('./db');
 const nodesRouter = require('./routes/nodes');
 const readingsRouter = require('./routes/readings');
 const alertsRouter = require('./routes/alerts');
+const commandsRouter = require('./routes/commands');
 const { handlePacket } = require('./services/packetHandler');
 const { createSerialBridge } = require('./serialBridge');
 
@@ -30,6 +31,7 @@ app.get('/api/health', (req, res) => {
 app.use('/api/nodes', nodesRouter);
 app.use('/api/readings', readingsRouter);
 app.use('/api/alerts', alertsRouter);
+app.use('/api/commands', commandsRouter);
 
 app.post('/api/packets', async (req, res, next) => {
   try {

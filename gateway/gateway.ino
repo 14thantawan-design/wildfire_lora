@@ -79,8 +79,18 @@ struct NodeStatus {
   float snr;
 };
 
+struct PendingCommand {
+  bool used;
+  String commandId;
+  String nodeId;
+  String command;
+};
+
 NodeStatus nodes[MAX_NODES];
+PendingCommand pendingCommands[MAX_PENDING_COMMANDS];
 unsigned long lastSummaryPrintMs = 0;
+unsigned long lastCommandPollMs = 0;
+String serialCommandBuffer;
 
 void disableUnusedRadios() {
 #if WIFI_HTTP_ENABLED
@@ -171,6 +181,20 @@ bool postPacketToBackend(const String &payload, int rssi, float snr) {
 
   return false;
 }
+
+bool postCommandAck(const String &commandId) {
+  if (!ensureWiFiConnected()) return false;
+
+  HTTPClient http;
+  http.setTimeout(HTTP_POST_TIMEOUT_MS);
+  String url = String(BACKEND_COMMANDS_URL) + "/" + commandId + "/ack";
+  if (!http.begin(url)) return false;
+
+  http.addHeader("Content-Type", "application/json");
+  int statusCode = http.POST("{}");
+  http.end();
+  return statusCode >= 200 && statusCode < 300;
+}
 #endif
 
 bool initLoRa() {
@@ -191,6 +215,140 @@ bool initLoRa() {
 
   Serial.println("LoRa gateway init OK");
   return true;
+}
+
+bool hasPendingCommand(const String &commandId) {
+  for (int i = 0; i < MAX_PENDING_COMMANDS; i++) {
+    if (pendingCommands[i].used && pendingCommands[i].commandId == commandId) return true;
+  }
+  return false;
+}
+
+bool queuePendingCommand(const String &commandId, const String &nodeId, const String &command) {
+  if (commandId.length() == 0 || nodeId.length() == 0 || command.length() == 0) return false;
+  if (hasPendingCommand(commandId)) return true;
+
+  for (int i = 0; i < MAX_PENDING_COMMANDS; i++) {
+    if (!pendingCommands[i].used) {
+      pendingCommands[i].used = true;
+      pendingCommands[i].commandId = commandId;
+      pendingCommands[i].nodeId = nodeId;
+      pendingCommands[i].command = command;
+      Serial.print("Command queued: ");
+      Serial.print(command);
+      Serial.print(" -> ");
+      Serial.println(nodeId);
+      return true;
+    }
+  }
+
+  Serial.println("Command queue full");
+  return false;
+}
+
+bool queueWireCommand(const String &payload) {
+  StaticJsonDocument<MAX_JSON_SIZE> doc;
+  if (deserializeJson(doc, payload)) return false;
+  if (String((const char *)(doc["t"] | "")) != "cmd") return false;
+
+  return queuePendingCommand(
+    String((const char *)(doc["cid"] | "")),
+    String((const char *)(doc["id"] | "")),
+    String((const char *)(doc["cmd"] | ""))
+  );
+}
+
+void handleSerialCommands() {
+#if !WIFI_HTTP_ENABLED
+  while (Serial.available() > 0) {
+    char incoming = (char)Serial.read();
+    if (incoming == '\r') continue;
+
+    if (incoming == '\n') {
+      if (serialCommandBuffer.startsWith("CMD ")) {
+        queueWireCommand(serialCommandBuffer.substring(4));
+      }
+      serialCommandBuffer = "";
+      continue;
+    }
+
+    if (serialCommandBuffer.length() < MAX_JSON_SIZE + 8) serialCommandBuffer += incoming;
+  }
+#endif
+}
+
+#if WIFI_HTTP_ENABLED
+void pollBackendCommands() {
+  if (!ensureWiFiConnected()) return;
+
+  HTTPClient http;
+  http.setTimeout(HTTP_POST_TIMEOUT_MS);
+  if (!http.begin(BACKEND_COMMANDS_PENDING_URL)) return;
+
+  int statusCode = http.GET();
+  String response = http.getString();
+  http.end();
+  if (statusCode != 200 || response.length() == 0) return;
+
+  StaticJsonDocument<COMMAND_HTTP_JSON_SIZE> doc;
+  if (deserializeJson(doc, response)) return;
+
+  for (JsonObject command : doc.as<JsonArray>()) {
+    queuePendingCommand(
+      String((const char *)(command["command_id"] | "")),
+      String((const char *)(command["node_id"] | "")),
+      String((const char *)(command["command"] | ""))
+    );
+  }
+}
+#endif
+
+void acknowledgePendingCommand(const String &commandId) {
+#if WIFI_HTTP_ENABLED
+  if (!postCommandAck(commandId)) {
+    Serial.print("Command ACK failed: ");
+    Serial.println(commandId);
+  }
+#else
+  Serial.print("CMD_ACK ");
+  Serial.println(commandId);
+#endif
+}
+
+bool sendPendingCommandForNode(const String &nodeId) {
+  for (int i = 0; i < MAX_PENDING_COMMANDS; i++) {
+    if (!pendingCommands[i].used || pendingCommands[i].nodeId != nodeId) continue;
+
+    StaticJsonDocument<MAX_JSON_SIZE> doc;
+    doc["t"] = "cmd";
+    doc["id"] = pendingCommands[i].nodeId;
+    doc["cmd"] = pendingCommands[i].command;
+    doc["cid"] = pendingCommands[i].commandId;
+    String payload;
+    serializeJson(doc, payload);
+
+    LoRa.idle();
+    bool sent = true;
+    for (int repeat = 0; repeat < COMMAND_REPEAT_COUNT; repeat++) {
+      LoRa.beginPacket();
+      LoRa.print(payload);
+      sent = LoRa.endPacket() && sent;
+      if (repeat + 1 < COMMAND_REPEAT_COUNT) delay(COMMAND_REPEAT_DELAY_MS);
+    }
+    LoRa.receive();
+
+    if (!sent) return false;
+
+    Serial.print("Command sent: ");
+    Serial.print(pendingCommands[i].command);
+    Serial.print(" -> ");
+    Serial.println(nodeId);
+    acknowledgePendingCommand(pendingCommands[i].commandId);
+    pendingCommands[i].used = false;
+    return true;
+  }
+
+  return false;
 }
 
 int findNodeIndex(const String &nodeId) {
@@ -563,6 +721,9 @@ void handleIncomingLoRa() {
   int idx = getOrCreateNodeIndex(parsed.nodeId);
   if (idx < 0) return;
 
+  // The node opens a short receive window immediately after every uplink.
+  sendPendingCommandForNode(parsed.nodeId);
+
   if (isDuplicatePacket(idx, parsed)) {
     Serial.print("Duplicate packet ignored from ");
     Serial.print(parsed.nodeId);
@@ -597,6 +758,7 @@ void setup() {
     nodes[i].gpsError = "";
     nodes[i].gpsSeenMs = 0;
   }
+  for (int i = 0; i < MAX_PENDING_COMMANDS; i++) pendingCommands[i].used = false;
 
   Serial.println("Starting Wildfire LoRa Gateway ROBUST...");
   Serial.print("Mode: ");
@@ -612,8 +774,15 @@ void setup() {
 }
 
 void loop() {
+  handleSerialCommands();
   handleIncomingLoRa();
   unsigned long now = millis();
+#if WIFI_HTTP_ENABLED
+  if (now - lastCommandPollMs >= COMMAND_POLL_INTERVAL_MS) {
+    lastCommandPollMs = now;
+    pollBackendCommands();
+  }
+#endif
   if (now - lastSummaryPrintMs > SUMMARY_PRINT_INTERVAL_MS) {
     lastSummaryPrintMs = now;
     printAllNodeStatus();

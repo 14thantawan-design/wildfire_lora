@@ -190,6 +190,8 @@ async function handleGpsPacket(packet, meta = {}) {
   if (gpsFixed) {
     setIfDefined(nodeSet, 'lat', toNumber(packet.la));
     setIfDefined(nodeSet, 'lng', toNumber(packet.ln));
+    nodeSet.location_source = 'gps';
+    nodeSet.location_updated_at = now;
     update.$unset = { gps_error: '' };
   } else if (packet.er) {
     nodeSet.gps_error = packet.er;

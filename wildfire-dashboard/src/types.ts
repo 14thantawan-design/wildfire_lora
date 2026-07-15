@@ -27,11 +27,27 @@ export interface NodeStatus {
   gps_satellites?: number
   gps_hdop?: number
   gps_fixed?: boolean
+  gps_error?: string
+  location_source?: 'gps' | 'manual'
+  location_updated_at?: string
   last_seen?: string
   last_seq?: number
   rssi?: number
   snr?: number
   online: boolean
+}
+
+export interface GpsReacquireCommand {
+  command_id: string
+  node_id: string
+  command: 'gps_reacquire'
+  created_at: string
+  duplicate: boolean
+}
+
+export interface ManualLocationInput {
+  lat: number
+  lng: number
 }
 
 export interface Reading {

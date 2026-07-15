@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 import { mockAlerts, mockNodes, mockReadings } from './mockData'
 import { getTimeRange, type TimeRangeKey } from './timeRanges'
-import type { Alert, NodeStatus, Reading } from './types'
+import type {
+  Alert,
+  GpsReacquireCommand,
+  ManualLocationInput,
+  NodeStatus,
+  Reading,
+} from './types'
 
 const API_BASE = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '')
 
@@ -26,6 +32,20 @@ async function deleteJson(path: string): Promise<void> {
   if (!response.ok) {
     throw new Error(`API ${response.status}`)
   }
+}
+
+async function postJson<T>(path: string, body?: unknown): Promise<T> {
+  const response = await fetch(`${API_BASE}${path}`, {
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    method: 'POST',
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+
+  if (!response.ok) {
+    throw new Error(`API ${response.status}`)
+  }
+
+  return response.json() as Promise<T>
 }
 
 function mergeLatestReadings(nodes: NodeStatus[], latestReadings: Reading[]) {
@@ -124,5 +144,40 @@ export function useDashboard(selectedNodeId: string, timeRange: TimeRangeKey) {
     [load],
   )
 
-  return { nodes, alerts, readings, loading, demoMode, apiError, lastUpdated, refresh: load, deleteAlert }
+  const reacquireGps = useCallback(
+    async (nodeId: string) => {
+      const command = await postJson<GpsReacquireCommand>(
+        `/nodes/${encodeURIComponent(nodeId)}/gps/reacquire`,
+      )
+      await load()
+      return command
+    },
+    [load],
+  )
+
+  const saveManualLocation = useCallback(
+    async (nodeId: string, location: ManualLocationInput) => {
+      const node = await postJson<NodeStatus>(
+        `/nodes/${encodeURIComponent(nodeId)}/location/manual`,
+        location,
+      )
+      await load()
+      return node
+    },
+    [load],
+  )
+
+  return {
+    nodes,
+    alerts,
+    readings,
+    loading,
+    demoMode,
+    apiError,
+    lastUpdated,
+    refresh: load,
+    deleteAlert,
+    reacquireGps,
+    saveManualLocation,
+  }
 }

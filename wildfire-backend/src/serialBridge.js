@@ -1,5 +1,10 @@
 const { SerialPort } = require('serialport');
 const { handlePacket, parsePacketLine, parseMetaFromLine } = require('./services/packetHandler');
+const {
+  acknowledgeCommand,
+  listPendingCommands,
+  onCommand
+} = require('./services/commandQueue');
 
 class SerialBridge {
   constructor({ path, baudRate }) {
@@ -14,6 +19,7 @@ class SerialBridge {
     this.openError = null;
     this.lastLineAt = null;
     this.lastPacketAt = null;
+    this.unsubscribeFromCommands = null;
   }
 
   start() {
@@ -48,7 +54,26 @@ class SerialBridge {
       this.closedAt = null;
       this.openError = null;
       console.log(`serial bridge started: ${this.path} @ ${this.baudRate}`);
+      for (const command of listPendingCommands()) this.sendCommand(command);
     });
+
+    this.unsubscribeFromCommands = onCommand((command) => this.sendCommand(command));
+  }
+
+  sendCommand(command) {
+    if (!this.port || !this.port.isOpen) return false;
+
+    const payload = JSON.stringify({
+      t: 'cmd',
+      id: command.node_id,
+      cmd: command.command,
+      cid: command.command_id
+    });
+
+    this.port.write(`CMD ${payload}\n`, (error) => {
+      if (error) console.error(`serial command write error: ${error.message}`);
+    });
+    return true;
   }
 
   async saveParsed(parsed) {
@@ -72,6 +97,12 @@ class SerialBridge {
 
   async handleLine(line) {
     this.lastLineAt = new Date();
+    const commandAck = String(line).trim().match(/^CMD_ACK\s+([A-Za-z0-9_-]+)$/);
+    if (commandAck) {
+      acknowledgeCommand(commandAck[1]);
+      return;
+    }
+
     const parsed = parsePacketLine(line);
     if (parsed) {
       await this.flushPending();
@@ -118,6 +149,7 @@ class SerialBridge {
     if (this.port && this.port.isOpen) {
       this.port.close();
     }
+    if (this.unsubscribeFromCommands) this.unsubscribeFromCommands();
   }
 
   status() {
