@@ -1,8 +1,10 @@
 const { SerialPort } = require('serialport');
 const { handlePacket, parsePacketLine, parseMetaFromLine } = require('./services/packetHandler');
+const { markGatewayPacket } = require('./services/gatewayStatus');
 const {
   acknowledgeCommand,
   listPendingCommands,
+  markCommandSent,
   onCommand
 } = require('./services/commandQueue');
 
@@ -54,7 +56,9 @@ class SerialBridge {
       this.closedAt = null;
       this.openError = null;
       console.log(`serial bridge started: ${this.path} @ ${this.baudRate}`);
-      for (const command of listPendingCommands()) this.sendCommand(command);
+      listPendingCommands()
+        .then((commands) => commands.forEach((command) => this.sendCommand(command)))
+        .catch((pendingError) => console.error(`command restore error: ${pendingError.message}`));
     });
 
     this.unsubscribeFromCommands = onCommand((command) => this.sendCommand(command));
@@ -81,6 +85,7 @@ class SerialBridge {
       const result = await handlePacket(parsed.packet, parsed.meta);
       this.lastPacketAt = new Date();
       if (!result.ignored) {
+        markGatewayPacket('serial');
         console.log(`packet saved: type=${result.type} node=${result.node_id}`);
       }
     } catch (error) {
@@ -99,7 +104,13 @@ class SerialBridge {
     this.lastLineAt = new Date();
     const commandAck = String(line).trim().match(/^CMD_ACK\s+([A-Za-z0-9_-]+)$/);
     if (commandAck) {
-      acknowledgeCommand(commandAck[1]);
+      await acknowledgeCommand(commandAck[1]);
+      return;
+    }
+
+    const commandSent = String(line).trim().match(/^CMD_SENT\s+([A-Za-z0-9_-]+)$/);
+    if (commandSent) {
+      await markCommandSent(commandSent[1]);
       return;
     }
 

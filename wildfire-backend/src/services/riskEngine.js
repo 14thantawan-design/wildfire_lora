@@ -97,19 +97,20 @@ function scoreHeat(current, reasons) {
 
 function scoreHumidity(current, reasons) {
   const humidity = current.humidity ?? 100;
-  const humidityBaselineDelta = current.humidity_baseline_delta ?? 0;
+  // Firmware sends current - baseline, so a humidity drop is negative.
+  const humidityDropFromBaseline = -(current.humidity_baseline_delta ?? 0);
   let score = 0;
   let humidityEvidence = 'none';
 
-  if (humidityBaselineDelta >= 15) {
+  if (humidityDropFromBaseline >= 15) {
     score = 15;
     humidityEvidence = 'critical_drop';
     addReason(reasons, 'humidity_critical_drop');
-  } else if (humidity <= 35 || humidityBaselineDelta >= 10) {
+  } else if (humidity <= 35 || humidityDropFromBaseline >= 10) {
     score = 10;
     humidityEvidence = 'very_dry';
     addReason(reasons, 'humidity_very_dry');
-  } else if (humidity <= 45 || humidityBaselineDelta >= 5) {
+  } else if (humidity <= 45 || humidityDropFromBaseline >= 5) {
     score = 5;
     humidityEvidence = 'dry';
     addReason(reasons, 'humidity_dry');

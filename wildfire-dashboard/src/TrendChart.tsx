@@ -136,7 +136,6 @@ export function TrendChart({
                 stroke={config.color}
                 strokeWidth={2.5}
                 fill="url(#metricFill)"
-                connectNulls
                 isAnimationActive={false}
               />
             </AreaChart>

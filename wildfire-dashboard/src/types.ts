@@ -32,6 +32,7 @@ export interface NodeStatus {
   location_updated_at?: string
   last_seen?: string
   last_seq?: number
+  report_interval_sec?: number
   rssi?: number
   snr?: number
   online: boolean
@@ -73,6 +74,19 @@ export interface Reading {
   sensor_health?: string
   rssi?: number
   snr?: number
+}
+
+export interface GatewayStatus {
+  connected: boolean
+  last_packet_at?: string
+  transport?: 'http' | 'serial'
+  timeout_ms: number
+}
+
+export interface ApiHealth {
+  ok: boolean
+  mongo_state: number
+  gateway: GatewayStatus
 }
 
 export interface Alert {

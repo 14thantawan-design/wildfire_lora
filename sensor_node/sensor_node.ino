@@ -5,14 +5,12 @@
 #include <ArduinoJson.h>
 #include <Adafruit_SHT31.h>
 #include <WiFi.h>
+#include <Preferences.h>
 #include "esp_system.h"
 #include "config.h"
 
 #if USE_GPS
   #include <TinyGPSPlus.h>
-  #if GPS_SAVE_TO_NVS
-    #include <Preferences.h>
-  #endif
 #endif
 
 #if USE_DS18B20
@@ -118,13 +116,18 @@ GpsOneShotState gpsOneShotState = GPS_ONE_SHOT_IDLE;
 unsigned long gpsStartMs = 0;
 unsigned long gpsLastDebugMs = 0;
 unsigned long gpsLastAttemptMs = 0;
+RTC_DATA_ATTR uint32_t gpsRetryRemainingSec = 0;
 uint32_t gpsByteCount = 0;
 bool gpsFixReportPending = false;
 bool gpsFailureReportPending = false;
 #endif
 String lastHandledCommandId;
+Preferences commandPrefs;
+unsigned long lastLoRaInitAttemptMs = 0;
+bool loraReady = false;
 
 RTC_DATA_ATTR uint32_t seq = 0;
+RTC_DATA_ATTR uint32_t bootSessionId = 0;
 RTC_DATA_ATTR bool hasPreviousData = false;
 RTC_DATA_ATTR SensorData previousData;
 RTC_DATA_ATTR unsigned long previousReadMs = 0;
@@ -276,10 +279,12 @@ void initSensors() {
 }
 
 bool initLoRa() {
+  lastLoRaInitAttemptMs = millis();
   SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS);
   LoRa.setPins(LORA_SS, LORA_RST, LORA_DIO0);
 
   if (!LoRa.begin(LORA_FREQUENCY)) {
+    loraReady = false;
     debugPrintln("LoRa init FAILED");
     return false;
   }
@@ -292,7 +297,14 @@ bool initLoRa() {
   LoRa.enableCrc();
 
   debugPrintln("LoRa init OK");
+  loraReady = true;
   return true;
+}
+
+bool ensureLoRaReady() {
+  if (loraReady) return true;
+  if (millis() - lastLoRaInitAttemptMs < LORA_INIT_RETRY_MS) return false;
+  return initLoRa();
 }
 
 // =========================
@@ -736,6 +748,20 @@ String sensorHealthString(const SensorData &data) {
   return "OK";
 }
 
+uint32_t plannedReportIntervalSeconds(FireStatus status) {
+#if TEST_MODE
+  return status == CRITICAL ? max(1UL, CRITICAL_CONTINUE_INTERVAL_MS / 1000UL)
+                            : max(1UL, LOOP_INTERVAL_MS / 1000UL);
+#else
+  if (status == CRITICAL) return max(1UL, CRITICAL_CONTINUE_INTERVAL_MS / 1000UL);
+  if (status == CALIBRATING) return CALIBRATING_SLEEP_SEC;
+  if (status == WATCH) return WATCH_SLEEP_SEC;
+  if (status == WARNING) return WARNING_SLEEP_SEC;
+  if (status == SENSOR_FAULT) return SENSOR_FAULT_SLEEP_SEC;
+  return NORMAL_SLEEP_SEC;
+#endif
+}
+
 String buildJsonPacket(const SensorData &data, const DeltaData &delta, const EvidenceFlags &e, FireStatus status, int confidence) {
   StaticJsonDocument<MAX_JSON_SIZE> doc;
   seq++;
@@ -743,6 +769,8 @@ String buildJsonPacket(const SensorData &data, const DeltaData &delta, const Evi
   doc["t"] = (status == CRITICAL) ? "c" : "s";
   doc["id"] = NODE_ID;
   doc["q"] = seq;
+  doc["sid"] = bootSessionId;
+  doc["ri"] = plannedReportIntervalSeconds(status);
   doc["st"] = statusToString(status);
   doc["c"] = confidence;
   addFloatOrNull(doc, "at", data.airTemp);
@@ -774,6 +802,8 @@ String buildJsonPacket(const SensorData &data, const DeltaData &delta, const Evi
     mini["t"] = (status == CRITICAL) ? "c" : "s";
     mini["id"] = NODE_ID;
     mini["q"] = seq;
+    mini["sid"] = bootSessionId;
+    mini["ri"] = plannedReportIntervalSeconds(status);
     mini["st"] = statusToString(status);
     mini["c"] = confidence;
     mini["at"] = data.airTemp;
@@ -792,6 +822,11 @@ String buildJsonPacket(const SensorData &data, const DeltaData &delta, const Evi
 void listenForGatewayCommand();
 
 bool sendLoRaPacket(const String &payload, bool useRandomDelay) {
+  if (!ensureLoRaReady()) {
+    debugPrintln("TX skipped: LoRa is not ready");
+    return false;
+  }
+
   if (useRandomDelay) {
     long d = random(RANDOM_TX_DELAY_MIN_MS, RANDOM_TX_DELAY_MAX_MS + 1);
 #if SERIAL_DEBUG
@@ -892,6 +927,7 @@ String buildGpsPacket(const GpsLocation &fix, bool gpsFix, const char *errorCode
   doc["t"] = "gps";
   doc["id"] = NODE_ID;
   doc["q"] = seq;
+  doc["sid"] = bootSessionId;
   doc["gf"] = gpsFix ? 1 : 0;
 
   if (gpsFix && fix.valid) {
@@ -942,6 +978,7 @@ void startGpsAcquisition() {
   Serial2.begin(GPS_BAUD, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
   gpsStartMs = millis();
   gpsLastAttemptMs = gpsStartMs;
+  gpsRetryRemainingSec = 0;
   gpsLastDebugMs = 0;
   gpsByteCount = 0;
   gpsOneShotState = GPS_ONE_SHOT_ACQUIRING;
@@ -983,7 +1020,8 @@ void serviceOneShotGps() {
   sendPendingGpsReports();
 
   if (gpsOneShotState == GPS_ONE_SHOT_FAILED && !nodeGpsLocation.valid) {
-    if (millis() - gpsLastAttemptMs >= GPS_RETRY_INTERVAL_MS) {
+    uint64_t retryWaitMs = (uint64_t)gpsRetryRemainingSec * 1000ULL;
+    if (gpsRetryRemainingSec == 0 || (uint64_t)(millis() - gpsLastAttemptMs) >= retryWaitMs) {
       startGpsAcquisition();
     }
   }
@@ -1001,6 +1039,10 @@ void serviceOneShotGps() {
   if (gps.location.isValid() &&
       gps.satellites.isValid() &&
       gps.satellites.value() >= GPS_MIN_SATELLITES &&
+      gps.hdop.isValid() &&
+      gps.hdop.hdop() > 0.0 &&
+      gps.hdop.hdop() <= GPS_MAX_HDOP &&
+      gps.location.age() <= GPS_MAX_LOCATION_AGE_MS &&
       isGpsCoordinateValid(gps.location.lat(), gps.location.lng())) {
     gpsWorkingLocation.latitude = gps.location.lat();
     gpsWorkingLocation.longitude = gps.location.lng();
@@ -1023,6 +1065,8 @@ void serviceOneShotGps() {
     stopGpsAcquisition();
     gpsOneShotState = GPS_ONE_SHOT_FAILED;
     gpsFailureReportPending = true;
+    gpsLastAttemptMs = millis();
+    gpsRetryRemainingSec = max(1UL, GPS_RETRY_INTERVAL_MS / 1000UL);
 
 #if SERIAL_DEBUG
     Serial.println("GPS one-shot: gps_failed, continuing sensor loop");
@@ -1065,7 +1109,29 @@ void startOneShotGpsIfNeeded() {
     return;
   }
 
+  if (gpsRetryRemainingSec > 0) {
+    resetGpsLocation(nodeGpsLocation);
+    resetGpsLocation(gpsWorkingLocation);
+    gpsOneShotState = GPS_ONE_SHOT_FAILED;
+    gpsLastAttemptMs = millis();
+#if SERIAL_DEBUG
+    Serial.print("GPS one-shot: retry deferred for ");
+    Serial.print(gpsRetryRemainingSec);
+    Serial.println(" sec");
+#endif
+    return;
+  }
+
   startGpsAcquisition();
+}
+
+void accountGpsRetryBeforeSleep(uint64_t sleepSec) {
+  if (gpsOneShotState != GPS_ONE_SHOT_FAILED || gpsRetryRemainingSec == 0) return;
+
+  uint32_t awakeSec = (millis() - gpsLastAttemptMs) / 1000UL;
+  uint64_t elapsedSec = (uint64_t)awakeSec + sleepSec;
+  if (elapsedSec >= gpsRetryRemainingSec) gpsRetryRemainingSec = 0;
+  else gpsRetryRemainingSec -= (uint32_t)elapsedSec;
 }
 
 bool isOneShotGpsActive() {
@@ -1075,26 +1141,57 @@ bool isOneShotGpsActive() {
 }
 #endif
 
-void handleGatewayCommand(const String &payload) {
+void loadLastHandledCommandId() {
+  if (!commandPrefs.begin("node_cmd", true)) return;
+  lastHandledCommandId = commandPrefs.getString("last_id", "");
+  commandPrefs.end();
+}
+
+void saveLastHandledCommandId(const String &commandId) {
+  if (!commandPrefs.begin("node_cmd", false)) return;
+  commandPrefs.putString("last_id", commandId);
+  commandPrefs.end();
+  lastHandledCommandId = commandId;
+}
+
+void sendCommandAckPacket(const String &commandId) {
   StaticJsonDocument<COMMAND_MAX_JSON_SIZE> doc;
-  if (deserializeJson(doc, payload)) return;
-  if (String((const char *)(doc["t"] | "")) != "cmd") return;
-  if (String((const char *)(doc["id"] | "")) != NODE_ID) return;
+  doc["t"] = "cmd_ack";
+  doc["id"] = NODE_ID;
+  doc["cid"] = commandId;
+  doc["sid"] = bootSessionId;
+
+  String payload;
+  serializeJson(doc, payload);
+  LoRa.idle();
+  LoRa.beginPacket();
+  LoRa.print(payload);
+  LoRa.endPacket();
+}
+
+String handleGatewayCommand(const String &payload) {
+  StaticJsonDocument<COMMAND_MAX_JSON_SIZE> doc;
+  if (deserializeJson(doc, payload)) return "";
+  if (String((const char *)(doc["t"] | "")) != "cmd") return "";
+  if (String((const char *)(doc["id"] | "")) != NODE_ID) return "";
 
   String commandId = String((const char *)(doc["cid"] | ""));
   String command = String((const char *)(doc["cmd"] | ""));
-  if (commandId.length() == 0 || commandId == lastHandledCommandId) return;
+  if (commandId.length() == 0 || command != "gps_reacquire") return "";
+  if (commandId == lastHandledCommandId) return commandId;
 
-  if (command == "gps_reacquire") {
 #if USE_GPS
-    lastHandledCommandId = commandId;
-    startGpsReacquisition();
+  saveLastHandledCommandId(commandId);
+  startGpsReacquisition();
+  return commandId;
+#else
+  return "";
 #endif
-  }
 }
 
 void listenForGatewayCommand() {
   unsigned long startedAt = millis();
+  String commandAckId;
   LoRa.receive();
 
   while (millis() - startedAt < COMMAND_RX_WINDOW_MS) {
@@ -1106,11 +1203,13 @@ void listenForGatewayCommand() {
 
     String payload;
     while (LoRa.available()) payload += (char)LoRa.read();
-    handleGatewayCommand(payload);
+    String handledCommandId = handleGatewayCommand(payload);
+    if (handledCommandId.length() > 0) commandAckId = handledCommandId;
     LoRa.receive();
   }
 
-  LoRa.sleep();
+  if (commandAckId.length() > 0) sendCommandAckPacket(commandAckId);
+  if (loraReady) LoRa.sleep();
 }
 
 void delayWithBackgroundTasks(unsigned long durationMs) {
@@ -1188,7 +1287,10 @@ void enterDeepSleepByStatus(FireStatus status) {
 #if !TEST_MODE
   uint64_t sleepSec = sleepSecondsForStatus(status);
 
-  LoRa.sleep();
+#if USE_GPS
+  accountGpsRetryBeforeSleep(sleepSec);
+#endif
+  if (loraReady) LoRa.sleep();
   powerSensors(false);
   esp_sleep_enable_timer_wakeup(sleepSec * 1000000ULL);
   esp_deep_sleep_start();
@@ -1264,6 +1366,9 @@ void resetRuntimeStateForTestMode() {
   // During bench testing, start clean after every reset/upload so old RTC counters
   // such as bootAbnormalCount or latched SENSOR_FAULT do not confuse debugging.
   seq = 0;
+  do {
+    bootSessionId = esp_random();
+  } while (bootSessionId == 0);
   hasPreviousData = false;
   previousReadMs = 0;
   expectedNextElapsedMinutes = 0.0f;
@@ -1301,12 +1406,19 @@ void setup() {
   disableUnusedRadios();
   randomSeed(esp_random());
 
+  if (bootSessionId == 0) {
+    do {
+      bootSessionId = esp_random();
+    } while (bootSessionId == 0);
+  }
+  loadLastHandledCommandId();
+
   debugPrintln("Starting Wildfire Sensor Node ROBUST no-DS18B20...");
   debugPrintln(String("Mode: ") + (TEST_MODE ? "TEST_MODE" : "DEPLOY_MODE"));
   debugPrintln(String("Node ID: ") + NODE_ID);
 
   initSensors();
-  initLoRa();
+  loraReady = initLoRa();
 #if USE_GPS
   startOneShotGpsIfNeeded();
 #endif

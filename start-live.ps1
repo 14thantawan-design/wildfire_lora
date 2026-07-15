@@ -17,7 +17,11 @@ function Convert-ToPowerShellLiteral([string]$Value) {
 
 function Test-ApiHealth {
   try {
-    return Invoke-RestMethod -Uri $HealthUrl -TimeoutSec 2
+    $response = Invoke-RestMethod -Uri $HealthUrl -TimeoutSec 2
+    if ($response.service -ne 'wildfire-backend') {
+      return $null
+    }
+    return $response
   } catch {
     return $null
   }
@@ -109,4 +113,4 @@ Start-Process powershell.exe -ArgumentList @(
 
 Write-Host ''
 Write-Host "Open $DashboardUrl"
-Write-Host 'If the page still says demo data, wait for packet saved in the backend window and refresh.'
+Write-Host 'If the page says live data is unavailable, check the backend, Gateway, and Sensor Node connections.'

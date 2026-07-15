@@ -5,9 +5,9 @@ const ALERT_LEVELS = ['WARNING', 'CRITICAL', 'SENSOR_FAULT'];
 const SEVERITY = {
   NORMAL: 0,
   WATCH: 1,
-  WARNING: 2,
-  CRITICAL: 3,
-  SENSOR_FAULT: 4
+  SENSOR_FAULT: 2,
+  WARNING: 3,
+  CRITICAL: 4
 };
 
 function isAlertLevel(state) {
@@ -61,14 +61,36 @@ function buildLastReading(reading) {
   };
 }
 
+function hasDistinctNormalStreak(recent, count = 3) {
+  const distinct = [];
+  const seen = new Set();
+
+  for (const reading of recent) {
+    const raw = reading.raw_packet || {};
+    const sessionId = reading.session_id ?? raw.sid;
+    const seq = reading.seq ?? raw.q;
+    const signature = seq !== undefined
+      ? `${sessionId ?? 'legacy'}:${seq}`
+      : reading.packet_hash || reading.packet_id || String(reading._id);
+
+    if (seen.has(signature)) continue;
+    seen.add(signature);
+    distinct.push(reading);
+    if (distinct.length >= count) break;
+  }
+
+  return distinct.length >= count &&
+    distinct.every((reading) => (reading.server_state || reading.state) === 'NORMAL');
+}
+
 async function hasCleanNormalStreak(nodeId, count = 3) {
   const recent = await Reading.find({ node_id: nodeId })
     .sort({ timestamp: -1 })
-    .limit(count)
-    .select('server_state state')
+    .limit(count * 8)
+    .select('server_state state packet_id packet_hash session_id seq raw_packet')
     .lean();
 
-  return recent.length >= count && recent.every((reading) => (reading.server_state || reading.state) === 'NORMAL');
+  return hasDistinctNormalStreak(recent, count);
 }
 
 async function processAlertForReading(reading) {
@@ -104,20 +126,25 @@ async function processAlertForReading(reading) {
   const activeAlert = await Alert.findOne({ node_id: nodeId, active: true }).sort({ started_at: -1 });
 
   if (!activeAlert) {
-    const alert = await Alert.create({
-      node_id: nodeId,
-      level: state,
-      started_at: now,
-      active: true,
-      max_confidence: confidence,
-      max_risk_score: riskScore,
-      max_state: state,
-      reasons,
-      message: buildMessage(nodeId, state, riskScore, reasons),
-      last_reading: lastReading
-    });
+    try {
+      const alert = await Alert.create({
+        node_id: nodeId,
+        level: state,
+        started_at: now,
+        active: true,
+        max_confidence: confidence,
+        max_risk_score: riskScore,
+        max_state: state,
+        reasons,
+        message: buildMessage(nodeId, state, riskScore, reasons),
+        last_reading: lastReading
+      });
 
-    return { action: 'created', alert_id: alert._id };
+      return { action: 'created', alert_id: alert._id };
+    } catch (error) {
+      if (error?.code === 11000) return processAlertForReading(reading);
+      throw error;
+    }
   }
 
   const nextLevel = severityOf(state) > severityOf(activeAlert.level) ? state : activeAlert.level;
@@ -137,5 +164,6 @@ async function processAlertForReading(reading) {
 module.exports = {
   ALERT_LEVELS,
   processAlertForReading,
-  severityOf
+  severityOf,
+  hasDistinctNormalStreak
 };

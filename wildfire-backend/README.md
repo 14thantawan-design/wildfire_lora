@@ -33,9 +33,15 @@ MONGODB_URI=mongodb://127.0.0.1:27017/wildfire_lora
 SERIAL_PORT=
 SERIAL_BAUD=115200
 OFFLINE_TIMEOUT_MS=60000
+GATEWAY_OFFLINE_TIMEOUT_MS=30000
+GATEWAY_API_KEY=replace-with-a-long-random-key
+CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+ADMIN_API_KEY=
 ```
 
 Leave `SERIAL_PORT` empty for field mode. Set it only for prototype mode, for example `SERIAL_PORT=COM3` on Windows.
+
+`GATEWAY_API_KEY` must be the same value as `GATEWAY_API_KEY` in `gateway/secrets.h`. Keep both files private. `ADMIN_API_KEY` is only needed when GPS or alert-management actions must be called from a computer other than the backend computer.
 
 ## Run
 
@@ -66,13 +72,19 @@ serial bridge started: COM3 @ 115200
 - `GET /api/readings/:node_id?limit=100`
 - `GET /api/alerts`
 - `GET /api/alerts/active`
-- `POST /api/packets`
+- `POST /api/packets` (requires `X-Gateway-Key`)
+- `GET /api/commands/pending` (requires `X-Gateway-Key`)
+- `POST /api/commands/:command_id/sent` (requires `X-Gateway-Key`)
+- `POST /api/commands/:command_id/ack` (requires `X-Gateway-Key`)
+
+GPS commands are stored in MongoDB until the Sensor Node acknowledges them, so restarting the backend or Gateway does not silently lose a pending command.
 
 ## Test Without Gateway
 
 ```bash
 curl -X POST http://localhost:4000/api/packets ^
   -H "Content-Type: application/json" ^
+  -H "X-Gateway-Key: replace-with-your-gateway-key" ^
   -d "{\"t\":\"s\",\"id\":\"NODE01\",\"q\":12,\"st\":\"NORMAL\",\"c\":20,\"at\":31.2,\"h\":55.4,\"sm\":120,\"sd\":20,\"sr\":80,\"ar\":1.2,\"hr\":-3.1,\"sh\":\"OK\"}"
 ```
 
@@ -81,6 +93,7 @@ GPS test:
 ```bash
 curl -X POST http://localhost:4000/api/packets ^
   -H "Content-Type: application/json" ^
+  -H "X-Gateway-Key: replace-with-your-gateway-key" ^
   -d "{\"t\":\"gps\",\"id\":\"NODE01\",\"q\":5,\"la\":13.123456,\"ln\":100.123456,\"sat\":7,\"hd\":1.2,\"gf\":1}"
 ```
 

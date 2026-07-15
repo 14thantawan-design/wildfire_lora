@@ -212,7 +212,7 @@ Changed behavior:
 
 - `SHARP_LOW_FAULT_ENABLED` defaults to `0`.
 - `SHARP_STUCK_FAULT_ENABLED` defaults to `0`.
-- A repeated near-4095 reading can still trigger Sharp fault because it usually indicates ADC saturation/wiring issue.
+- `SHARP_HIGH_FAULT_ENABLED` also defaults to `0`; enable it only after confirming that a near-4095 value always means ADC saturation or a wiring fault on the installed hardware.
 - In `TEST_MODE`, runtime RTC counters are reset after every reset/upload so old `BOOT_ABNORMAL` or `SENSOR_FAULT` states do not persist during bench testing.
 
 Important: if your Sharp reads 0 in clean air, verify it responds upward when exposed to a safe smoke source such as incense. If it remains 0 even with smoke, the issue is wiring, LED drive, sensor power, or ADC input.

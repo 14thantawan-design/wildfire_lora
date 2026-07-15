@@ -51,9 +51,9 @@ const severity: Record<NodeState, number> = {
   NORMAL: 0,
   CALIBRATING: 1,
   WATCH: 2,
-  WARNING: 3,
-  CRITICAL: 4,
-  SENSOR_FAULT: 5,
+  SENSOR_FAULT: 3,
+  WARNING: 4,
+  CRITICAL: 5,
 }
 
 const alertReasonLabels: Record<string, string> = {
@@ -300,7 +300,8 @@ function App() {
     alerts,
     readings,
     loading,
-    demoMode,
+    backendUnavailable,
+    health,
     apiError,
     lastUpdated,
     refresh,
@@ -310,6 +311,11 @@ function App() {
   } = useDashboard(selectedNodeId, chartRange)
 
   const selectedNode = nodes.find((node) => node.node_id === selectedNodeId) ?? nodes[0]
+  useEffect(() => {
+    if (nodes.length > 0 && !nodes.some((node) => node.node_id === selectedNodeId)) {
+      setSelectedNodeId(nodes[0].node_id)
+    }
+  }, [nodes, selectedNodeId])
   const activeAlerts = alerts.filter((alert) => alert.active)
   const onlineNodes = nodes.filter((node) => node.online)
   const selectedSmoke =
@@ -321,7 +327,7 @@ function App() {
     () =>
       nodes.reduce<NodeState>(
         (highest, node) => (severity[node.state] > severity[highest] ? node.state : highest),
-        'NORMAL',
+        'UNKNOWN',
       ),
     [nodes],
   )
@@ -331,7 +337,10 @@ function App() {
   const hasActiveDangerAlert = activeAlerts.some((alert) =>
     ['WARNING', 'CRITICAL', 'SENSOR_FAULT'].includes(alert.level),
   )
-  const isSafe = !hasUnsafeNode && !hasActiveDangerAlert
+  const canAssessSafety = !backendUnavailable && Boolean(health?.ok) &&
+    Boolean(health?.gateway.connected) && nodes.length > 0 && onlineNodes.length === nodes.length
+  const isSafe = canAssessSafety && !hasUnsafeNode && !hasActiveDangerAlert
+  const gatewayConnected = !backendUnavailable && Boolean(health?.gateway.connected)
   const visibleAlerts = showAllAlerts ? alerts : alerts.slice(0, 5)
   const hiddenAlertCount = Math.max(0, alerts.length - visibleAlerts.length)
   const gpsRequesting = gpsRequestingNodeId === selectedNode?.node_id
@@ -391,6 +400,9 @@ function App() {
   }
 
   const removeAlert = (alertId: string) => {
+    const alert = alerts.find((item) => item._id === alertId)
+    const label = alert ? `${stateLabels[alert.level]} · ${alert.node_id}` : 'เหตุการณ์นี้'
+    if (!window.confirm(`ลบประวัติ ${label} อย่างถาวรหรือไม่`)) return
     setDeletingAlertId(alertId)
     void deleteAlert(alertId).finally(() => setDeletingAlertId(undefined))
   }
@@ -474,7 +486,10 @@ function App() {
     if (!manualLocation) return
 
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !manualLocationSaving) closeManualLocation()
+      if (event.key === 'Escape' && !manualLocationSaving) {
+        setManualLocation(undefined)
+        setManualLocationError(undefined)
+      }
     }
     const previousOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
@@ -541,11 +556,11 @@ function App() {
         </nav>
 
         <div className="sidebar-bottom">
-          <div className="gateway-card">
+          <div className={`gateway-card ${gatewayConnected ? '' : 'disconnected'}`}>
             <span className="gateway-icon"><RadioTower size={18} /></span>
             <div>
               <strong>LoRa Gateway</strong>
-              <small><i /> เชื่อมต่อระบบ</small>
+              <small><i /> {gatewayConnected ? 'เชื่อมต่อระบบ' : 'ไม่ได้รับสัญญาณ'}</small>
             </div>
           </div>
           <div className="project-note">
@@ -578,8 +593,8 @@ function App() {
             className="live-status"
             title={apiError ? `API error: ${apiError}` : undefined}
           >
-            <i className={demoMode ? 'demo' : ''} />
-            {demoMode ? 'ข้อมูลทดลอง: backend ไม่พร้อม' : 'เชื่อมต่อข้อมูลสด'}
+            <i className={backendUnavailable ? 'demo' : ''} />
+            {backendUnavailable ? 'การเชื่อมต่อขัดข้อง: ใช้ข้อมูลล่าสุดที่ได้รับ' : 'เชื่อมต่อข้อมูลสด'}
           </div>
           <div className="topbar-actions">
             <span><Clock3 size={15} /> อัปเดต {formatTime(lastUpdated)}</span>
@@ -619,18 +634,24 @@ function App() {
             </div>
           </section>
 
-          <section className={`safety-banner ${isSafe ? 'safe' : 'danger'}`}>
+          <section className={`safety-banner ${!canAssessSafety ? 'unknown' : isSafe ? 'safe' : 'danger'}`}>
             <span className="safety-icon">
               {isSafe ? <ShieldCheck size={27} /> : <TriangleAlert size={27} />}
             </span>
             <div>
-              <span>{isSafe ? 'สถานการณ์โดยรวม' : 'ต้องตรวจสอบทันที'}</span>
+              <span>{!canAssessSafety ? 'ยังประเมินสถานการณ์ไม่ได้' : isSafe ? 'สถานการณ์โดยรวม' : 'ต้องตรวจสอบทันที'}</span>
               <strong>
-                {isSafe ? 'ยังไม่พบสัญญาณไฟป่าระดับอันตราย' : 'พบจุดตรวจวัดที่มีสถานะผิดปกติ'}
+                {!canAssessSafety
+                  ? 'ข้อมูลสดจาก Gateway หรือจุดตรวจวัดไม่พร้อม'
+                  : isSafe
+                    ? 'ยังไม่พบสัญญาณไฟป่าระดับอันตราย'
+                    : 'พบจุดตรวจวัดที่มีสถานะผิดปกติ'}
               </strong>
             </div>
             <span className="safety-detail">
-              ระดับสูงสุด <b className={`text-${highestState.toLowerCase()}`}>{stateLabels[highestState]}</b>
+              {!canAssessSafety ? 'ตรวจสอบการเชื่อมต่อระบบ' : (
+                <>ระดับสูงสุด <b className={`text-${highestState.toLowerCase()}`}>{stateLabels[highestState]}</b></>
+              )}
             </span>
           </section>
 
@@ -679,9 +700,9 @@ function App() {
                     <button
                       aria-label={`ค้นหา GPS ใหม่สำหรับ ${selectedNode?.node_id ?? 'จุดตรวจ'}`}
                       className="gps-refresh-button"
-                      disabled={!selectedNode || demoMode || gpsRequesting}
+                      disabled={!selectedNode || backendUnavailable || gpsRequesting}
                       onClick={() => void requestSelectedNodeGps()}
-                      title={demoMode ? 'เชื่อมต่อระบบจริงก่อนจึงจะส่งคำสั่งได้' : 'ล้างพิกัดเดิมและค้นหา GPS ใหม่'}
+                      title={backendUnavailable ? 'เชื่อมต่อ backend ก่อนจึงจะส่งคำสั่งได้' : 'ล้างพิกัดเดิมและค้นหา GPS ใหม่'}
                       type="button"
                     >
                       <RefreshCw className={gpsRequesting ? 'spin' : ''} size={14} />
@@ -690,9 +711,9 @@ function App() {
                     <button
                       aria-label={`กรอกพิกัดเองสำหรับ ${selectedNode?.node_id ?? 'จุดตรวจ'}`}
                       className="manual-location-button"
-                      disabled={!selectedNode || demoMode}
+                      disabled={!selectedNode || backendUnavailable}
                       onClick={openManualLocation}
-                      title={demoMode ? 'เชื่อมต่อระบบจริงก่อนจึงจะบันทึกพิกัดได้' : 'กรอกพิกัดเอง'}
+                      title={backendUnavailable ? 'เชื่อมต่อ backend ก่อนจึงจะบันทึกพิกัดได้' : 'กรอกพิกัดเอง'}
                       type="button"
                     >
                       <MapPin size={14} />
@@ -732,13 +753,16 @@ function App() {
                     const diagnostics = buildAlertDiagnostics(alert)
 
                     return (
-                      <article className="alert-row" key={alert._id}>
+                      <article className={`alert-row ${alert.active ? '' : 'resolved'}`} key={alert._id}>
                         <button className="alert-main" onClick={() => selectNode(alert.node_id)} type="button">
                         <span className={`alert-level state-${alert.level.toLowerCase()}`}>
                           <TriangleAlert size={17} />
                         </span>
                         <div>
-                          <strong>{stateLabels[alert.level]} · {alert.node_id}</strong>
+                          <strong>
+                            {stateLabels[alert.level]} · {alert.node_id}
+                            {!alert.active && <span className="resolved-badge">สิ้นสุดแล้ว</span>}
+                          </strong>
                           <span>{formatAlertMessage(alert)}</span>
                           <small>{timeAgo(alert.started_at)}</small>
                         </div>

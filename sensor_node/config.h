@@ -45,6 +45,7 @@
 #define LORA_CODING_RATE_DENOMINATOR 5
 #define LORA_SYNC_WORD 0x34
 #define LORA_TX_POWER_DBM 17
+#define LORA_INIT_RETRY_MS 10000UL
 
 #define RANDOM_TX_DELAY_MIN_MS 0
 #define RANDOM_TX_DELAY_MAX_MS 5000
@@ -90,6 +91,8 @@
   #define GPS_RETRY_INTERVAL_MS 3600000UL   // retry hourly until an install location is saved
 #endif
 #define GPS_MIN_SATELLITES 4
+#define GPS_MAX_HDOP 5.0f
+#define GPS_MAX_LOCATION_AGE_MS 3000UL
 #define GPS_SAVE_TO_NVS 1
 #define GPS_FORCE_RECALIBRATE 0
 #define GPS_PACKET_REPEAT_COUNT 3

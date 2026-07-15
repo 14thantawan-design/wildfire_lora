@@ -36,6 +36,7 @@ const nodeSchema = new mongoose.Schema(
     location_updated_at: { type: Date },
     last_seen: { type: Date },
     last_seq: { type: Number },
+    report_interval_sec: { type: Number },
     rssi: { type: Number },
     snr: { type: Number },
     online: { type: Boolean, default: false }

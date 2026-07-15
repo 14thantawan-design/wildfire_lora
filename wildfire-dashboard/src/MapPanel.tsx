@@ -70,12 +70,20 @@ function timeAgo(value?: string) {
   return `${Math.floor(minutes / 60)} ชั่วโมงที่แล้ว`
 }
 
+function hasValidCoordinates(node: NodeStatus) {
+  return typeof node.lat === 'number' && Number.isFinite(node.lat) &&
+    typeof node.lng === 'number' && Number.isFinite(node.lng) &&
+    node.lat >= -90 && node.lat <= 90 &&
+    node.lng >= -180 && node.lng <= 180 &&
+    (Math.abs(node.lat) >= 0.000001 || Math.abs(node.lng) >= 0.000001)
+}
+
 function FitNodes({ nodes }: { nodes: NodeStatus[] }) {
   const map = useMap()
   const bounds = useMemo(
     () =>
       nodes
-        .filter((node) => node.lat !== undefined && node.lng !== undefined)
+        .filter(hasValidCoordinates)
         .map((node) => [node.lat!, node.lng!] as [number, number]),
     [nodes],
   )
@@ -92,7 +100,7 @@ function FitNodes({ nodes }: { nodes: NodeStatus[] }) {
 }
 
 export function MapPanel({ nodes, selectedNodeId, onSelect }: MapPanelProps) {
-  const locatedNodes = nodes.filter((node) => node.lat !== undefined && node.lng !== undefined)
+  const locatedNodes = nodes.filter(hasValidCoordinates)
   const center: [number, number] = locatedNodes.length
     ? [locatedNodes[0].lat!, locatedNodes[0].lng!]
     : [18.7883, 98.9853]
@@ -107,7 +115,7 @@ export function MapPanel({ nodes, selectedNodeId, onSelect }: MapPanelProps) {
         <FitNodes nodes={locatedNodes} />
         {locatedNodes.map((node) => {
           const selected = node.node_id === selectedNodeId
-          const color = node.online ? stateColor[node.state] : '#7f8782'
+          const color = node.online ? stateColor[node.state] ?? stateColor.UNKNOWN : '#7f8782'
 
           return (
             <Circle

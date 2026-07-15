@@ -1,6 +1,7 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const Alert = require('../models/Alert');
+const { requireLocalAdmin } = require('../middleware/security');
 
 const router = express.Router();
 
@@ -33,7 +34,7 @@ router.get('/', async (req, res, next) => {
   }
 });
 
-router.delete('/:id', async (req, res, next) => {
+router.delete('/:id', requireLocalAdmin, async (req, res, next) => {
   try {
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
       return res.status(400).json({ error: 'invalid alert id' });

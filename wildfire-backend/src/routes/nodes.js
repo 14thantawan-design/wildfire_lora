@@ -1,17 +1,20 @@
 const express = require('express');
 const NodeModel = require('../models/Node');
 const { enqueueCommand } = require('../services/commandQueue');
+const { requireLocalAdmin } = require('../middleware/security');
 
 const router = express.Router();
 
-function offlineTimeoutMs() {
-  return Number(process.env.OFFLINE_TIMEOUT_MS || 60000);
+function offlineTimeoutMs(node) {
+  const configuredMinimum = Number(process.env.OFFLINE_TIMEOUT_MS || 60000);
+  const expectedIntervalMs = Number(node?.report_interval_sec || 0) * 1000;
+  return Math.max(configuredMinimum, expectedIntervalMs * 1.5 + 30000);
 }
 
 function withOnlineStatus(node) {
   const obj = node.toObject ? node.toObject() : { ...node };
   const lastSeen = obj.last_seen ? new Date(obj.last_seen).getTime() : 0;
-  obj.online = lastSeen > 0 && Date.now() - lastSeen <= offlineTimeoutMs();
+  obj.online = lastSeen > 0 && Date.now() - lastSeen <= offlineTimeoutMs(obj);
   obj.node_state = obj.node_state || obj.state || 'UNKNOWN';
   obj.node_confidence = obj.node_confidence ?? obj.confidence ?? 0;
   obj.server_state = obj.online ? obj.server_state || obj.state || 'NORMAL' : 'OFFLINE';
@@ -53,14 +56,14 @@ router.get('/:node_id', async (req, res, next) => {
   }
 });
 
-router.post('/:node_id/gps/reacquire', async (req, res, next) => {
+router.post('/:node_id/gps/reacquire', requireLocalAdmin, async (req, res, next) => {
   try {
     const node = await NodeModel.findOne({ node_id: req.params.node_id });
     if (!node) {
       return res.status(404).json({ error: 'node not found' });
     }
 
-    const { command, duplicate } = enqueueCommand(node.node_id, 'gps_reacquire');
+    const { command, duplicate } = await enqueueCommand(node.node_id, 'gps_reacquire');
     await NodeModel.updateOne(
       { _id: node._id },
       {
@@ -82,7 +85,7 @@ router.post('/:node_id/gps/reacquire', async (req, res, next) => {
   }
 });
 
-router.post('/:node_id/location/manual', async (req, res, next) => {
+router.post('/:node_id/location/manual', requireLocalAdmin, async (req, res, next) => {
   try {
     if (typeof req.body?.lat !== 'number' || typeof req.body?.lng !== 'number') {
       return res.status(400).json({ error: 'invalid coordinates' });

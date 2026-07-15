@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useState } from 'react'
-import { mockAlerts, mockNodes, mockReadings } from './mockData'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { getTimeRange, type TimeRangeKey } from './timeRanges'
 import type {
   Alert,
+  ApiHealth,
   GpsReacquireCommand,
   ManualLocationInput,
   NodeStatus,
@@ -11,9 +11,10 @@ import type {
 
 const API_BASE = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '')
 
-async function getJson<T>(path: string): Promise<T> {
+async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
     headers: { Accept: 'application/json' },
+    signal,
   })
 
   if (!response.ok) {
@@ -74,10 +75,10 @@ function mergeLatestReadings(nodes: NodeStatus[], latestReadings: Reading[]) {
       humidity: latestValue(latest, 'humidity', node.humidity),
       smoke_raw: latestValue(latest, 'smoke_raw', node.smoke_raw),
       sensor_health: latest.sensor_health ?? node.sensor_health,
-      rssi: latest.rssi ?? node.rssi,
-      snr: latest.snr ?? node.snr,
-      last_seen: latest.timestamp ?? node.last_seen,
-      last_seq: latest.seq ?? node.last_seq,
+      rssi: node.rssi ?? latest.rssi,
+      snr: node.snr ?? latest.snr,
+      last_seen: node.last_seen,
+      last_seq: node.last_seq,
     }
   })
 }
@@ -87,46 +88,76 @@ export function useDashboard(selectedNodeId: string, timeRange: TimeRangeKey) {
   const [alerts, setAlerts] = useState<Alert[]>([])
   const [readings, setReadings] = useState<Reading[]>([])
   const [loading, setLoading] = useState(true)
-  const [demoMode, setDemoMode] = useState(false)
+  const [backendUnavailable, setBackendUnavailable] = useState(false)
+  const [health, setHealth] = useState<ApiHealth>()
   const [apiError, setApiError] = useState<string>()
   const [lastUpdated, setLastUpdated] = useState<Date>()
+  const activeRequestRef = useRef<AbortController | undefined>(undefined)
+  const requestIdRef = useRef(0)
 
   const load = useCallback(async () => {
+    const requestId = ++requestIdRef.current
+    activeRequestRef.current?.abort()
+    const controller = new AbortController()
+    activeRequestRef.current = controller
+    const timeout = window.setTimeout(() => controller.abort(), 4_500)
+    setLoading(true)
+
     try {
       const selectedRange = getTimeRange(timeRange)
       const from = new Date(Date.now() - selectedRange.hours * 60 * 60 * 1000).toISOString()
-      const [nodeData, alertData, latestReadings] = await Promise.all([
-        getJson<NodeStatus[]>('/nodes'),
-        getJson<Alert[]>('/alerts?limit=12'),
-        getJson<Reading[]>('/readings/latest'),
+      const [nodeData, alertHistory, activeAlerts, latestReadings, healthData] = await Promise.all([
+        getJson<NodeStatus[]>('/nodes', controller.signal),
+        getJson<Alert[]>('/alerts?limit=50', controller.signal),
+        getJson<Alert[]>('/alerts/active', controller.signal),
+        getJson<Reading[]>('/readings/latest', controller.signal),
+        getJson<ApiHealth>('/health', controller.signal),
       ])
-      const readingData = selectedNodeId
+      const effectiveNodeId = nodeData.some((node) => node.node_id === selectedNodeId)
+        ? selectedNodeId
+        : nodeData[0]?.node_id
+      const bucketQuery = selectedRange.bucketMs ? `&bucket_ms=${selectedRange.bucketMs}` : ''
+      const readingData = effectiveNodeId
         ? await getJson<Reading[]>(
-            `/readings/${encodeURIComponent(selectedNodeId)}?from=${encodeURIComponent(from)}&limit=${selectedRange.apiLimit}`,
+            `/readings/${encodeURIComponent(effectiveNodeId)}?from=${encodeURIComponent(from)}&limit=${selectedRange.apiLimit}${bucketQuery}`,
+            controller.signal,
           )
         : []
 
+      if (requestId !== requestIdRef.current) return
+      const alertsById = new Map(alertHistory.map((alert) => [alert._id, alert]))
+      activeAlerts.forEach((alert) => alertsById.set(alert._id, alert))
       setNodes(mergeLatestReadings(nodeData, latestReadings))
-      setAlerts(alertData)
+      setAlerts(
+        [...alertsById.values()].sort(
+          (first, second) => new Date(second.started_at).getTime() - new Date(first.started_at).getTime(),
+        ),
+      )
       setReadings(readingData.reverse())
-      setDemoMode(false)
+      setHealth(healthData)
+      setBackendUnavailable(false)
       setApiError(undefined)
-    } catch (error) {
-      setNodes(mockNodes)
-      setAlerts(mockAlerts)
-      setReadings(mockReadings[selectedNodeId] ?? mockReadings.NODE01)
-      setDemoMode(true)
-      setApiError(error instanceof Error ? error.message : 'API unavailable')
-    } finally {
-      setLoading(false)
       setLastUpdated(new Date())
+    } catch (error) {
+      if (requestId !== requestIdRef.current) return
+      setBackendUnavailable(true)
+      setApiError(error instanceof DOMException && error.name === 'AbortError'
+        ? 'API timeout'
+        : error instanceof Error ? error.message : 'API unavailable')
+    } finally {
+      window.clearTimeout(timeout)
+      if (requestId === requestIdRef.current) setLoading(false)
     }
   }, [selectedNodeId, timeRange])
 
   useEffect(() => {
     void load()
     const timer = window.setInterval(() => void load(), 5_000)
-    return () => window.clearInterval(timer)
+    return () => {
+      window.clearInterval(timer)
+      requestIdRef.current += 1
+      activeRequestRef.current?.abort()
+    }
   }, [load])
 
   const deleteAlert = useCallback(
@@ -172,7 +203,8 @@ export function useDashboard(selectedNodeId: string, timeRange: TimeRangeKey) {
     alerts,
     readings,
     loading,
-    demoMode,
+    backendUnavailable,
+    health,
     apiError,
     lastUpdated,
     refresh: load,

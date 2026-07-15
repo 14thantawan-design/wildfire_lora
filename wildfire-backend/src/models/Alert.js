@@ -2,7 +2,7 @@ const mongoose = require('mongoose');
 
 const alertSchema = new mongoose.Schema(
   {
-    node_id: { type: String, required: true, index: true, trim: true },
+    node_id: { type: String, required: true, trim: true },
     level: {
       type: String,
       required: true,
@@ -29,7 +29,11 @@ const alertSchema = new mongoose.Schema(
   }
 );
 
-alertSchema.index({ node_id: 1, active: 1 });
+alertSchema.index(
+  { node_id: 1 },
+  { unique: true, partialFilterExpression: { active: true } }
+);
+alertSchema.index({ node_id: 1, started_at: -1 });
 alertSchema.index({ active: 1, started_at: -1 });
 
 module.exports = mongoose.model('Alert', alertSchema);

@@ -4,6 +4,9 @@
 #include <ArduinoJson.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/queue.h>
+#include <freertos/semphr.h>
 #include "config.h"
 
 #if defined(BLUETOOTH_ENABLED) || defined(CONFIG_BT_ENABLED)
@@ -86,11 +89,42 @@ struct PendingCommand {
   String command;
 };
 
+enum CommandReportType : uint8_t {
+  COMMAND_REPORT_SENT,
+  COMMAND_REPORT_ACK
+};
+
+#if WIFI_HTTP_ENABLED
+struct HttpPacketJob {
+  char payload[MAX_JSON_SIZE + 1];
+  int rssi;
+  float snr;
+  uint8_t attempts;
+};
+
+struct CommandReportJob {
+  CommandReportType type;
+  char commandId[64];
+  char nodeId[33];
+  uint8_t attempts;
+};
+#endif
+
 NodeStatus nodes[MAX_NODES];
 PendingCommand pendingCommands[MAX_PENDING_COMMANDS];
 unsigned long lastSummaryPrintMs = 0;
 unsigned long lastCommandPollMs = 0;
+unsigned long lastLoRaInitAttemptMs = 0;
+bool loraReady = false;
 String serialCommandBuffer;
+
+#if WIFI_HTTP_ENABLED
+QueueHandle_t httpPacketQueue = nullptr;
+QueueHandle_t commandReportQueue = nullptr;
+SemaphoreHandle_t pendingCommandMutex = nullptr;
+#endif
+
+void clearPendingCommand(const String &commandId, const String &nodeId);
 
 void disableUnusedRadios() {
 #if WIFI_HTTP_ENABLED
@@ -155,6 +189,7 @@ bool postPacketToBackend(const String &payload, int rssi, float snr) {
     }
 
     http.addHeader("Content-Type", "application/json");
+    http.addHeader("X-Gateway-Key", GATEWAY_API_KEY);
     int statusCode = http.POST(body);
     String response = http.getString();
     http.end();
@@ -191,6 +226,22 @@ bool postCommandAck(const String &commandId) {
   if (!http.begin(url)) return false;
 
   http.addHeader("Content-Type", "application/json");
+  http.addHeader("X-Gateway-Key", GATEWAY_API_KEY);
+  int statusCode = http.POST("{}");
+  http.end();
+  return statusCode >= 200 && statusCode < 300;
+}
+
+bool postCommandSent(const String &commandId) {
+  if (!ensureWiFiConnected()) return false;
+
+  HTTPClient http;
+  http.setTimeout(HTTP_POST_TIMEOUT_MS);
+  String url = String(BACKEND_COMMANDS_URL) + "/" + commandId + "/sent";
+  if (!http.begin(url)) return false;
+
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("X-Gateway-Key", GATEWAY_API_KEY);
   int statusCode = http.POST("{}");
   http.end();
   return statusCode >= 200 && statusCode < 300;
@@ -198,10 +249,12 @@ bool postCommandAck(const String &commandId) {
 #endif
 
 bool initLoRa() {
+  lastLoRaInitAttemptMs = millis();
   SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS);
   LoRa.setPins(LORA_SS, LORA_RST, LORA_DIO0);
 
   if (!LoRa.begin(LORA_FREQUENCY)) {
+    loraReady = false;
     Serial.println("LoRa init FAILED");
     return false;
   }
@@ -214,19 +267,43 @@ bool initLoRa() {
   LoRa.receive();
 
   Serial.println("LoRa gateway init OK");
+  loraReady = true;
   return true;
 }
 
-bool hasPendingCommand(const String &commandId) {
+void lockPendingCommands() {
+#if WIFI_HTTP_ENABLED
+  if (pendingCommandMutex) xSemaphoreTake(pendingCommandMutex, portMAX_DELAY);
+#endif
+}
+
+void unlockPendingCommands() {
+#if WIFI_HTTP_ENABLED
+  if (pendingCommandMutex) xSemaphoreGive(pendingCommandMutex);
+#endif
+}
+
+bool hasPendingCommandUnlocked(const String &commandId) {
   for (int i = 0; i < MAX_PENDING_COMMANDS; i++) {
     if (pendingCommands[i].used && pendingCommands[i].commandId == commandId) return true;
   }
   return false;
 }
 
+bool hasPendingCommand(const String &commandId) {
+  lockPendingCommands();
+  bool found = hasPendingCommandUnlocked(commandId);
+  unlockPendingCommands();
+  return found;
+}
+
 bool queuePendingCommand(const String &commandId, const String &nodeId, const String &command) {
   if (commandId.length() == 0 || nodeId.length() == 0 || command.length() == 0) return false;
-  if (hasPendingCommand(commandId)) return true;
+  lockPendingCommands();
+  if (hasPendingCommandUnlocked(commandId)) {
+    unlockPendingCommands();
+    return true;
+  }
 
   for (int i = 0; i < MAX_PENDING_COMMANDS; i++) {
     if (!pendingCommands[i].used) {
@@ -238,10 +315,12 @@ bool queuePendingCommand(const String &commandId, const String &nodeId, const St
       Serial.print(command);
       Serial.print(" -> ");
       Serial.println(nodeId);
+      unlockPendingCommands();
       return true;
     }
   }
 
+  unlockPendingCommands();
   Serial.println("Command queue full");
   return false;
 }
@@ -285,6 +364,7 @@ void pollBackendCommands() {
   http.setTimeout(HTTP_POST_TIMEOUT_MS);
   if (!http.begin(BACKEND_COMMANDS_PENDING_URL)) return;
 
+  http.addHeader("X-Gateway-Key", GATEWAY_API_KEY);
   int statusCode = http.GET();
   String response = http.getString();
   http.end();
@@ -301,54 +381,179 @@ void pollBackendCommands() {
     );
   }
 }
+
+bool enqueuePacketForBackend(const String &payload, int rssi, float snr) {
+  if (!httpPacketQueue || payload.length() > MAX_JSON_SIZE) return false;
+  HttpPacketJob job = {};
+  strlcpy(job.payload, payload.c_str(), sizeof(job.payload));
+  job.rssi = rssi;
+  job.snr = snr;
+  return xQueueSend(httpPacketQueue, &job, 0) == pdTRUE;
+}
+
+void processCommandReport(CommandReportJob &job) {
+  bool posted = job.type == COMMAND_REPORT_ACK
+    ? postCommandAck(String(job.commandId))
+    : postCommandSent(String(job.commandId));
+
+  if (posted) {
+    if (job.type == COMMAND_REPORT_ACK) {
+      clearPendingCommand(String(job.commandId), String(job.nodeId));
+    }
+    return;
+  }
+
+  if (job.attempts < 4) {
+    job.attempts++;
+    xQueueSend(commandReportQueue, &job, 0);
+  }
+}
+
+void networkTask(void *parameter) {
+  (void)parameter;
+
+  for (;;) {
+    CommandReportJob report;
+    if (xQueueReceive(commandReportQueue, &report, 0) == pdTRUE) {
+      processCommandReport(report);
+    }
+
+    HttpPacketJob packet;
+    if (xQueueReceive(httpPacketQueue, &packet, 0) == pdTRUE) {
+      if (!postPacketToBackend(String(packet.payload), packet.rssi, packet.snr) && packet.attempts < 2) {
+        packet.attempts++;
+        xQueueSend(httpPacketQueue, &packet, 0);
+      }
+    }
+
+    unsigned long now = millis();
+    if (now - lastCommandPollMs >= COMMAND_POLL_INTERVAL_MS) {
+      lastCommandPollMs = now;
+      pollBackendCommands();
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(20));
+  }
+}
+
+bool startNetworkTask() {
+  httpPacketQueue = xQueueCreate(HTTP_PACKET_QUEUE_LENGTH, sizeof(HttpPacketJob));
+  commandReportQueue = xQueueCreate(COMMAND_REPORT_QUEUE_LENGTH, sizeof(CommandReportJob));
+  pendingCommandMutex = xSemaphoreCreateMutex();
+  if (!httpPacketQueue || !commandReportQueue || !pendingCommandMutex) return false;
+
+  return xTaskCreatePinnedToCore(
+    networkTask,
+    "gateway_network",
+    NETWORK_TASK_STACK_SIZE,
+    nullptr,
+    1,
+    nullptr,
+    0
+  ) == pdPASS;
+}
 #endif
 
-void acknowledgePendingCommand(const String &commandId) {
+bool queueCommandReport(CommandReportType type, const String &commandId, const String &nodeId) {
 #if WIFI_HTTP_ENABLED
-  if (!postCommandAck(commandId)) {
-    Serial.print("Command ACK failed: ");
-    Serial.println(commandId);
-  }
+  if (!commandReportQueue) return false;
+  CommandReportJob job = {};
+  job.type = type;
+  strlcpy(job.commandId, commandId.c_str(), sizeof(job.commandId));
+  strlcpy(job.nodeId, nodeId.c_str(), sizeof(job.nodeId));
+  return xQueueSend(commandReportQueue, &job, 0) == pdTRUE;
 #else
-  Serial.print("CMD_ACK ");
-  Serial.println(commandId);
+  (void)type;
+  (void)commandId;
+  (void)nodeId;
+  return false;
 #endif
 }
 
+bool markPendingCommandSent(const String &commandId, const String &nodeId) {
+#if WIFI_HTTP_ENABLED
+  return queueCommandReport(COMMAND_REPORT_SENT, commandId, nodeId);
+#else
+  Serial.print("CMD_SENT ");
+  Serial.println(commandId);
+  return true;
+#endif
+}
+
+bool acknowledgePendingCommand(const String &commandId, const String &nodeId) {
+#if WIFI_HTTP_ENABLED
+  return queueCommandReport(COMMAND_REPORT_ACK, commandId, nodeId);
+#else
+  Serial.print("CMD_ACK ");
+  Serial.println(commandId);
+  return true;
+#endif
+}
+
+int findPendingCommandIndexUnlocked(const String &commandId, const String &nodeId) {
+  for (int i = 0; i < MAX_PENDING_COMMANDS; i++) {
+    if (pendingCommands[i].used &&
+        pendingCommands[i].commandId == commandId &&
+        pendingCommands[i].nodeId == nodeId) return i;
+  }
+  return -1;
+}
+
+bool hasPendingCommandForNode(const String &commandId, const String &nodeId) {
+  lockPendingCommands();
+  bool found = findPendingCommandIndexUnlocked(commandId, nodeId) >= 0;
+  unlockPendingCommands();
+  return found;
+}
+
+void clearPendingCommand(const String &commandId, const String &nodeId) {
+  lockPendingCommands();
+  int index = findPendingCommandIndexUnlocked(commandId, nodeId);
+  if (index >= 0) pendingCommands[index].used = false;
+  unlockPendingCommands();
+}
+
 bool sendPendingCommandForNode(const String &nodeId) {
+  String commandId;
+  String commandName;
+  lockPendingCommands();
   for (int i = 0; i < MAX_PENDING_COMMANDS; i++) {
     if (!pendingCommands[i].used || pendingCommands[i].nodeId != nodeId) continue;
-
-    StaticJsonDocument<MAX_JSON_SIZE> doc;
-    doc["t"] = "cmd";
-    doc["id"] = pendingCommands[i].nodeId;
-    doc["cmd"] = pendingCommands[i].command;
-    doc["cid"] = pendingCommands[i].commandId;
-    String payload;
-    serializeJson(doc, payload);
-
-    LoRa.idle();
-    bool sent = true;
-    for (int repeat = 0; repeat < COMMAND_REPEAT_COUNT; repeat++) {
-      LoRa.beginPacket();
-      LoRa.print(payload);
-      sent = LoRa.endPacket() && sent;
-      if (repeat + 1 < COMMAND_REPEAT_COUNT) delay(COMMAND_REPEAT_DELAY_MS);
-    }
-    LoRa.receive();
-
-    if (!sent) return false;
-
-    Serial.print("Command sent: ");
-    Serial.print(pendingCommands[i].command);
-    Serial.print(" -> ");
-    Serial.println(nodeId);
-    acknowledgePendingCommand(pendingCommands[i].commandId);
-    pendingCommands[i].used = false;
-    return true;
+    commandId = pendingCommands[i].commandId;
+    commandName = pendingCommands[i].command;
+    break;
   }
+  unlockPendingCommands();
+  if (commandId.length() == 0) return false;
 
-  return false;
+  StaticJsonDocument<MAX_JSON_SIZE> doc;
+  doc["t"] = "cmd";
+  doc["id"] = nodeId;
+  doc["cmd"] = commandName;
+  doc["cid"] = commandId;
+  String payload;
+  serializeJson(doc, payload);
+
+  LoRa.idle();
+  bool sent = true;
+  for (int repeat = 0; repeat < COMMAND_REPEAT_COUNT; repeat++) {
+    LoRa.beginPacket();
+    LoRa.print(payload);
+    sent = LoRa.endPacket() && sent;
+    if (repeat + 1 < COMMAND_REPEAT_COUNT) delay(COMMAND_REPEAT_DELAY_MS);
+  }
+  LoRa.receive();
+  if (!sent) return false;
+
+  Serial.print("Command sent: ");
+  Serial.print(commandName);
+  Serial.print(" -> ");
+  Serial.println(nodeId);
+  if (!markPendingCommandSent(commandId, nodeId)) {
+    Serial.print("Command sent status queue full: ");
+    Serial.println(commandId);
+  }
+  return true;
 }
 
 int findNodeIndex(const String &nodeId) {
@@ -698,6 +903,37 @@ void printReceivedPacket(const ParsedPacket &packet, int rssi, float snr) {
   Serial.println("=====================================");
 }
 
+bool handleCommandAckPacket(const String &payload) {
+  StaticJsonDocument<MAX_JSON_SIZE> doc;
+  if (deserializeJson(doc, payload)) return false;
+  if (String((const char *)(doc["t"] | "")) != "cmd_ack") return false;
+
+  String nodeId = String((const char *)(doc["id"] | ""));
+  String commandId = String((const char *)(doc["cid"] | ""));
+  if (!hasPendingCommandForNode(commandId, nodeId)) {
+    Serial.print("Unknown command ACK ignored: ");
+    Serial.println(commandId);
+    LoRa.receive();
+    return true;
+  }
+
+  if (acknowledgePendingCommand(commandId, nodeId)) {
+#if !WIFI_HTTP_ENABLED
+    clearPendingCommand(commandId, nodeId);
+#endif
+    Serial.print("Node confirmed command: ");
+    Serial.print(commandId);
+    Serial.print(" <- ");
+    Serial.println(nodeId);
+  } else {
+    Serial.print("Command ACK queue full: ");
+    Serial.println(commandId);
+  }
+
+  LoRa.receive();
+  return true;
+}
+
 void handleIncomingLoRa() {
   int packetSize = LoRa.parsePacket();
   if (!packetSize) return;
@@ -714,6 +950,8 @@ void handleIncomingLoRa() {
   Serial.print(" payload=");
   Serial.println(payload);
 #endif
+
+  if (handleCommandAckPacket(payload)) return;
 
   ParsedPacket parsed;
   if (!parseJsonPacket(payload, parsed)) return;
@@ -736,7 +974,9 @@ void handleIncomingLoRa() {
   printReceivedPacket(parsed, rssi, snr);
 
 #if WIFI_HTTP_ENABLED
-  postPacketToBackend(payload, rssi, snr);
+  if (!enqueuePacketForBackend(payload, rssi, snr)) {
+    Serial.println("HTTP packet queue full; packet not forwarded");
+  }
 #endif
 }
 
@@ -763,26 +1003,21 @@ void setup() {
   Serial.println("Starting Wildfire LoRa Gateway ROBUST...");
   Serial.print("Mode: ");
   Serial.println(TEST_MODE ? "TEST_MODE" : "DEPLOY_MODE");
+  loraReady = initLoRa();
 #if WIFI_HTTP_ENABLED
-  ensureWiFiConnected();
   Serial.print("Backend URL: ");
   Serial.println(BACKEND_PACKETS_URL);
+  if (!startNetworkTask()) Serial.println("Network task init FAILED");
 #else
   Serial.println("Backend uplink: USB Serial prototype mode");
 #endif
-  initLoRa();
 }
 
 void loop() {
   handleSerialCommands();
-  handleIncomingLoRa();
   unsigned long now = millis();
-#if WIFI_HTTP_ENABLED
-  if (now - lastCommandPollMs >= COMMAND_POLL_INTERVAL_MS) {
-    lastCommandPollMs = now;
-    pollBackendCommands();
-  }
-#endif
+  if (!loraReady && now - lastLoRaInitAttemptMs >= LORA_INIT_RETRY_MS) initLoRa();
+  if (loraReady) handleIncomingLoRa();
   if (now - lastSummaryPrintMs > SUMMARY_PRINT_INTERVAL_MS) {
     lastSummaryPrintMs = now;
     printAllNodeStatus();

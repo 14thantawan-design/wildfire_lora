@@ -15,6 +15,15 @@ function parseDate(value) {
   return Number.isNaN(parsed.getTime()) ? undefined : parsed;
 }
 
+function parseBucketMs(value) {
+  if (!value) return undefined;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 10000 || parsed > 7 * 24 * 60 * 60 * 1000) {
+    return undefined;
+  }
+  return Math.floor(parsed);
+}
+
 function serializeReading(reading) {
   const obj = reading.toObject ? reading.toObject() : { ...reading };
   const rawPacket = obj.raw_packet || {};
@@ -56,17 +65,55 @@ router.get('/:node_id', async (req, res, next) => {
   try {
     const limit = parseLimit(req.query.limit, 100);
     const from = parseDate(req.query.from);
+    const bucketMs = parseBucketMs(req.query.bucket_ms);
     const query = { node_id: req.params.node_id };
 
     if (from) {
       query.timestamp = { $gte: from };
     }
 
-    const readings = await Reading.find(query)
-      .sort({ timestamp: -1 })
-      .limit(limit);
+    if (bucketMs) {
+      const readings = await Reading.aggregate([
+        { $match: query },
+        { $sort: { timestamp: 1 } },
+        {
+          $group: {
+            _id: {
+              $subtract: [
+                { $toLong: '$timestamp' },
+                { $mod: [{ $toLong: '$timestamp' }, bucketMs] }
+              ]
+            },
+            node_id: { $last: '$node_id' },
+            seq: { $last: '$seq' },
+            timestamp: { $last: '$timestamp' },
+            state: { $last: '$state' },
+            confidence: { $last: '$confidence' },
+            node_state: { $last: '$node_state' },
+            node_confidence: { $last: '$node_confidence' },
+            server_state: { $last: '$server_state' },
+            server_risk_score: { $max: '$server_risk_score' },
+            server_reasons: { $last: '$server_reasons' },
+            fire_danger_level: { $last: '$fire_danger_level' },
+            evidence: { $last: '$evidence' },
+            air_temp: { $avg: '$air_temp' },
+            humidity: { $avg: '$humidity' },
+            smoke_raw: { $avg: '$smoke_raw' },
+            sensor_health: { $last: '$sensor_health' },
+            rssi: { $last: '$rssi' },
+            snr: { $last: '$snr' }
+          }
+        },
+        { $sort: { timestamp: -1 } },
+        { $limit: limit }
+      ]);
 
-    res.json(readings.map(serializeReading));
+      return res.json(readings.map(serializeReading));
+    }
+
+    const readings = await Reading.find(query).sort({ timestamp: -1 }).limit(limit);
+
+    return res.json(readings.map(serializeReading));
   } catch (error) {
     next(error);
   }

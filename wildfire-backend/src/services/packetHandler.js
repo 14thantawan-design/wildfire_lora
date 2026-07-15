@@ -1,7 +1,21 @@
+const crypto = require('crypto');
 const NodeModel = require('../models/Node');
 const Reading = require('../models/Reading');
 const { processAlertForReading } = require('./alertService');
 const { evaluateRisk } = require('./riskEngine');
+
+const NODE_ID_PATTERN = /^[A-Za-z0-9_-]{1,32}$/;
+const SENSOR_STATES = new Set([
+  'CALIBRATING',
+  'NORMAL',
+  'WATCH',
+  'WARNING',
+  'CRITICAL',
+  'SENSOR_FAULT'
+]);
+const SENSOR_HEALTH_VALUES = new Set(['OK', 'CAL', 'CALIBRATING', 'FAULT']);
+const LEGACY_DUPLICATE_WINDOW_MS = 2 * 60 * 1000;
+const LEGACY_PACKET_BUCKET_MS = 5 * 60 * 1000;
 
 function firstDefined(...values) {
   return values.find((value) => value !== undefined && value !== null);
@@ -26,6 +40,128 @@ function toNullableNumber(value) {
 
 function packetNumber(packet, key) {
   return Object.prototype.hasOwnProperty.call(packet, key) ? toNullableNumber(packet[key]) : undefined;
+}
+
+function isFiniteNumber(value) {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function isValidSequence(value) {
+  return Number.isInteger(value) && value >= 0 && value <= 0xffffffff;
+}
+
+function isValidSessionId(value) {
+  return Number.isInteger(value) && value > 0 && value <= 0xffffffff;
+}
+
+function isValidNodeId(value) {
+  return typeof value === 'string' && NODE_ID_PATTERN.test(value.trim());
+}
+
+function isValidCoordinate(latitude, longitude) {
+  return isFiniteNumber(latitude) && isFiniteNumber(longitude) &&
+    latitude >= -90 && latitude <= 90 &&
+    longitude >= -180 && longitude <= 180 &&
+    (Math.abs(latitude) >= 0.000001 || Math.abs(longitude) >= 0.000001);
+}
+
+function validateOptionalNumber(packet, key, minimum, maximum) {
+  const value = packet[key];
+  if (value === undefined || value === null) return null;
+  if (!isFiniteNumber(value) || value < minimum || value > maximum) {
+    return `${key} is out of range`;
+  }
+  return null;
+}
+
+function validateSensorPacket(packet) {
+  if (packet.t !== 's' && packet.t !== 'c') return 'sensor packet has invalid type';
+  if (!isValidNodeId(packet.id)) return 'sensor packet has invalid id';
+  if (!isValidSequence(packet.q)) return 'sensor packet has invalid sequence';
+  if (packet.sid !== undefined && !isValidSessionId(packet.sid)) return 'sensor packet has invalid session id';
+
+  const state = typeof packet.st === 'string' ? packet.st.trim().toUpperCase() : '';
+  const health = typeof packet.sh === 'string' ? packet.sh.trim().toUpperCase() : '';
+  if (!SENSOR_STATES.has(state)) return 'sensor packet has invalid state';
+  if (!SENSOR_HEALTH_VALUES.has(health)) return 'sensor packet has invalid health';
+  if (!isFiniteNumber(packet.c) || packet.c < 0 || packet.c > 100) return 'sensor packet has invalid confidence';
+  if (!isFiniteNumber(packet.sm) || packet.sm < 0 || packet.sm > 4095) return 'sensor packet has invalid smoke value';
+
+  const ranges = [
+    ['at', -80, 100],
+    ['h', 0, 100],
+    ['sd', -4095, 4095],
+    ['ad', -100, 100],
+    ['hd', -100, 100],
+    ['sr', -4095, 4095],
+    ['ar', -100, 100],
+    ['hr', -100, 100],
+    ['bv', 0, 30],
+    ['ri', 1, 86400]
+  ];
+
+  for (const [key, minimum, maximum] of ranges) {
+    const error = validateOptionalNumber(packet, key, minimum, maximum);
+    if (error) return error;
+  }
+
+  if (health !== 'FAULT' && (!isFiniteNumber(packet.at) || !isFiniteNumber(packet.h))) {
+    return 'healthy sensor packet is missing temperature or humidity';
+  }
+
+  return null;
+}
+
+function validateGpsPacket(packet) {
+  if (packet.t !== 'gps') return 'gps packet has invalid type';
+  if (!isValidNodeId(packet.id)) return 'gps packet has invalid id';
+  if (!isValidSequence(packet.q)) return 'gps packet has invalid sequence';
+  if (packet.sid !== undefined && !isValidSessionId(packet.sid)) return 'gps packet has invalid session id';
+  if (packet.gf !== 0 && packet.gf !== 1) return 'gps packet has invalid fix flag';
+
+  if (packet.gf === 1 && !isValidCoordinate(packet.la, packet.ln)) {
+    return 'gps packet has invalid coordinates';
+  }
+
+  const satelliteError = validateOptionalNumber(packet, 'sat', 0, 100);
+  if (satelliteError) return satelliteError;
+  const hdopError = validateOptionalNumber(packet, 'hd', 0, 100);
+  if (hdopError) return hdopError;
+  if (packet.er !== undefined && (typeof packet.er !== 'string' || packet.er.length > 64)) {
+    return 'gps packet has invalid error code';
+  }
+
+  return null;
+}
+
+function canonicalize(value) {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (!value || typeof value !== 'object') return value;
+
+  return Object.keys(value)
+    .filter((key) => !['rssi', 'RSSI', 'rs', 'snr', 'SNR'].includes(key))
+    .sort()
+    .reduce((result, key) => {
+      result[key] = canonicalize(value[key]);
+      return result;
+    }, {});
+}
+
+function buildPacketIdentity(packet, now = new Date()) {
+  const packetHash = crypto
+    .createHash('sha256')
+    .update(JSON.stringify(canonicalize(packet)))
+    .digest('hex');
+  const sessionId = isValidSessionId(packet.sid) ? packet.sid : undefined;
+  const packetId = sessionId
+    ? `${packet.id.trim()}:${sessionId}:${packet.q}:${packet.t}`
+    : `legacy:${packetHash}:${Math.floor(now.getTime() / LEGACY_PACKET_BUCKET_MS)}`;
+
+  return { packetHash, packetId, sessionId };
+}
+
+function invalidPacket(reason) {
+  return { ignored: true, invalid: true, reason };
 }
 
 function parseMetaFromLine(line) {
@@ -74,12 +210,32 @@ function extractSnr(packet, meta) {
 }
 
 async function handleSensorPacket(packet, meta = {}) {
-  const nodeId = packet.id;
-  if (!nodeId) {
-    return { ignored: true, reason: 'sensor packet missing id' };
+  const validationError = validateSensorPacket(packet);
+  if (validationError) return invalidPacket(validationError);
+
+  const nodeId = packet.id.trim();
+  const now = new Date();
+  const identity = buildPacketIdentity(packet, now);
+  const duplicate = await Reading.findOne({
+    node_id: nodeId,
+    $or: [
+      { packet_id: identity.packetId },
+      {
+        packet_hash: identity.packetHash,
+        timestamp: { $gte: new Date(now.getTime() - LEGACY_DUPLICATE_WINDOW_MS) }
+      }
+    ]
+  }).lean();
+
+  if (duplicate) {
+    return {
+      type: 'sensor',
+      node_id: nodeId,
+      reading_id: duplicate._id,
+      duplicate: true
+    };
   }
 
-  const now = new Date();
   const rssi = extractRssi(packet, meta);
   const snr = extractSnr(packet, meta);
   const recentReadings = await Reading.find({ node_id: nodeId })
@@ -96,14 +252,21 @@ async function handleSensorPacket(packet, meta = {}) {
   const smokeBaselineDelta = packetNumber(packet, 'sr');
   const airBaselineDelta = packetNumber(packet, 'ar');
   const humidityBaselineDelta = packetNumber(packet, 'hr');
+  const sensorHealth = packet.sh.trim().toUpperCase();
+  const nodeState = packet.st.trim().toUpperCase();
 
-  const reading = await Reading.create({
+  const readingData = {
     node_id: nodeId,
+    packet_id: identity.packetId,
+    packet_hash: identity.packetHash,
+    packet_type: packet.t,
+    session_id: identity.sessionId,
+    report_interval_sec: toNumber(packet.ri),
     seq: toNumber(packet.q),
     timestamp: now,
     state: risk.server_state,
     confidence: nodeConfidence,
-    node_state: packet.st,
+    node_state: nodeState,
     node_confidence: nodeConfidence,
     server_state: risk.server_state,
     server_risk_score: risk.server_risk_score,
@@ -117,16 +280,30 @@ async function handleSensorPacket(packet, meta = {}) {
     smoke_baseline_delta: smokeBaselineDelta,
     air_baseline_delta: airBaselineDelta,
     humidity_baseline_delta: humidityBaselineDelta,
-    sensor_health: packet.sh,
+    sensor_health: sensorHealth,
     rssi,
     snr,
     raw_packet: packet
-  });
+  };
+
+  let reading;
+  try {
+    reading = await Reading.create(readingData);
+  } catch (error) {
+    if (error?.code !== 11000) throw error;
+    const existing = await Reading.findOne({ packet_id: identity.packetId }).lean();
+    return {
+      type: 'sensor',
+      node_id: nodeId,
+      reading_id: existing?._id,
+      duplicate: true
+    };
+  }
 
   const nodeSet = {
     state: risk.server_state,
     confidence: nodeConfidence,
-    node_state: packet.st,
+    node_state: nodeState,
     node_confidence: nodeConfidence,
     server_state: risk.server_state,
     server_risk_score: risk.server_risk_score,
@@ -136,9 +313,10 @@ async function handleSensorPacket(packet, meta = {}) {
     air_temp: airTemp,
     humidity,
     smoke_raw: smokeRaw,
-    sensor_health: packet.sh,
+    sensor_health: sensorHealth,
     last_seen: now,
     last_seq: toNumber(packet.q),
+    report_interval_sec: toNumber(packet.ri),
     online: true
   };
 
@@ -163,13 +341,12 @@ async function handleSensorPacket(packet, meta = {}) {
 }
 
 async function handleGpsPacket(packet, meta = {}) {
-  const nodeId = packet.id;
-  if (!nodeId) {
-    return { ignored: true, reason: 'gps packet missing id' };
-  }
+  const validationError = validateGpsPacket(packet);
+  if (validationError) return invalidPacket(validationError);
 
+  const nodeId = packet.id.trim();
   const now = new Date();
-  const gpsFixed = Number(packet.gf) === 1;
+  const gpsFixed = packet.gf === 1;
   const rssi = extractRssi(packet, meta);
   const snr = extractSnr(packet, meta);
 
@@ -188,8 +365,8 @@ async function handleGpsPacket(packet, meta = {}) {
   const update = { $set: nodeSet, $setOnInsert: { node_id: nodeId } };
 
   if (gpsFixed) {
-    setIfDefined(nodeSet, 'lat', toNumber(packet.la));
-    setIfDefined(nodeSet, 'lng', toNumber(packet.ln));
+    nodeSet.lat = packet.la;
+    nodeSet.lng = packet.ln;
     nodeSet.location_source = 'gps';
     nodeSet.location_updated_at = now;
     update.$unset = { gps_error: '' };
@@ -211,8 +388,8 @@ async function handleGpsPacket(packet, meta = {}) {
 }
 
 async function handlePacket(packet, meta = {}) {
-  if (!packet || typeof packet !== 'object') {
-    return { ignored: true, reason: 'invalid packet' };
+  if (!packet || typeof packet !== 'object' || Array.isArray(packet)) {
+    return invalidPacket('invalid packet');
   }
 
   if (packet.t === 's' || packet.t === 'c') {
@@ -223,7 +400,7 @@ async function handlePacket(packet, meta = {}) {
     return handleGpsPacket(packet, meta);
   }
 
-  return { ignored: true, reason: `unsupported packet type: ${packet.t}` };
+  return invalidPacket(`unsupported packet type: ${packet.t}`);
 }
 
 module.exports = {
@@ -231,5 +408,8 @@ module.exports = {
   handleSensorPacket,
   handleGpsPacket,
   parsePacketLine,
-  parseMetaFromLine
+  parseMetaFromLine,
+  validateSensorPacket,
+  validateGpsPacket,
+  buildPacketIdentity
 };

@@ -1,5 +1,11 @@
 #pragma once
 
+#if __has_include("secrets.h")
+  #include "secrets.h"
+#else
+  #error "Missing gateway/secrets.h. Copy secrets.example.h and fill in this installation's values."
+#endif
+
 /*
   Wildfire Early Warning LoRa Gateway - Configuration
   Board target: TTGO / LILYGO LoRa32 ESP32 + SX127x
@@ -25,6 +31,7 @@
 #define LORA_SIGNAL_BANDWIDTH 125E3
 #define LORA_CODING_RATE_DENOMINATOR 5
 #define LORA_SYNC_WORD 0x34
+#define LORA_INIT_RETRY_MS 10000UL
 
 #define SERIAL_BAUD 115200
 #define PRINT_RAW_PAYLOAD 1   // useful while testing; set 0 later if too noisy
@@ -40,9 +47,6 @@
 //   WIFI_HTTP_ENABLED 1 -> Gateway posts packets directly to backend over Wi-Fi.
 //   Backend .env should use SERIAL_PORT= because no USB serial bridge is needed.
 #define WIFI_HTTP_ENABLED 1
-#define WIFI_SSID "IOT-RMUTI"
-#define WIFI_PASSWORD "@1111111111111!"
-#define BACKEND_API_BASE_URL "http://172.24.163.106:4000/api"
 #define BACKEND_PACKETS_URL BACKEND_API_BASE_URL "/packets"
 #define BACKEND_COMMANDS_PENDING_URL BACKEND_API_BASE_URL "/commands/pending"
 #define BACKEND_COMMANDS_URL BACKEND_API_BASE_URL "/commands"
@@ -50,6 +54,9 @@
 #define HTTP_POST_TIMEOUT_MS 5000UL
 #define HTTP_POST_RETRY_COUNT 2
 #define HTTP_JSON_SIZE 768
+#define HTTP_PACKET_QUEUE_LENGTH 20
+#define COMMAND_REPORT_QUEUE_LENGTH 10
+#define NETWORK_TASK_STACK_SIZE 8192
 
 // Downlink commands are held until the target node sends its next LoRa packet.
 #define MAX_PENDING_COMMANDS 10
