@@ -63,7 +63,17 @@ router.post('/:node_id/gps/reacquire', async (req, res, next) => {
     const { command, duplicate } = enqueueCommand(node.node_id, 'gps_reacquire');
     await NodeModel.updateOne(
       { _id: node._id },
-      { $set: { gps_fixed: false, gps_error: 'gps_reacquiring' } }
+      {
+        $set: { gps_fixed: false, gps_error: 'gps_reacquiring' },
+        $unset: {
+          lat: '',
+          lng: '',
+          gps_satellites: '',
+          gps_hdop: '',
+          location_source: '',
+          location_updated_at: ''
+        }
+      }
     );
 
     return res.status(202).json({ ...command, duplicate });
