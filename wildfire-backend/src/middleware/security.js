@@ -21,16 +21,62 @@ function requireGatewayKey(req, res, next) {
   return next();
 }
 
-function isLoopback(address = '') {
+function isLoopbackAddress(address = '') {
   return address === '::1' || address === '127.0.0.1' || address === '::ffff:127.0.0.1';
 }
 
+function firstHeaderValue(value) {
+  return String(value || '').split(',')[0].trim();
+}
+
+function requestHostname(req) {
+  const forwardedHost = firstHeaderValue(req.get('x-forwarded-host'));
+  const host = forwardedHost || firstHeaderValue(req.get('host'));
+  return host.replace(/:\d+$/, '').toLowerCase();
+}
+
+function adminConfigFromEnvironment() {
+  return {
+    hostname: String(process.env.ADMIN_HOSTNAME || 'admin.nattaphat.me').trim().toLowerCase(),
+    emails: new Set(
+      String(process.env.ADMIN_EMAILS || '')
+        .split(',')
+        .map((email) => email.trim().toLowerCase())
+        .filter(Boolean)
+    )
+  };
+}
+
+function isTrustedAdminRequest(req, config = adminConfigFromEnvironment()) {
+  const fromCloudflare = Boolean(req.get('cf-connecting-ip'));
+  if (isLoopbackAddress(req.socket?.remoteAddress) && !fromCloudflare) {
+    return true;
+  }
+
+  const accessToken = req.get('cf-access-jwt-assertion');
+  const accessEmail = String(req.get('cf-access-authenticated-user-email') || '')
+    .trim()
+    .toLowerCase();
+
+  return Boolean(
+    fromCloudflare &&
+    isLoopbackAddress(req.socket?.remoteAddress) &&
+    accessToken &&
+    config.hostname &&
+    requestHostname(req) === config.hostname &&
+    config.emails.size > 0 &&
+    config.emails.has(accessEmail)
+  );
+}
+
 function requireLocalAdmin(req, res, next) {
-  if (isLoopback(req.socket?.remoteAddress)) return next();
+  if (isTrustedAdminRequest(req)) return next();
 
   const expected = process.env.ADMIN_API_KEY;
   if (expected && safeEqual(req.get('x-admin-key'), expected)) return next();
-  return res.status(403).json({ error: 'admin action is only available from the backend computer' });
+  return res.status(403).json({
+    error: 'admin authentication is required for this action'
+  });
 }
 
 function corsOptions() {
@@ -56,6 +102,8 @@ function corsOptions() {
 
 module.exports = {
   corsOptions,
+  isTrustedAdminRequest,
+  requestHostname,
   requireGatewayKey,
   requireLocalAdmin
 };

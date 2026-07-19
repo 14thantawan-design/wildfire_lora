@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useState, type FormEvent } from 'react'
 import {
+  BatteryMedium,
   Bell,
   ChevronRight,
   Clock3,
@@ -21,6 +22,7 @@ import {
   X,
 } from 'lucide-react'
 import type { Alert, NodeState } from './types'
+import { getBatteryDisplay } from './battery'
 import { useDashboard } from './useDashboard'
 import type { TimeRangeKey } from './timeRanges'
 import './App.css'
@@ -34,7 +36,48 @@ const TrendChart = lazy(() =>
 
 type NavSection = 'overview' | 'map' | 'alerts' | 'trends'
 
+const ADMIN_HOSTNAME = (import.meta.env.VITE_ADMIN_HOSTNAME || 'admin.nattaphat.me').toLowerCase()
 const navSections: NavSection[] = ['overview', 'map', 'alerts', 'trends']
+const MANUAL_LOCATION_HISTORY_KEY = 'forestguard.manual-location-history.v1'
+const MANUAL_LOCATION_HISTORY_LIMIT = 3
+
+type ManualLocationHistoryEntry = {
+  nodeId: string
+  latitude: number
+  longitude: number
+  savedAt: string
+}
+
+function isManualLocationHistoryEntry(value: unknown): value is ManualLocationHistoryEntry {
+  if (!value || typeof value !== 'object') return false
+  const entry = value as Partial<ManualLocationHistoryEntry>
+  return (
+    typeof entry.nodeId === 'string'
+    && typeof entry.latitude === 'number'
+    && Number.isFinite(entry.latitude)
+    && entry.latitude >= -90
+    && entry.latitude <= 90
+    && typeof entry.longitude === 'number'
+    && Number.isFinite(entry.longitude)
+    && entry.longitude >= -180
+    && entry.longitude <= 180
+    && typeof entry.savedAt === 'string'
+  )
+}
+
+function loadManualLocationHistory() {
+  if (typeof window === 'undefined') return []
+  try {
+    const storedHistory: unknown = JSON.parse(
+      window.localStorage.getItem(MANUAL_LOCATION_HISTORY_KEY) ?? '[]',
+    )
+    return Array.isArray(storedHistory)
+      ? storedHistory.filter(isManualLocationHistoryEntry).slice(0, MANUAL_LOCATION_HISTORY_LIMIT)
+      : []
+  } catch {
+    return []
+  }
+}
 
 const stateLabels: Record<NodeState, string> = {
   CALIBRATING: 'กำลังปรับค่า',
@@ -285,6 +328,10 @@ function App() {
   const [showAllAlerts, setShowAllAlerts] = useState(false)
   const [activeSection, setActiveSection] = useState<NavSection>(getHashSection)
   const [chartRange, setChartRange] = useState<TimeRangeKey>('1h')
+  const currentHostname = window.location.hostname.toLowerCase()
+  const adminMode = currentHostname === ADMIN_HOSTNAME ||
+    currentHostname === 'localhost' ||
+    currentHostname === '127.0.0.1'
   const [deletingAlertId, setDeletingAlertId] = useState<string>()
   const [gpsRequestingNodeId, setGpsRequestingNodeId] = useState<string>()
   const [gpsRequestError, setGpsRequestError] = useState<{ nodeId: string; message: string }>()
@@ -295,6 +342,9 @@ function App() {
   }>()
   const [manualLocationSaving, setManualLocationSaving] = useState(false)
   const [manualLocationError, setManualLocationError] = useState<string>()
+  const [manualLocationHistory, setManualLocationHistory] = useState<ManualLocationHistoryEntry[]>(
+    loadManualLocationHistory,
+  )
   const {
     nodes,
     alerts,
@@ -318,11 +368,21 @@ function App() {
   }, [nodes, selectedNodeId])
   const activeAlerts = alerts.filter((alert) => alert.active)
   const onlineNodes = nodes.filter((node) => node.online)
+  const gatewayConnected = !backendUnavailable && Boolean(health?.gateway.connected)
+  const selectedLiveNode = gatewayConnected && selectedNode?.online ? selectedNode : undefined
   const selectedSmoke =
-    typeof selectedNode?.smoke_raw === 'number' ? Math.round(selectedNode.smoke_raw) : selectedNode?.smoke_raw
+    typeof selectedLiveNode?.smoke_raw === 'number'
+      ? Math.round(selectedLiveNode.smoke_raw)
+      : selectedLiveNode?.smoke_raw
   const selectedNodeMeta = selectedNode
-    ? `${selectedNode.node_id}${selectedNode.last_seq ? ` · รอบ ${selectedNode.last_seq}` : ''}`
+    ? selectedLiveNode
+      ? `${selectedNode.node_id}${selectedNode.last_seq ? ` · รอบ ${selectedNode.last_seq}` : ''}`
+      : `${selectedNode.node_id} · ออฟไลน์ · ข้อมูลล่าสุด ${timeAgo(selectedNode.last_seen)}`
     : 'ยังไม่มีโหนดที่เลือก'
+  const selectedBattery = getBatteryDisplay(
+    selectedLiveNode?.battery_v,
+    selectedLiveNode?.battery_percent,
+  )
   const highestState = useMemo(
     () =>
       nodes.reduce<NodeState>(
@@ -340,7 +400,6 @@ function App() {
   const canAssessSafety = !backendUnavailable && Boolean(health?.ok) &&
     Boolean(health?.gateway.connected) && nodes.length > 0 && onlineNodes.length === nodes.length
   const isSafe = canAssessSafety && !hasUnsafeNode && !hasActiveDangerAlert
-  const gatewayConnected = !backendUnavailable && Boolean(health?.gateway.connected)
   const visibleAlerts = showAllAlerts ? alerts : alerts.slice(0, 5)
   const hiddenAlertCount = Math.max(0, alerts.length - visibleAlerts.length)
   const gpsRequesting = gpsRequestingNodeId === selectedNode?.node_id
@@ -440,6 +499,39 @@ function App() {
     setManualLocationError(undefined)
   }
 
+  const selectManualLocationHistory = (entry: ManualLocationHistoryEntry) => {
+    setManualLocation((current) => current
+      ? {
+          ...current,
+          latitude: entry.latitude.toFixed(6),
+          longitude: entry.longitude.toFixed(6),
+        }
+      : current)
+    setManualLocationError(undefined)
+  }
+
+  const rememberManualLocation = (entry: ManualLocationHistoryEntry) => {
+    setManualLocationHistory((current) => {
+      const nextHistory = [
+        entry,
+        ...current.filter((item) =>
+          item.latitude !== entry.latitude || item.longitude !== entry.longitude,
+        ),
+      ].slice(0, MANUAL_LOCATION_HISTORY_LIMIT)
+
+      try {
+        window.localStorage.setItem(
+          MANUAL_LOCATION_HISTORY_KEY,
+          JSON.stringify(nextHistory),
+        )
+      } catch {
+        // The saved location still succeeds when browser storage is unavailable.
+      }
+
+      return nextHistory
+    })
+  }
+
   const submitManualLocation = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (!manualLocation) return
@@ -466,6 +558,12 @@ function App() {
     setManualLocationError(undefined)
     try {
       await saveManualLocation(manualLocation.nodeId, { lat: latitude, lng: longitude })
+      rememberManualLocation({
+        nodeId: manualLocation.nodeId,
+        latitude,
+        longitude,
+        savedAt: new Date().toISOString(),
+      })
       setManualLocation(undefined)
     } catch {
       setManualLocationError('บันทึกพิกัดไม่สำเร็จ กรุณาลองใหม่')
@@ -593,8 +691,12 @@ function App() {
             className="live-status"
             title={apiError ? `API error: ${apiError}` : undefined}
           >
-            <i className={backendUnavailable ? 'demo' : ''} />
-            {backendUnavailable ? 'การเชื่อมต่อขัดข้อง: ใช้ข้อมูลล่าสุดที่ได้รับ' : 'เชื่อมต่อข้อมูลสด'}
+            <i className={backendUnavailable || !gatewayConnected ? 'demo' : ''} />
+            {backendUnavailable
+              ? 'เชื่อมต่อ Backend ไม่ได้'
+              : gatewayConnected
+                ? 'เชื่อมต่อข้อมูลสด'
+                : 'เชื่อมต่อ Backend · รอสัญญาณจาก Gateway'}
           </div>
           <div className="topbar-actions">
             <span><Clock3 size={15} /> อัปเดต {formatTime(lastUpdated)}</span>
@@ -668,14 +770,109 @@ function App() {
             </article>
             <article>
               <span className="stat-icon red"><Thermometer size={19} /></span>
-              <div><span>อุณหภูมิล่าสุด</span><strong><Value value={selectedNode?.air_temp} suffix="°C" fractionDigits={1} /></strong></div>
+              <div><span>อุณหภูมิล่าสุด</span><strong><Value value={selectedLiveNode?.air_temp} suffix="°C" fractionDigits={1} /></strong></div>
               <em>{selectedNodeMeta}</em>
             </article>
             <article>
               <span className="stat-icon blue"><Droplets size={19} /></span>
-              <div><span>ความชื้นล่าสุด</span><strong><Value value={selectedNode?.humidity} suffix="%" fractionDigits={1} /></strong></div>
+              <div><span>ความชื้นล่าสุด</span><strong><Value value={selectedLiveNode?.humidity} suffix="%" fractionDigits={1} /></strong></div>
               <em>{selectedNodeMeta}</em>
             </article>
+          </section>
+
+          <section aria-labelledby="node-overview-title" className="panel node-panel">
+            <div className="panel-head">
+              <div>
+                <span className="panel-kicker">SENSOR NODES</span>
+                <h2 id="node-overview-title">สถานะแต่ละจุดตรวจวัด</h2>
+              </div>
+              <span className="panel-meta">เลือกบัตรเพื่อดูรายละเอียด</span>
+            </div>
+            <div className="node-panel-body">
+              <div className="node-card-grid">
+                {nodes.length === 0 ? (
+                  <div className="node-card-empty">ยังไม่มีข้อมูลจาก Sensor Node</div>
+                ) : nodes.map((node) => {
+                  const nodeHasLiveData = gatewayConnected && node.online
+                  const battery = getBatteryDisplay(
+                    nodeHasLiveData ? node.battery_v : undefined,
+                    nodeHasLiveData ? node.battery_percent : undefined,
+                  )
+
+                  return (
+                    <button
+                      aria-pressed={node.node_id === selectedNode?.node_id}
+                      className={`node-summary-card ${node.node_id === selectedNode?.node_id ? 'selected' : ''}`}
+                      key={node.node_id}
+                      onClick={() => setSelectedNodeId(node.node_id)}
+                      type="button"
+                    >
+                      <span className="node-card-head">
+                        <span>
+                          <strong>{node.node_id}</strong>
+                          <small>{timeAgo(node.last_seen)}</small>
+                        </span>
+                        <b className={`status-tag state-${node.online ? node.state.toLowerCase() : 'offline'}`}>
+                          {node.online ? stateLabels[node.state] : 'ออฟไลน์'}
+                        </b>
+                      </span>
+                      <span className="node-card-values">
+                        <span>อุณหภูมิ <strong><Value value={nodeHasLiveData ? node.air_temp : undefined} suffix="°C" fractionDigits={1} /></strong></span>
+                        <span>ความชื้น <strong><Value value={nodeHasLiveData ? node.humidity : undefined} suffix="%" fractionDigits={1} /></strong></span>
+                        <span>ควัน <strong><Value value={nodeHasLiveData ? node.smoke_raw : undefined} /></strong></span>
+                      </span>
+                      <span className={`battery-summary battery-${battery.tone}`}>
+                        <BatteryMedium size={18} />
+                        <span>
+                          <strong>{battery.available ? battery.voltageText : battery.statusText}</strong>
+                          <small>
+                            {battery.available
+                              ? `${battery.percentText} · ${battery.statusText}`
+                              : 'โหนดนี้อาจยังไม่มีวงจรวัดแบต'}
+                          </small>
+                        </span>
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+
+              <aside className={`node-detail-card battery-${selectedBattery.tone}`}>
+                <div className="node-detail-head">
+                  <span>
+                    <small>รายละเอียด Node</small>
+                    <strong>{selectedNode?.node_id ?? 'ยังไม่มีโหนด'}</strong>
+                  </span>
+                  {selectedNode && (
+                    <b className={`status-tag state-${selectedNode.online ? selectedNode.state.toLowerCase() : 'offline'}`}>
+                      {selectedNode.online ? stateLabels[selectedNode.state] : 'ออฟไลน์'}
+                    </b>
+                  )}
+                </div>
+                <div className="node-detail-values">
+                  <span>อุณหภูมิ <strong><Value value={selectedLiveNode?.air_temp} suffix="°C" fractionDigits={1} /></strong></span>
+                  <span>ความชื้น <strong><Value value={selectedLiveNode?.humidity} suffix="%" fractionDigits={1} /></strong></span>
+                  <span>ควัน <strong><Value value={selectedSmoke} suffix=" raw" /></strong></span>
+                </div>
+                <div className="node-detail-battery">
+                  <span className="node-battery-icon"><BatteryMedium size={23} /></span>
+                  <span>
+                    <small>แรงดันแบตเตอรี่</small>
+                    <strong>
+                      {selectedBattery.available
+                        ? selectedBattery.voltageText
+                        : 'ยังไม่มีข้อมูลแบต'}
+                    </strong>
+                    {selectedBattery.available && <b>{selectedBattery.percentText}</b>}
+                  </span>
+                  <em>
+                    {selectedBattery.available
+                      ? `${selectedBattery.statusText} · เปอร์เซ็นต์ใช้งานเป็นค่าประมาณ`
+                      : 'รองรับโหนดเดิมที่ยังไม่ได้ติดตั้งวงจรวัดแบต'}
+                  </em>
+                </div>
+              </aside>
+            </div>
           </section>
 
           <section className="dashboard-grid">
@@ -686,7 +883,7 @@ function App() {
                   <label className="map-node-picker">
                     <span>จุดตรวจ</span>
                     <select
-                      aria-label="เลือกจุดตรวจสำหรับจัดการพิกัด"
+                      aria-label="เลือกจุดตรวจ"
                       value={selectedNode?.node_id ?? ''}
                       onChange={(event) => selectMapNode(event.target.value)}
                     >
@@ -696,30 +893,32 @@ function App() {
                     </select>
                   </label>
                   <span className={`gps-state ${gpsStatus.tone}`}><i /> {gpsStatus.text}</span>
-                  <div className="location-action-buttons">
-                    <button
-                      aria-label={`ค้นหา GPS ใหม่สำหรับ ${selectedNode?.node_id ?? 'จุดตรวจ'}`}
-                      className="gps-refresh-button"
-                      disabled={!selectedNode || backendUnavailable || gpsRequesting}
-                      onClick={() => void requestSelectedNodeGps()}
-                      title={backendUnavailable ? 'เชื่อมต่อ backend ก่อนจึงจะส่งคำสั่งได้' : 'ล้างพิกัดเดิมและค้นหา GPS ใหม่'}
-                      type="button"
-                    >
-                      <RefreshCw className={gpsRequesting ? 'spin' : ''} size={14} />
-                      <span>{gpsRequesting ? 'กำลังส่ง' : 'ค้นหา GPS ใหม่'}</span>
-                    </button>
-                    <button
-                      aria-label={`กรอกพิกัดเองสำหรับ ${selectedNode?.node_id ?? 'จุดตรวจ'}`}
-                      className="manual-location-button"
-                      disabled={!selectedNode || backendUnavailable}
-                      onClick={openManualLocation}
-                      title={backendUnavailable ? 'เชื่อมต่อ backend ก่อนจึงจะบันทึกพิกัดได้' : 'กรอกพิกัดเอง'}
-                      type="button"
-                    >
-                      <MapPin size={14} />
-                      <span>กรอกพิกัด</span>
-                    </button>
-                  </div>
+                  {adminMode && (
+                    <div className="location-action-buttons">
+                      <button
+                        aria-label={`ค้นหา GPS ใหม่สำหรับ ${selectedNode?.node_id ?? 'จุดตรวจ'}`}
+                        className="gps-refresh-button"
+                        disabled={!selectedNode || backendUnavailable || gpsRequesting}
+                        onClick={() => void requestSelectedNodeGps()}
+                        title={backendUnavailable ? 'เชื่อมต่อ backend ก่อนจึงจะส่งคำสั่งได้' : 'ล้างพิกัดเดิมและค้นหา GPS ใหม่'}
+                        type="button"
+                      >
+                        <RefreshCw className={gpsRequesting ? 'spin' : ''} size={14} />
+                        <span>{gpsRequesting ? 'กำลังส่ง' : 'ค้นหา GPS ใหม่'}</span>
+                      </button>
+                      <button
+                        aria-label={`กรอกพิกัดเองสำหรับ ${selectedNode?.node_id ?? 'จุดตรวจ'}`}
+                        className="manual-location-button"
+                        disabled={!selectedNode || backendUnavailable}
+                        onClick={openManualLocation}
+                        title={backendUnavailable ? 'เชื่อมต่อ backend ก่อนจึงจะบันทึกพิกัดได้' : 'กรอกพิกัดเอง'}
+                        type="button"
+                      >
+                        <MapPin size={14} />
+                        <span>กรอกพิกัด</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
               <Suspense fallback={<div className="panel-loading">กำลังโหลดแผนที่…</div>}>
@@ -768,16 +967,18 @@ function App() {
                         </div>
                           <ChevronRight size={16} />
                         </button>
-                        <button
-                          aria-label={`ลบเหตุการณ์ ${alert.node_id}`}
-                          className="alert-delete"
-                          disabled={deletingAlertId === alert._id}
-                          onClick={() => removeAlert(alert._id)}
-                          title="ลบเหตุการณ์"
-                          type="button"
-                        >
-                          <Trash2 size={14} />
-                        </button>
+                        {adminMode && (
+                          <button
+                            aria-label={`ลบเหตุการณ์ ${alert.node_id}`}
+                            className="alert-delete"
+                            disabled={deletingAlertId === alert._id}
+                            onClick={() => removeAlert(alert._id)}
+                            title="ลบเหตุการณ์"
+                            type="button"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        )}
                         {diagnostics && (
                           <div className="alert-diagnostics">
                             <div className="alert-diagnostics-head">
@@ -834,7 +1035,7 @@ function App() {
         </div>
       </main>
 
-      {manualLocation && (
+      {adminMode && manualLocation && (
         <div className="location-modal-backdrop" onMouseDown={closeManualLocation} role="presentation">
           <section
             aria-labelledby="manual-location-title"
@@ -894,6 +1095,32 @@ function App() {
                   />
                 </label>
               </div>
+              {manualLocationHistory.length > 0 && (
+                <section className="coordinate-history" aria-label="พิกัดที่ใช้ล่าสุด">
+                  <div className="coordinate-history-title">
+                    <History size={14} />
+                    <span>พิกัดล่าสุด</span>
+                    <small>เลือกใช้ได้ทันที</small>
+                  </div>
+                  <div className="coordinate-history-list">
+                    {manualLocationHistory.map((entry) => (
+                      <button
+                        disabled={manualLocationSaving}
+                        key={`${entry.latitude}:${entry.longitude}`}
+                        onClick={() => selectManualLocationHistory(entry)}
+                        type="button"
+                      >
+                        <MapPin size={14} />
+                        <span>
+                          <strong>{entry.latitude.toFixed(6)}, {entry.longitude.toFixed(6)}</strong>
+                          <small>{entry.nodeId} · บันทึกเมื่อ {formatTime(entry.savedAt)}</small>
+                        </span>
+                        <ChevronRight size={14} />
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              )}
               {manualLocationError && <p className="location-form-error" role="alert">{manualLocationError}</p>}
               <footer>
                 <button disabled={manualLocationSaving} onClick={closeManualLocation} type="button">ยกเลิก</button>

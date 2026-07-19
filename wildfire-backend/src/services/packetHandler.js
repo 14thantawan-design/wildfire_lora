@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const NodeModel = require('../models/Node');
 const Reading = require('../models/Reading');
 const { processAlertForReading } = require('./alertService');
+const { batteryPercentFromVoltage } = require('./battery');
 const { evaluateRisk } = require('./riskEngine');
 
 const NODE_ID_PATTERN = /^[A-Za-z0-9_-]{1,32}$/;
@@ -65,6 +66,16 @@ function isValidCoordinate(latitude, longitude) {
     (Math.abs(latitude) >= 0.000001 || Math.abs(longitude) >= 0.000001);
 }
 
+function mapBatteryPersistenceFields(packet) {
+  const batteryV = packetNumber(packet, 'bv');
+  if (!isFiniteNumber(batteryV)) return {};
+
+  return {
+    battery_v: batteryV,
+    battery_percent: batteryPercentFromVoltage(batteryV)
+  };
+}
+
 function validateOptionalNumber(packet, key, minimum, maximum) {
   const value = packet[key];
   if (value === undefined || value === null) return null;
@@ -96,7 +107,7 @@ function validateSensorPacket(packet) {
     ['sr', -4095, 4095],
     ['ar', -100, 100],
     ['hr', -100, 100],
-    ['bv', 0, 30],
+    ['bv', 2.5, 5.0],
     ['ri', 1, 86400]
   ];
 
@@ -254,6 +265,7 @@ async function handleSensorPacket(packet, meta = {}) {
   const humidityBaselineDelta = packetNumber(packet, 'hr');
   const sensorHealth = packet.sh.trim().toUpperCase();
   const nodeState = packet.st.trim().toUpperCase();
+  const batteryFields = mapBatteryPersistenceFields(packet);
 
   const readingData = {
     node_id: nodeId,
@@ -285,6 +297,7 @@ async function handleSensorPacket(packet, meta = {}) {
     snr,
     raw_packet: packet
   };
+  Object.assign(readingData, batteryFields);
 
   let reading;
   try {
@@ -319,6 +332,7 @@ async function handleSensorPacket(packet, meta = {}) {
     report_interval_sec: toNumber(packet.ri),
     online: true
   };
+  Object.assign(nodeSet, batteryFields);
 
   setIfDefined(nodeSet, 'rssi', rssi);
   setIfDefined(nodeSet, 'snr', snr);
@@ -411,5 +425,6 @@ module.exports = {
   parseMetaFromLine,
   validateSensorPacket,
   validateGpsPacket,
-  buildPacketIdentity
+  buildPacketIdentity,
+  mapBatteryPersistenceFields
 };

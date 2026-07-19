@@ -74,6 +74,8 @@ function mergeLatestReadings(nodes: NodeStatus[], latestReadings: Reading[]) {
       air_temp: latestValue(latest, 'air_temp', node.air_temp),
       humidity: latestValue(latest, 'humidity', node.humidity),
       smoke_raw: latestValue(latest, 'smoke_raw', node.smoke_raw),
+      battery_v: latestValue(latest, 'battery_v', node.battery_v),
+      battery_percent: latestValue(latest, 'battery_percent', node.battery_percent),
       sensor_health: latest.sensor_health ?? node.sensor_health,
       rssi: node.rssi ?? latest.rssi,
       snr: node.snr ?? latest.snr,

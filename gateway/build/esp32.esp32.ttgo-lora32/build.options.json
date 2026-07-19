@@ -1,0 +1,9 @@
+{
+  "additionalFiles": "..\\..,..\\..,..\\..,..\\..",
+  "compiler.optimization_flags": "-Os",
+  "customBuildProperties": "",
+  "fqbn": "esp32:esp32:ttgo-lora32",
+  "hardwareFolders": "C:\\Users\\14tha\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.6,C:\\Users\\14tha\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.6",
+  "otherLibrariesFolders": "C:\\Users\\14tha\\Documents\\Arduino\\libraries,C:\\Users\\14tha\\OneDrive\\เอกสาร\\Arduino\\libraries",
+  "sketchLocation": "C:\\wildfire_lora\\gateway"
+}

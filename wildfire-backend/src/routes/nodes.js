@@ -1,6 +1,7 @@
 const express = require('express');
 const NodeModel = require('../models/Node');
 const { enqueueCommand } = require('../services/commandQueue');
+const { batteryPercentFromVoltage } = require('../services/battery');
 const { requireLocalAdmin } = require('../middleware/security');
 
 const router = express.Router();
@@ -21,6 +22,12 @@ function withOnlineStatus(node) {
   obj.server_risk_score = obj.server_risk_score ?? 0;
   obj.server_reasons = obj.server_reasons || [];
   obj.fire_danger_level = obj.fire_danger_level || 'LOW';
+  if (typeof obj.battery_v === 'number' && Number.isFinite(obj.battery_v)) {
+    obj.battery_percent = typeof obj.battery_percent === 'number' &&
+      Number.isFinite(obj.battery_percent)
+      ? Math.max(0, Math.min(100, Math.round(obj.battery_percent)))
+      : batteryPercentFromVoltage(obj.battery_v);
+  }
   if (!obj.location_source && obj.gps_fixed && obj.lat !== undefined && obj.lng !== undefined) {
     obj.location_source = 'gps';
   }
@@ -32,6 +39,26 @@ function isValidCoordinate(latitude, longitude) {
   if (latitude < -90 || latitude > 90) return false;
   if (longitude < -180 || longitude > 180) return false;
   return Math.abs(latitude) >= 0.000001 || Math.abs(longitude) >= 0.000001;
+}
+
+function buildGpsReacquireUpdate(node) {
+  const unset = {
+    gps_satellites: '',
+    gps_hdop: ''
+  };
+
+  // A manually entered location remains a fallback while the node searches.
+  if (node?.location_source !== 'manual') {
+    unset.lat = '';
+    unset.lng = '';
+    unset.location_source = '';
+    unset.location_updated_at = '';
+  }
+
+  return {
+    $set: { gps_fixed: false, gps_error: 'gps_reacquiring' },
+    $unset: unset
+  };
 }
 
 router.get('/', async (req, res, next) => {
@@ -65,18 +92,7 @@ router.post('/:node_id/gps/reacquire', requireLocalAdmin, async (req, res, next)
 
     const { command, duplicate } = await enqueueCommand(node.node_id, 'gps_reacquire');
     await NodeModel.updateOne(
-      { _id: node._id },
-      {
-        $set: { gps_fixed: false, gps_error: 'gps_reacquiring' },
-        $unset: {
-          lat: '',
-          lng: '',
-          gps_satellites: '',
-          gps_hdop: '',
-          location_source: '',
-          location_updated_at: ''
-        }
-      }
+      { _id: node._id }, buildGpsReacquireUpdate(node)
     );
 
     return res.status(202).json({ ...command, duplicate });
@@ -123,3 +139,5 @@ router.post('/:node_id/location/manual', requireLocalAdmin, async (req, res, nex
 });
 
 module.exports = router;
+module.exports.buildGpsReacquireUpdate = buildGpsReacquireUpdate;
+module.exports.withOnlineStatus = withOnlineStatus;

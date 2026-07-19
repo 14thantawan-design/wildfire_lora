@@ -25,6 +25,8 @@ const nodeSchema = new mongoose.Schema(
     air_temp: { type: Number },
     humidity: { type: Number },
     smoke_raw: { type: Number },
+    battery_v: { type: Number },
+    battery_percent: { type: Number, min: 0, max: 100 },
     sensor_health: { type: String },
     lat: { type: Number },
     lng: { type: Number },

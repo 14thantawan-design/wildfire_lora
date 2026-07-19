@@ -4,6 +4,8 @@
 #include <ArduinoJson.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
+#include <NetworkClientSecure.h>
+#include <time.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 #include <freertos/semphr.h>
@@ -40,6 +42,7 @@ struct ParsedPacket {
   int groupCount;
   uint16_t baselineWarmupCount;
   float batteryV;
+  bool batteryAvailable;
   String sensorHealth;
   String eventId;
 };
@@ -76,6 +79,7 @@ struct NodeStatus {
   int groupCount;
   uint16_t baselineWarmupCount;
   float batteryV;
+  bool batteryAvailable;
   String sensorHealth;
   String eventId;
   int rssi;
@@ -112,6 +116,8 @@ struct CommandReportJob {
 
 NodeStatus nodes[MAX_NODES];
 PendingCommand pendingCommands[MAX_PENDING_COMMANDS];
+String acknowledgedCommandIds[MAX_PENDING_COMMANDS];
+uint8_t nextAcknowledgedCommandIndex = 0;
 unsigned long lastSummaryPrintMs = 0;
 unsigned long lastCommandPollMs = 0;
 unsigned long lastLoRaInitAttemptMs = 0;
@@ -161,6 +167,45 @@ bool ensureWiFiConnected() {
   return true;
 }
 
+bool ensureBackendClock() {
+  if ((uint32_t)time(nullptr) >= BACKEND_MIN_VALID_UNIX_TIME) return true;
+
+  configTime(
+    0,
+    0,
+    BACKEND_NTP_SERVER_PRIMARY,
+    BACKEND_NTP_SERVER_SECONDARY
+  );
+  unsigned long startedAt = millis();
+  while ((uint32_t)time(nullptr) < BACKEND_MIN_VALID_UNIX_TIME &&
+         millis() - startedAt < BACKEND_TIME_SYNC_TIMEOUT_MS) {
+    delay(250);
+  }
+
+  if ((uint32_t)time(nullptr) < BACKEND_MIN_VALID_UNIX_TIME) {
+    Serial.println("HTTPS clock sync failed");
+    return false;
+  }
+  return true;
+}
+
+bool beginBackendHttp(
+  HTTPClient &http,
+  NetworkClientSecure &secureClient,
+  const String &url
+) {
+  if (!url.startsWith("https://")) return http.begin(url);
+
+  if (strlen(BACKEND_ROOT_CA) < 100) {
+    Serial.println("HTTPS root CA is not configured");
+    return false;
+  }
+  if (!ensureBackendClock()) return false;
+
+  secureClient.setCACert(BACKEND_ROOT_CA);
+  return http.begin(secureClient, url);
+}
+
 bool postPacketToBackend(const String &payload, int rssi, float snr) {
   if (!ensureWiFiConnected()) return false;
 
@@ -180,9 +225,10 @@ bool postPacketToBackend(const String &payload, int rssi, float snr) {
 
   for (int attempt = 1; attempt <= HTTP_POST_RETRY_COUNT; attempt++) {
     HTTPClient http;
+    NetworkClientSecure secureClient;
     http.setTimeout(HTTP_POST_TIMEOUT_MS);
 
-    if (!http.begin(BACKEND_PACKETS_URL)) {
+    if (!beginBackendHttp(http, secureClient, BACKEND_PACKETS_URL)) {
       Serial.println("HTTP begin failed");
       http.end();
       continue;
@@ -191,6 +237,9 @@ bool postPacketToBackend(const String &payload, int rssi, float snr) {
     http.addHeader("Content-Type", "application/json");
     http.addHeader("X-Gateway-Key", GATEWAY_API_KEY);
     int statusCode = http.POST(body);
+    String httpError = statusCode < 0 ? http.errorToString(statusCode) : "";
+    char tlsErrorBuffer[160] = {0};
+    int tlsErrorCode = secureClient.lastError(tlsErrorBuffer, sizeof(tlsErrorBuffer));
     String response = http.getString();
     http.end();
 
@@ -204,6 +253,16 @@ bool postPacketToBackend(const String &payload, int rssi, float snr) {
     Serial.print(attempt);
     Serial.print(": HTTP ");
     Serial.print(statusCode);
+    if (httpError.length() > 0) {
+      Serial.print(" ");
+      Serial.print(httpError);
+    }
+    if (tlsErrorCode != 0) {
+      Serial.print(" TLS ");
+      Serial.print(tlsErrorCode);
+      Serial.print(": ");
+      Serial.print(tlsErrorBuffer);
+    }
     if (response.length() > 0) {
       Serial.print(" ");
       Serial.println(response);
@@ -221,9 +280,10 @@ bool postCommandAck(const String &commandId) {
   if (!ensureWiFiConnected()) return false;
 
   HTTPClient http;
+  NetworkClientSecure secureClient;
   http.setTimeout(HTTP_POST_TIMEOUT_MS);
   String url = String(BACKEND_COMMANDS_URL) + "/" + commandId + "/ack";
-  if (!http.begin(url)) return false;
+  if (!beginBackendHttp(http, secureClient, url)) return false;
 
   http.addHeader("Content-Type", "application/json");
   http.addHeader("X-Gateway-Key", GATEWAY_API_KEY);
@@ -236,9 +296,10 @@ bool postCommandSent(const String &commandId) {
   if (!ensureWiFiConnected()) return false;
 
   HTTPClient http;
+  NetworkClientSecure secureClient;
   http.setTimeout(HTTP_POST_TIMEOUT_MS);
   String url = String(BACKEND_COMMANDS_URL) + "/" + commandId + "/sent";
-  if (!http.begin(url)) return false;
+  if (!beginBackendHttp(http, secureClient, url)) return false;
 
   http.addHeader("Content-Type", "application/json");
   http.addHeader("X-Gateway-Key", GATEWAY_API_KEY);
@@ -290,6 +351,13 @@ bool hasPendingCommandUnlocked(const String &commandId) {
   return false;
 }
 
+bool wasCommandAcknowledgedUnlocked(const String &commandId) {
+  for (int i = 0; i < MAX_PENDING_COMMANDS; i++) {
+    if (acknowledgedCommandIds[i] == commandId) return true;
+  }
+  return false;
+}
+
 bool hasPendingCommand(const String &commandId) {
   lockPendingCommands();
   bool found = hasPendingCommandUnlocked(commandId);
@@ -300,6 +368,10 @@ bool hasPendingCommand(const String &commandId) {
 bool queuePendingCommand(const String &commandId, const String &nodeId, const String &command) {
   if (commandId.length() == 0 || nodeId.length() == 0 || command.length() == 0) return false;
   lockPendingCommands();
+  if (wasCommandAcknowledgedUnlocked(commandId)) {
+    unlockPendingCommands();
+    return true;
+  }
   if (hasPendingCommandUnlocked(commandId)) {
     unlockPendingCommands();
     return true;
@@ -361,8 +433,9 @@ void pollBackendCommands() {
   if (!ensureWiFiConnected()) return;
 
   HTTPClient http;
+  NetworkClientSecure secureClient;
   http.setTimeout(HTTP_POST_TIMEOUT_MS);
-  if (!http.begin(BACKEND_COMMANDS_PENDING_URL)) return;
+  if (!beginBackendHttp(http, secureClient, BACKEND_COMMANDS_PENDING_URL)) return;
 
   http.addHeader("X-Gateway-Key", GATEWAY_API_KEY);
   int statusCode = http.GET();
@@ -513,6 +586,16 @@ void clearPendingCommand(const String &commandId, const String &nodeId) {
   unlockPendingCommands();
 }
 
+void clearAndRememberAcknowledgedCommand(const String &commandId, const String &nodeId) {
+  lockPendingCommands();
+  int index = findPendingCommandIndexUnlocked(commandId, nodeId);
+  if (index >= 0) pendingCommands[index].used = false;
+  acknowledgedCommandIds[nextAcknowledgedCommandIndex] = commandId;
+  nextAcknowledgedCommandIndex =
+    (nextAcknowledgedCommandIndex + 1) % MAX_PENDING_COMMANDS;
+  unlockPendingCommands();
+}
+
 bool sendPendingCommandForNode(const String &nodeId) {
   String commandId;
   String commandName;
@@ -587,6 +670,8 @@ int getOrCreateNodeIndex(const String &nodeId) {
       nodes[i].soilAvailable = false;
       nodes[i].groupCount = 0;
       nodes[i].baselineWarmupCount = 0;
+      nodes[i].batteryV = NAN;
+      nodes[i].batteryAvailable = false;
       Serial.print("New node registered: ");
       Serial.println(nodeId);
       return i;
@@ -681,7 +766,9 @@ bool parseJsonPacket(const String &payload, ParsedPacket &out) {
   out.groupCount = getIntField(doc, "g", "groups", 0);
   out.baselineWarmupCount = getIntField(doc, "bc", "baseline_count", 0);
 
-  out.batteryV = getFloatField(doc, "bv", "battery_v", 0.0f);
+  out.batteryV = getFloatField(doc, "bv", "battery_v", NAN);
+  out.batteryAvailable = isfinite(out.batteryV) && out.batteryV > 0.0f;
+  if (!out.batteryAvailable) out.batteryV = NAN;
   out.sensorHealth = getStringField(doc, "sh", "sensor_health", "UNKNOWN");
   out.eventId = getStringField(doc, "eid", "event_id", "");
 
@@ -737,7 +824,12 @@ void updateNodeStatus(int idx, const ParsedPacket &packet, int rssi, float snr) 
   nodes[idx].humidityBaselineDelta = packet.humidityBaselineDelta;
   nodes[idx].groupCount = packet.groupCount;
   nodes[idx].baselineWarmupCount = packet.baselineWarmupCount;
-  nodes[idx].batteryV = packet.batteryV;
+  // Preserve the last real battery reading when an older node sends a packet
+  // without bv/battery_v. Never manufacture a 0V value for missing data.
+  if (packet.batteryAvailable) {
+    nodes[idx].batteryV = packet.batteryV;
+    nodes[idx].batteryAvailable = true;
+  }
   nodes[idx].sensorHealth = packet.sensorHealth;
   nodes[idx].eventId = packet.eventId;
 }
@@ -833,7 +925,7 @@ void printNodeStatus(const NodeStatus &n) {
   Serial.print("  Air From Baseline: "); Serial.println(n.airTempBaselineDelta);
   Serial.print("  Humidity From Baseline: "); Serial.println(n.humidityBaselineDelta);
   Serial.print("  Baseline Warmup Count: "); Serial.println(n.baselineWarmupCount);
-  Serial.print("  Battery V: "); Serial.println(n.batteryV);
+  printFloatOrNA("  Battery V: ", n.batteryV, n.batteryAvailable);
   Serial.print("  Sensor Health: "); Serial.println(n.sensorHealth);
   Serial.print("  Event ID: "); Serial.println(n.eventId);
   Serial.print("  RSSI: "); Serial.println(n.rssi);
@@ -895,7 +987,7 @@ void printReceivedPacket(const ParsedPacket &packet, int rssi, float snr) {
   Serial.print("Air From Baseline: "); Serial.println(packet.airTempBaselineDelta);
   Serial.print("Humidity From Baseline: "); Serial.println(packet.humidityBaselineDelta);
   Serial.print("Baseline Warmup Count: "); Serial.println(packet.baselineWarmupCount);
-  Serial.print("Battery V: "); Serial.println(packet.batteryV);
+  printFloatOrNA("Battery V: ", packet.batteryV, packet.batteryAvailable);
   Serial.print("Sensor Health: "); Serial.println(packet.sensorHealth);
   Serial.print("Event ID: "); Serial.println(packet.eventId);
   Serial.print("RSSI: "); Serial.println(rssi);
@@ -918,9 +1010,7 @@ bool handleCommandAckPacket(const String &payload) {
   }
 
   if (acknowledgePendingCommand(commandId, nodeId)) {
-#if !WIFI_HTTP_ENABLED
-    clearPendingCommand(commandId, nodeId);
-#endif
+    clearAndRememberAcknowledgedCommand(commandId, nodeId);
     Serial.print("Node confirmed command: ");
     Serial.print(commandId);
     Serial.print(" <- ");
@@ -954,10 +1044,16 @@ void handleIncomingLoRa() {
   if (handleCommandAckPacket(payload)) return;
 
   ParsedPacket parsed;
-  if (!parseJsonPacket(payload, parsed)) return;
+  if (!parseJsonPacket(payload, parsed)) {
+    LoRa.receive();
+    return;
+  }
 
   int idx = getOrCreateNodeIndex(parsed.nodeId);
-  if (idx < 0) return;
+  if (idx < 0) {
+    LoRa.receive();
+    return;
+  }
 
   // The node opens a short receive window immediately after every uplink.
   sendPendingCommandForNode(parsed.nodeId);
@@ -967,6 +1063,7 @@ void handleIncomingLoRa() {
     Serial.print(parsed.nodeId);
     Serial.print(" seq=");
     Serial.println(parsed.seq);
+    LoRa.receive();
     return;
   }
 
@@ -978,6 +1075,7 @@ void handleIncomingLoRa() {
     Serial.println("HTTP packet queue full; packet not forwarded");
   }
 #endif
+  LoRa.receive();
 }
 
 void setup() {
@@ -997,8 +1095,11 @@ void setup() {
     nodes[i].hdop = 0.0f;
     nodes[i].gpsError = "";
     nodes[i].gpsSeenMs = 0;
+    nodes[i].batteryV = NAN;
+    nodes[i].batteryAvailable = false;
   }
   for (int i = 0; i < MAX_PENDING_COMMANDS; i++) pendingCommands[i].used = false;
+  for (int i = 0; i < MAX_PENDING_COMMANDS; i++) acknowledgedCommandIds[i] = "";
 
   Serial.println("Starting Wildfire LoRa Gateway ROBUST...");
   Serial.print("Mode: ");

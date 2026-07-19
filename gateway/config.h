@@ -47,6 +47,13 @@
 //   WIFI_HTTP_ENABLED 1 -> Gateway posts packets directly to backend over Wi-Fi.
 //   Backend .env should use SERIAL_PORT= because no USB serial bridge is needed.
 #define WIFI_HTTP_ENABLED 1
+#ifndef BACKEND_ROOT_CA
+  #define BACKEND_ROOT_CA ""
+#endif
+#define BACKEND_NTP_SERVER_PRIMARY "time.cloudflare.com"
+#define BACKEND_NTP_SERVER_SECONDARY "pool.ntp.org"
+#define BACKEND_TIME_SYNC_TIMEOUT_MS 15000UL
+#define BACKEND_MIN_VALID_UNIX_TIME 1700000000UL
 #define BACKEND_PACKETS_URL BACKEND_API_BASE_URL "/packets"
 #define BACKEND_COMMANDS_PENDING_URL BACKEND_API_BASE_URL "/commands/pending"
 #define BACKEND_COMMANDS_URL BACKEND_API_BASE_URL "/commands"

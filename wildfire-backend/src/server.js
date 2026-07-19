@@ -1,5 +1,7 @@
 require('dotenv').config();
 
+const fs = require('fs');
+const path = require('path');
 const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
@@ -14,6 +16,9 @@ const { corsOptions, requireGatewayKey } = require('./middleware/security');
 const { gatewayStatus, markGatewayPacket } = require('./services/gatewayStatus');
 
 const app = express();
+const dashboardDirectory = path.resolve(__dirname, '../../wildfire-dashboard/dist');
+const dashboardIndex = path.join(dashboardDirectory, 'index.html');
+const dashboardAvailable = fs.existsSync(dashboardIndex);
 const port = Number(process.env.PORT || 4000);
 let serialBridge = null;
 let httpServer = null;
@@ -27,6 +32,7 @@ app.get('/api/health', (req, res) => {
     service: 'wildfire-backend',
     api_version: 2,
     ok: mongoReady,
+    dashboard_served: dashboardAvailable,
     uptime_sec: Math.round(process.uptime()),
     mongo_state: mongoose.connection.readyState,
     serial_enabled: Boolean(process.env.SERIAL_PORT),
@@ -54,8 +60,21 @@ app.post('/api/packets', requireGatewayKey, async (req, res, next) => {
   }
 });
 
-app.use((req, res) => {
+app.use('/api', (req, res) => {
   res.status(404).json({ error: 'not found' });
+});
+
+if (dashboardAvailable) {
+  app.use(express.static(dashboardDirectory, {
+    dotfiles: 'ignore',
+    index: false,
+    maxAge: process.env.NODE_ENV === 'production' ? '1h' : 0
+  }));
+  app.get('*', (req, res) => res.sendFile(dashboardIndex));
+}
+
+app.use((req, res) => {
+  res.status(404).json({ error: 'dashboard build not found' });
 });
 
 app.use((error, req, res, next) => {

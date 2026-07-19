@@ -21,6 +21,8 @@ export interface NodeStatus {
   air_temp?: number | null
   humidity?: number | null
   smoke_raw?: number | null
+  battery_v?: number | null
+  battery_percent?: number | null
   sensor_health?: string
   lat?: number
   lng?: number
@@ -71,6 +73,8 @@ export interface Reading {
   smoke_baseline_delta?: number | null
   air_baseline_delta?: number | null
   humidity_baseline_delta?: number | null
+  battery_v?: number | null
+  battery_percent?: number | null
   sensor_health?: string
   rssi?: number
   snr?: number
@@ -120,6 +124,8 @@ export interface Alert {
     smoke_baseline_delta?: number | null
     air_baseline_delta?: number | null
     humidity_baseline_delta?: number | null
+    battery_v?: number | null
+    battery_percent?: number | null
     sensor_health?: string
     rssi?: number
     snr?: number

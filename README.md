@@ -107,6 +107,63 @@ wildfire_lora_no_ds18b20_robust/
 
 ---
 
+## ระบบไฟและการวัดแบตเตอรี่ของ Sensor Node
+
+ชุดจ่ายไฟที่รองรับในโค้ดนี้คือแผงโซลาร์ 6V 5W, CN3791 สำหรับแผง 6V/แบต Li-ion 1S, แบต INR21700 3.7V 5000mAh ที่มี BMS, ฟิวส์ 2A และ MT3608 ที่ปรับเอาต์พุตเป็น 5.00V
+
+### ผังการต่อสาย
+
+```text
+แผงโซลาร์ 6V 5W
+       │
+       ▼
+CN3791 (Solar input / Li-ion 1S charger)
+       │ BAT+
+       ├──────────────────────────────┐
+       │                              │
+แบต INR21700 BAT+ ── ฟิวส์ 2A ── จุด BAT+ หลังฟิวส์ ── MT3608 IN+
+                                      │                    │
+                                      │                    └─ MT3608 OUT+ 5.00V ── TTGO 5V
+                                      │
+                                      └─ R บน 220kΩ 1% ──┬─ ADC1 GPIO (รอยืนยันรุ่นบอร์ด)
+                                                           ├─ R ล่าง 100kΩ 1% ── GND
+                                                           └─ C 100nF ─────────── GND
+
+แบต BAT- ── CN3791 GND ── MT3608 IN-/OUT- ── TTGO GND ── GND วงจรแบ่งแรงดัน
+```
+
+จุดวัดต้องเป็น **BAT+ หลังฟิวส์และก่อนเข้า MT3608 เท่านั้น** เพื่อให้ค่าที่ได้เป็นแรงดันแบตจริง และ GND ของแบต, CN3791, MT3608, TTGO และวงจรแบ่งแรงดันต้องร่วมกัน
+
+> ห้ามต่อวงจรวัดเข้าขา 5V หลัง MT3608 เพราะค่านั้นถูกบูสต์และควบคุมไว้ใกล้ 5.00V จึงไม่บอกระดับแบตเตอรี่ และไม่ใช่จุดวัดที่เฟิร์มแวร์นี้ออกแบบไว้
+
+### สูตรตัวแบ่งแรงดัน
+
+```text
+อัตราส่วน = (Rบน + Rล่าง) / Rล่าง
+           = (220kΩ + 100kΩ) / 100kΩ
+           = 3.2
+
+แรงดันแบต = แรงดันที่ ADC × 3.2 × BATTERY_CALIBRATION_FACTOR
+```
+
+เมื่อแบตเต็มสูงสุด 4.20V ขา ADC จะได้รับประมาณ `4.20 / 3.2 = 1.3125V` เท่านั้น ตัวเก็บประจุ 100nF ช่วยเป็นแหล่งประจุให้ ADC ของ ESP32 เมื่อใช้ตัวต้านทานค่าสูง เฟิร์มแวร์จึงรอวงจรนิ่ง อ่าน 24 ตัวอย่าง และตัดตัวอย่างสูง/ต่ำออกก่อนเฉลี่ย
+
+ขณะนี้ `BATTERY_ADC_PIN` ยังคงเป็น `-1` จนกว่าจะยืนยันรุ่นและ Revision ของ TTGO/LILYGO LoRa32 จากบอร์ดจริง เพื่อหลีกเลี่ยงการชน LoRa, GPS, Sharp, SHT31, OLED หรือวงจรบนบอร์ด เมื่อปิดขานี้ Sensor Node จะละเว้นฟิลด์ `bv` และ Dashboard จะแสดง `ยังไม่มีข้อมูลแบต`
+
+### วิธีคาลิเบรตกับมัลติมิเตอร์
+
+1. ต่อวงจรและยืนยันขา ADC1 ของบอร์ดให้เรียบร้อย แล้วตั้ง `BATTERY_ADC_PIN` เป็น GPIO ที่ยืนยันแล้ว
+2. เปิด Sensor Node และอ่านค่า `Battery V` จาก Serial Monitor
+3. ใช้มัลติมิเตอร์วัดระหว่างจุด BAT+ หลังฟิวส์/ก่อน MT3608 กับ GND ร่วม
+4. คำนวณ `BATTERY_CALIBRATION_FACTOR = ค่าแรงดันจากมัลติมิเตอร์ / ค่าแรงดันที่ Serial รายงาน`
+5. ใส่ค่าที่ได้ใน `sensor_node/config.h` แล้วทดสอบซ้ำที่แรงดันแบตหลายระดับ โดยต้องไม่ใช้ขา 5V หลัง MT3608 เป็นค่าอ้างอิง
+
+เปอร์เซ็นต์บน Dashboard เป็นค่าประมาณจากกราฟแรงดัน Li-ion 1S ไม่ใช่ค่าความจุที่วัดด้วย fuel gauge โดยตรง สถานะแบตต่ำใช้แรงดัน `≤3.50V` และสถานะวิกฤตใช้ `≤3.40V`
+
+ยังไม่มีการอ่านสถานะกำลังชาร์จจาก `CHRG`/`DONE` ของ CN3791 จนกว่าจะยืนยันว่าโมดูลที่ใช้ได้นำขาเหล่านั้นออกมาให้ต่อใช้งาน
+
+---
+
 ## วิธีอัปโหลด
 
 ### Gateway
@@ -216,3 +273,23 @@ Changed behavior:
 - In `TEST_MODE`, runtime RTC counters are reset after every reset/upload so old `BOOT_ABNORMAL` or `SENSOR_FAULT` states do not persist during bench testing.
 
 Important: if your Sharp reads 0 in clean air, verify it responds upward when exposed to a safe smoke source such as incense. If it remains 0 even with smoke, the issue is wiring, LED drive, sensor power, or ADC input.
+
+---
+
+## Domain deployment
+
+The Cloudflare Tunnel publishes two hostnames through the same backend:
+
+- `https://wildfire.nattaphat.me` is the public, read-only dashboard.
+- `https://admin.nattaphat.me` is protected by Cloudflare Access and exposes the GPS, manual-location, and alert-management controls.
+
+Build and start the domain version with:
+
+```powershell
+cd C:\wildfire_lora
+.\start-domain.ps1
+```
+
+Create both tunnel routes with service URL `http://localhost:4000`. Enable **Protect with Access** on the admin route and allow only the addresses listed in backend `ADMIN_EMAILS`.
+
+The Gateway may move from its local HTTP URL to `https://wildfire.nattaphat.me/api` only after the Cloudflare route is healthy and the matching public root CA has been placed in `gateway/secrets.h`. The firmware deliberately refuses HTTPS when no CA is configured.

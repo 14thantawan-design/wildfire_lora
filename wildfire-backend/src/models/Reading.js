@@ -34,6 +34,8 @@ const readingSchema = new mongoose.Schema(
     smoke_baseline_delta: { type: Number },
     air_baseline_delta: { type: Number },
     humidity_baseline_delta: { type: Number },
+    battery_v: { type: Number },
+    battery_percent: { type: Number, min: 0, max: 100 },
     sensor_health: { type: String },
     rssi: { type: Number },
     snr: { type: Number },

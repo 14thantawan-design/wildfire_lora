@@ -1,5 +1,6 @@
 const express = require('express');
 const Reading = require('../models/Reading');
+const { batteryPercentFromVoltage } = require('../services/battery');
 
 const router = express.Router();
 
@@ -41,6 +42,20 @@ function serializeReading(reading) {
     humidity: 'none',
     trend: 'none'
   };
+  const storedBatteryV = typeof obj.battery_v === 'number' && Number.isFinite(obj.battery_v)
+    ? obj.battery_v
+    : undefined;
+  const legacyBatteryV = typeof rawPacket.bv === 'number' && Number.isFinite(rawPacket.bv)
+    ? rawPacket.bv
+    : undefined;
+  const batteryV = storedBatteryV ?? legacyBatteryV;
+  if (batteryV !== undefined) {
+    obj.battery_v = batteryV;
+    obj.battery_percent = typeof obj.battery_percent === 'number' &&
+      Number.isFinite(obj.battery_percent)
+      ? Math.max(0, Math.min(100, Math.round(obj.battery_percent)))
+      : batteryPercentFromVoltage(batteryV);
+  }
   obj.state = serverState;
 
   return obj;
@@ -99,6 +114,8 @@ router.get('/:node_id', async (req, res, next) => {
             air_temp: { $avg: '$air_temp' },
             humidity: { $avg: '$humidity' },
             smoke_raw: { $avg: '$smoke_raw' },
+            battery_v: { $last: '$battery_v' },
+            battery_percent: { $last: '$battery_percent' },
             sensor_health: { $last: '$sensor_health' },
             rssi: { $last: '$rssi' },
             snr: { $last: '$snr' }
@@ -120,3 +137,4 @@ router.get('/:node_id', async (req, res, next) => {
 });
 
 module.exports = router;
+module.exports.serializeReading = serializeReading;

@@ -85,8 +85,10 @@ GPS commands are stored in MongoDB until the Sensor Node acknowledges them, so r
 curl -X POST http://localhost:4000/api/packets ^
   -H "Content-Type: application/json" ^
   -H "X-Gateway-Key: replace-with-your-gateway-key" ^
-  -d "{\"t\":\"s\",\"id\":\"NODE01\",\"q\":12,\"st\":\"NORMAL\",\"c\":20,\"at\":31.2,\"h\":55.4,\"sm\":120,\"sd\":20,\"sr\":80,\"ar\":1.2,\"hr\":-3.1,\"sh\":\"OK\"}"
+  -d "{\"t\":\"s\",\"id\":\"NODE01\",\"q\":12,\"st\":\"NORMAL\",\"c\":20,\"at\":31.2,\"h\":55.4,\"sm\":120,\"sd\":20,\"sr\":80,\"ar\":1.2,\"hr\":-3.1,\"bv\":3.84,\"sh\":\"OK\"}"
 ```
+
+`bv` เป็นแรงดันแบตเตอรี่แบบ optional หากไม่มีวงจรวัดให้ละเว้นฟิลด์นี้ Backend จะบันทึก `battery_v` และคำนวณ `battery_percent` แบบประมาณเมื่อมีข้อมูลเท่านั้น
 
 GPS test:
 

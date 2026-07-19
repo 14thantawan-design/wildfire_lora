@@ -66,8 +66,17 @@
 #define SHARP_ANALOG_PIN 36
 
 #define SENSOR_POWER_PIN -1
+// Keep disabled until the exact TTGO/LILYGO LoRa32 revision and a free ADC1 pin
+// are verified from the physical board. Never select an ADC2 pin because Wi-Fi
+// and other ESP32 peripherals can make ADC2 readings unavailable or unreliable.
 #define BATTERY_ADC_PIN -1
-#define BATTERY_DIVIDER_RATIO 2.0f
+#define BATTERY_DIVIDER_RATIO 3.2f       // (220k + 100k) / 100k
+#define BATTERY_CALIBRATION_FACTOR 1.0f  // multimeter voltage / reported voltage
+#define BATTERY_ADC_REFERENCE_MV 3300.0f // fallback for old Arduino-ESP32 cores
+#define BATTERY_ADC_SETTLE_MS 50UL       // >7x the 68.75kΩ/100nF RC time constant
+#define BATTERY_ADC_SAMPLE_COUNT 24
+#define BATTERY_ADC_TRIM_COUNT 4
+#define BATTERY_ADC_SAMPLE_DELAY_MS 2UL
 
 // =========================
 // One-shot GPS install location

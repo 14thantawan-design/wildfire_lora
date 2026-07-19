@@ -9,6 +9,17 @@
 #include "esp_system.h"
 #include "config.h"
 
+#if defined(__has_include)
+  #if __has_include(<esp_arduino_version.h>)
+    #include <esp_arduino_version.h>
+    #define HAS_CALIBRATED_ADC_MILLIVOLTS 1
+  #endif
+#endif
+
+#ifndef HAS_CALIBRATED_ADC_MILLIVOLTS
+  #define HAS_CALIBRATED_ADC_MILLIVOLTS 0
+#endif
+
 #if USE_GPS
   #include <TinyGPSPlus.h>
 #endif
@@ -194,11 +205,61 @@ void powerSensors(bool on) {
   }
 }
 
-float readBatteryVoltage() {
-  if (BATTERY_ADC_PIN < 0) return 0.0f;
+uint32_t readBatteryAdcMillivolts() {
+#if HAS_CALIBRATED_ADC_MILLIVOLTS
+  // Arduino-ESP32 uses the chip's ADC calibration data when this API is available.
+  return analogReadMilliVolts(BATTERY_ADC_PIN);
+#else
+  // Older cores do not expose calibrated millivolts. BATTERY_CALIBRATION_FACTOR
+  // must be adjusted against a multimeter after installing the divider.
   int raw = analogRead(BATTERY_ADC_PIN);
-  float adcV = (raw / 4095.0f) * 3.3f;
-  return adcV * BATTERY_DIVIDER_RATIO;
+  return (uint32_t)lroundf((raw / 4095.0f) * BATTERY_ADC_REFERENCE_MV);
+#endif
+}
+
+float readBatteryVoltage() {
+  if (BATTERY_ADC_PIN < 0) return NAN;
+
+  static_assert(
+    BATTERY_ADC_SAMPLE_COUNT > BATTERY_ADC_TRIM_COUNT * 2,
+    "Battery trim count must leave at least one ADC sample"
+  );
+
+  // The 220k/100k divider has a high source impedance. Let its 100nF reservoir
+  // capacitor settle, then discard the first conversion after channel switching.
+  delay(BATTERY_ADC_SETTLE_MS);
+  (void)readBatteryAdcMillivolts();
+  delay(BATTERY_ADC_SAMPLE_DELAY_MS);
+
+  uint32_t samples[BATTERY_ADC_SAMPLE_COUNT];
+  for (size_t i = 0; i < BATTERY_ADC_SAMPLE_COUNT; i++) {
+    samples[i] = readBatteryAdcMillivolts();
+    if (i + 1 < BATTERY_ADC_SAMPLE_COUNT) delay(BATTERY_ADC_SAMPLE_DELAY_MS);
+  }
+
+  // Insertion sort is small and deterministic for only 24 samples.
+  for (size_t i = 1; i < BATTERY_ADC_SAMPLE_COUNT; i++) {
+    uint32_t value = samples[i];
+    size_t j = i;
+    while (j > 0 && samples[j - 1] > value) {
+      samples[j] = samples[j - 1];
+      j--;
+    }
+    samples[j] = value;
+  }
+
+  uint64_t trimmedSumMv = 0;
+  for (size_t i = BATTERY_ADC_TRIM_COUNT;
+       i < BATTERY_ADC_SAMPLE_COUNT - BATTERY_ADC_TRIM_COUNT;
+       i++) {
+    trimmedSumMv += samples[i];
+  }
+
+  const size_t keptSampleCount = BATTERY_ADC_SAMPLE_COUNT - (BATTERY_ADC_TRIM_COUNT * 2);
+  const float adcMillivolts = trimmedSumMv / (float)keptSampleCount;
+  return (adcMillivolts / 1000.0f) *
+    BATTERY_DIVIDER_RATIO *
+    BATTERY_CALIBRATION_FACTOR;
 }
 
 int median3(int a, int b, int c) {
@@ -259,6 +320,12 @@ void initSensors() {
   pinMode(SHARP_LED_PIN, OUTPUT);
   digitalWrite(SHARP_LED_PIN, HIGH);
   analogReadResolution(12);
+  if (BATTERY_ADC_PIN >= 0) {
+    pinMode(BATTERY_ADC_PIN, INPUT);
+    // 4.20V / 3.2 = 1.313V at the ADC. 11dB leaves generous headroom and is
+    // supported by both current and older Arduino-ESP32 cores.
+    analogSetPinAttenuation(BATTERY_ADC_PIN, ADC_11db);
+  }
 
   bool shtOk = beginSht31();
 
@@ -275,6 +342,14 @@ void initSensors() {
   }
   Serial.print("DS18B20 enabled: ");
   Serial.println(USE_DS18B20 ? "YES" : "NO");
+  Serial.print("Battery ADC: ");
+  if (BATTERY_ADC_PIN < 0) {
+    Serial.println("DISABLED");
+  } else {
+    Serial.print("GPIO");
+    Serial.print(BATTERY_ADC_PIN);
+    Serial.println(HAS_CALIBRATED_ADC_MILLIVOLTS ? " (calibrated mV)" : " (raw fallback)");
+  }
 #endif
 }
 
@@ -788,7 +863,10 @@ String buildJsonPacket(const SensorData &data, const DeltaData &delta, const Evi
   // Group evidence helps Gateway/debug understand why a status happened.
   doc["g"] = e.groupCount;
   doc["sh"] = sensorHealthString(data);
-  doc["bv"] = data.batteryV;
+  if (!isnan(data.batteryV)) {
+    // Two decimals are enough for the dashboard and keep the LoRa payload compact.
+    doc["bv"] = roundf(data.batteryV * 100.0f) / 100.0f;
+  }
 
   if (!baselineInitialized) doc["bc"] = baselineWarmupCount;
   if (currentEventId.length() > 0) doc["eid"] = currentEventId;
@@ -813,6 +891,9 @@ String buildJsonPacket(const SensorData &data, const DeltaData &delta, const Evi
     mini["ar"] = delta.airTempBaselineDelta;
     mini["hr"] = delta.humidityBaselineDelta;
     mini["sh"] = sensorHealthString(data);
+    if (!isnan(data.batteryV)) {
+      mini["bv"] = roundf(data.batteryV * 100.0f) / 100.0f;
+    }
     serializeJson(mini, payload);
   }
 
@@ -1236,6 +1317,9 @@ void printSensorDebug(const SensorData &data, const DeltaData &delta, const Evid
   Serial.print("Air Temp: "); Serial.println(data.airTemp);
   Serial.print("Humidity: "); Serial.println(data.humidity);
   Serial.print("Smoke Raw: "); Serial.println(data.smokeRaw);
+  Serial.print("Battery V: ");
+  if (isnan(data.batteryV)) Serial.println("N/A");
+  else Serial.println(data.batteryV, 3);
   Serial.print("Smoke Delta: "); Serial.println(delta.smokeDelta);
   Serial.print("Smoke Rate/min: "); Serial.println(delta.smokeRatePerMin);
   Serial.print("Smoke Baseline Delta: "); Serial.println(delta.smokeBaselineDelta);
