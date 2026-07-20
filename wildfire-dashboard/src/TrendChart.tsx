@@ -11,12 +11,12 @@ import {
 import { getTimeRange, timeRangeOptions, type TimeRangeKey } from './timeRanges'
 import type { Reading } from './types'
 
-type MetricKey = 'smoke_raw' | 'air_temp' | 'humidity'
+type MetricKey = 'air_temp' | 'humidity' | 'smoke_raw'
 
 const metrics: Record<MetricKey, { label: string; unit: string; color: string }> = {
-  smoke_raw: { label: 'ควัน', unit: ' raw', color: '#ee7548' },
   air_temp: { label: 'อุณหภูมิ', unit: '°C', color: '#f2a93b' },
   humidity: { label: 'ความชื้น', unit: '%', color: '#4da7a0' },
+  smoke_raw: { label: 'ควัน', unit: ' raw', color: '#ee7548' },
 }
 
 function formatChartTime(timestamp: string, range: TimeRangeKey) {
@@ -47,7 +47,7 @@ export function TrendChart({
   selectedRange: TimeRangeKey
   onRangeChange: (range: TimeRangeKey) => void
 }) {
-  const [metric, setMetric] = useState<MetricKey>('smoke_raw')
+  const [metric, setMetric] = useState<MetricKey>('air_temp')
   const config = metrics[metric]
   const data = useMemo(() => {
     const selected = getTimeRange(selectedRange)

@@ -21,7 +21,7 @@ import {
   Wrench,
   X,
 } from 'lucide-react'
-import type { Alert, NodeState } from './types'
+import type { Alert, NodeState, Reading } from './types'
 import { getBatteryDisplay } from './battery'
 import { useDashboard } from './useDashboard'
 import type { TimeRangeKey } from './timeRanges'
@@ -169,6 +169,21 @@ function Value({
       {value !== undefined && value !== null && suffix && <small>{suffix}</small>}
     </>
   )
+}
+
+type AverageMetric = 'air_temp' | 'humidity' | 'smoke_raw'
+
+function averageReadings(readings: Reading[], metric: AverageMetric) {
+  const values = readings
+    .map((reading) => reading[metric])
+    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
+
+  return {
+    count: values.length,
+    value: values.length > 0
+      ? values.reduce((sum, value) => sum + value, 0) / values.length
+      : undefined,
+  }
 }
 
 function formatAlertReason(reason: string) {
@@ -349,6 +364,7 @@ function App() {
     nodes,
     alerts,
     readings,
+    recentReadings,
     loading,
     backendUnavailable,
     health,
@@ -374,11 +390,26 @@ function App() {
     typeof selectedLiveNode?.smoke_raw === 'number'
       ? Math.round(selectedLiveNode.smoke_raw)
       : selectedLiveNode?.smoke_raw
-  const selectedNodeMeta = selectedNode
-    ? selectedLiveNode
-      ? `${selectedNode.node_id}${selectedNode.last_seq ? ` · รอบ ${selectedNode.last_seq}` : ''}`
-      : `${selectedNode.node_id} · ออฟไลน์ · ข้อมูลล่าสุด ${timeAgo(selectedNode.last_seen)}`
-    : 'ยังไม่มีโหนดที่เลือก'
+  const selectedRecentReadings = useMemo(
+    () => recentReadings
+      .filter((reading) => reading.node_id === selectedNode?.node_id)
+      .slice(0, 10),
+    [recentReadings, selectedNode?.node_id],
+  )
+  const recentAverages = useMemo(
+    () => ({
+      airTemp: averageReadings(selectedRecentReadings, 'air_temp'),
+      humidity: averageReadings(selectedRecentReadings, 'humidity'),
+      smoke: averageReadings(selectedRecentReadings, 'smoke_raw'),
+    }),
+    [selectedRecentReadings],
+  )
+  const latestAverageTimestamp = selectedRecentReadings[0]?.timestamp
+  const averageMeta = (count: number) => {
+    if (!selectedNode) return 'ยังไม่มีโหนดที่เลือก'
+    if (count === 0) return `${selectedNode.node_id} · ยังไม่มีข้อมูลย้อนหลัง`
+    return `${selectedNode.node_id} · ${count}/10 ข้อมูล · ${timeAgo(latestAverageTimestamp)}`
+  }
   const selectedBattery = getBatteryDisplay(
     selectedLiveNode?.battery_v,
     selectedLiveNode?.battery_percent,
@@ -728,7 +759,7 @@ function App() {
             <div>
               <span className="eyebrow">ศูนย์เฝ้าระวังภาคสนาม</span>
               <h1>ภาพรวมพื้นที่ตรวจวัด</h1>
-              <p>ติดตามสัญญาณควัน อุณหภูมิ และความชื้นจากเครือข่าย LoRa</p>
+              <p>ติดตามอุณหภูมิ ความชื้น และสัญญาณควันจากเครือข่าย LoRa</p>
             </div>
             <div className="date-chip">
               <span>{new Intl.DateTimeFormat('th-TH', { weekday: 'long' }).format(new Date())}</span>
@@ -764,115 +795,20 @@ function App() {
               <em>{nodes.length ? Math.round((onlineNodes.length / nodes.length) * 100) : 0}% พร้อมใช้งาน</em>
             </article>
             <article>
-              <span className="stat-icon amber"><Wind size={19} /></span>
-              <div><span>ควันล่าสุด</span><strong><Value value={selectedSmoke} suffix=" raw" /></strong></div>
-              <em>{selectedNodeMeta}</em>
-            </article>
-            <article>
               <span className="stat-icon red"><Thermometer size={19} /></span>
-              <div><span>อุณหภูมิล่าสุด</span><strong><Value value={selectedLiveNode?.air_temp} suffix="°C" fractionDigits={1} /></strong></div>
-              <em>{selectedNodeMeta}</em>
+              <div><span>อุณหภูมิเฉลี่ย · 10 รอบ</span><strong><Value value={recentAverages.airTemp.value} suffix="°C" fractionDigits={1} /></strong></div>
+              <em>{averageMeta(recentAverages.airTemp.count)}</em>
             </article>
             <article>
               <span className="stat-icon blue"><Droplets size={19} /></span>
-              <div><span>ความชื้นล่าสุด</span><strong><Value value={selectedLiveNode?.humidity} suffix="%" fractionDigits={1} /></strong></div>
-              <em>{selectedNodeMeta}</em>
+              <div><span>ความชื้นเฉลี่ย · 10 รอบ</span><strong><Value value={recentAverages.humidity.value} suffix="%" fractionDigits={1} /></strong></div>
+              <em>{averageMeta(recentAverages.humidity.count)}</em>
             </article>
-          </section>
-
-          <section aria-labelledby="node-overview-title" className="panel node-panel">
-            <div className="panel-head">
-              <div>
-                <span className="panel-kicker">SENSOR NODES</span>
-                <h2 id="node-overview-title">สถานะแต่ละจุดตรวจวัด</h2>
-              </div>
-              <span className="panel-meta">เลือกบัตรเพื่อดูรายละเอียด</span>
-            </div>
-            <div className="node-panel-body">
-              <div className="node-card-grid">
-                {nodes.length === 0 ? (
-                  <div className="node-card-empty">ยังไม่มีข้อมูลจาก Sensor Node</div>
-                ) : nodes.map((node) => {
-                  const nodeHasLiveData = gatewayConnected && node.online
-                  const battery = getBatteryDisplay(
-                    nodeHasLiveData ? node.battery_v : undefined,
-                    nodeHasLiveData ? node.battery_percent : undefined,
-                  )
-
-                  return (
-                    <button
-                      aria-pressed={node.node_id === selectedNode?.node_id}
-                      className={`node-summary-card ${node.node_id === selectedNode?.node_id ? 'selected' : ''}`}
-                      key={node.node_id}
-                      onClick={() => setSelectedNodeId(node.node_id)}
-                      type="button"
-                    >
-                      <span className="node-card-head">
-                        <span>
-                          <strong>{node.node_id}</strong>
-                          <small>{timeAgo(node.last_seen)}</small>
-                        </span>
-                        <b className={`status-tag state-${node.online ? node.state.toLowerCase() : 'offline'}`}>
-                          {node.online ? stateLabels[node.state] : 'ออฟไลน์'}
-                        </b>
-                      </span>
-                      <span className="node-card-values">
-                        <span>อุณหภูมิ <strong><Value value={nodeHasLiveData ? node.air_temp : undefined} suffix="°C" fractionDigits={1} /></strong></span>
-                        <span>ความชื้น <strong><Value value={nodeHasLiveData ? node.humidity : undefined} suffix="%" fractionDigits={1} /></strong></span>
-                        <span>ควัน <strong><Value value={nodeHasLiveData ? node.smoke_raw : undefined} /></strong></span>
-                      </span>
-                      <span className={`battery-summary battery-${battery.tone}`}>
-                        <BatteryMedium size={18} />
-                        <span>
-                          <strong>{battery.available ? battery.voltageText : battery.statusText}</strong>
-                          <small>
-                            {battery.available
-                              ? `${battery.percentText} · ${battery.statusText}`
-                              : 'โหนดนี้อาจยังไม่มีวงจรวัดแบต'}
-                          </small>
-                        </span>
-                      </span>
-                    </button>
-                  )
-                })}
-              </div>
-
-              <aside className={`node-detail-card battery-${selectedBattery.tone}`}>
-                <div className="node-detail-head">
-                  <span>
-                    <small>รายละเอียด Node</small>
-                    <strong>{selectedNode?.node_id ?? 'ยังไม่มีโหนด'}</strong>
-                  </span>
-                  {selectedNode && (
-                    <b className={`status-tag state-${selectedNode.online ? selectedNode.state.toLowerCase() : 'offline'}`}>
-                      {selectedNode.online ? stateLabels[selectedNode.state] : 'ออฟไลน์'}
-                    </b>
-                  )}
-                </div>
-                <div className="node-detail-values">
-                  <span>อุณหภูมิ <strong><Value value={selectedLiveNode?.air_temp} suffix="°C" fractionDigits={1} /></strong></span>
-                  <span>ความชื้น <strong><Value value={selectedLiveNode?.humidity} suffix="%" fractionDigits={1} /></strong></span>
-                  <span>ควัน <strong><Value value={selectedSmoke} suffix=" raw" /></strong></span>
-                </div>
-                <div className="node-detail-battery">
-                  <span className="node-battery-icon"><BatteryMedium size={23} /></span>
-                  <span>
-                    <small>แรงดันแบตเตอรี่</small>
-                    <strong>
-                      {selectedBattery.available
-                        ? selectedBattery.voltageText
-                        : 'ยังไม่มีข้อมูลแบต'}
-                    </strong>
-                    {selectedBattery.available && <b>{selectedBattery.percentText}</b>}
-                  </span>
-                  <em>
-                    {selectedBattery.available
-                      ? `${selectedBattery.statusText} · เปอร์เซ็นต์ใช้งานเป็นค่าประมาณ`
-                      : 'รองรับโหนดเดิมที่ยังไม่ได้ติดตั้งวงจรวัดแบต'}
-                  </em>
-                </div>
-              </aside>
-            </div>
+            <article>
+              <span className="stat-icon amber"><Wind size={19} /></span>
+              <div><span>ควันเฉลี่ย · 10 รอบ</span><strong><Value value={recentAverages.smoke.value} suffix=" raw" fractionDigits={0} /></strong></div>
+              <em>{averageMeta(recentAverages.smoke.count)}</em>
+            </article>
           </section>
 
           <section className="dashboard-grid">
@@ -926,7 +862,59 @@ function App() {
               </Suspense>
             </article>
 
-            <article className="panel alert-panel" id="alerts">
+            <div className="dashboard-side-column">
+              <aside
+                aria-label="รายละเอียดและแบตเตอรี่ของ Node"
+                className={`panel node-detail-card battery-${selectedBattery.tone}`}
+              >
+                <div className="node-detail-head">
+                  <span>
+                    <small>เลือกดูรายละเอียดและแบตเตอรี่</small>
+                    {nodes.length > 0 ? (
+                      <select
+                        aria-label="เลือก Node เพื่อดูรายละเอียดและแบตเตอรี่"
+                        className="node-detail-select"
+                        value={selectedNode?.node_id ?? ''}
+                        onChange={(event) => setSelectedNodeId(event.target.value)}
+                      >
+                        {nodes.map((node) => (
+                          <option key={node.node_id} value={node.node_id}>{node.node_id}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <strong>ยังไม่มีโหนด</strong>
+                    )}
+                  </span>
+                  {selectedNode && (
+                    <b className={`status-tag state-${selectedNode.online ? selectedNode.state.toLowerCase() : 'offline'}`}>
+                      {selectedNode.online ? stateLabels[selectedNode.state] : 'ออฟไลน์'}
+                    </b>
+                  )}
+                </div>
+                <div className="node-detail-values">
+                  <span>อุณหภูมิ <strong><Value value={selectedLiveNode?.air_temp} suffix="°C" fractionDigits={1} /></strong></span>
+                  <span>ความชื้น <strong><Value value={selectedLiveNode?.humidity} suffix="%" fractionDigits={1} /></strong></span>
+                  <span>ควัน <strong><Value value={selectedSmoke} suffix=" raw" /></strong></span>
+                </div>
+                <div className="node-detail-battery">
+                  <span className="node-battery-icon"><BatteryMedium size={23} /></span>
+                  <span>
+                    <small>แรงดันแบตเตอรี่</small>
+                    <strong>
+                      {selectedBattery.available
+                        ? selectedBattery.voltageText
+                        : 'ยังไม่มีข้อมูลแบต'}
+                    </strong>
+                    <b>
+                      {selectedBattery.available
+                        ? `${selectedBattery.percentText} · ${selectedBattery.statusText}`
+                        : 'รองรับโหนดที่ยังไม่มีวงจรวัดแบต'}
+                    </b>
+                  </span>
+                </div>
+              </aside>
+
+              <article className="panel alert-panel" id="alerts">
               <div className="panel-head">
                 <div><span className="panel-kicker">EVENTS</span><h2>เหตุการณ์ล่าสุด</h2></div>
                 {alerts.length > 5 && (
@@ -1003,7 +991,8 @@ function App() {
                   })
                 )}
               </div>
-            </article>
+              </article>
+            </div>
           </section>
 
           <section className="panel trend-panel" id="trends">
