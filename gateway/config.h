@@ -57,6 +57,20 @@
 #define BACKEND_PACKETS_URL BACKEND_API_BASE_URL "/packets"
 #define BACKEND_COMMANDS_PENDING_URL BACKEND_API_BASE_URL "/commands/pending"
 #define BACKEND_COMMANDS_URL BACKEND_API_BASE_URL "/commands"
+
+// Wi-Fi provisioning:
+// - First boot: connect a phone to the setup AP and choose the site Wi-Fi.
+// - Runtime: hold the TTGO BOOT button to reopen the setup portal.
+// - A prolonged outage also opens the portal temporarily while reconnecting.
+#define WIFI_CONFIG_BUTTON_PIN 0
+#define WIFI_CONFIG_BUTTON_HOLD_MS 5000UL
+#define WIFI_SETUP_AP_PREFIX "Wildfire-Gateway"
+#define WIFI_SETUP_AP_PASSWORD "wildfire-setup"
+#define WIFI_PORTAL_AUTO_START_MS 120000UL
+#define WIFI_PORTAL_TIMEOUT_MS 600000UL
+#define WIFI_PORTAL_SUCCESS_CLOSE_DELAY_MS 5000UL
+#define WIFI_RECONNECT_INITIAL_DELAY_MS 2000UL
+#define WIFI_RECONNECT_MAX_DELAY_MS 60000UL
 #define WIFI_CONNECT_TIMEOUT_MS 15000UL
 #define HTTP_POST_TIMEOUT_MS 5000UL
 #define HTTP_POST_RETRY_COUNT 2

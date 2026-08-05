@@ -257,9 +257,14 @@ float readBatteryVoltage() {
 
   const size_t keptSampleCount = BATTERY_ADC_SAMPLE_COUNT - (BATTERY_ADC_TRIM_COUNT * 2);
   const float adcMillivolts = trimmedSumMv / (float)keptSampleCount;
-  return (adcMillivolts / 1000.0f) *
+  const float batteryV = (adcMillivolts / 1000.0f) *
     BATTERY_DIVIDER_RATIO *
     BATTERY_CALIBRATION_FACTOR;
+
+  // GPIO39 floats when the optional battery divider is not connected. Omitting
+  // an implausible value keeps the otherwise valid sensor packet ingestible.
+  if (batteryV < BATTERY_VALID_MIN_V || batteryV > BATTERY_VALID_MAX_V) return NAN;
+  return batteryV;
 }
 
 int median3(int a, int b, int c) {

@@ -899,15 +899,15 @@ function App() {
                 <div className="node-detail-battery">
                   <span className="node-battery-icon"><BatteryMedium size={23} /></span>
                   <span>
-                    <small>แรงดันแบตเตอรี่</small>
+                    <small>แบตเตอรี่</small>
                     <strong>
                       {selectedBattery.available
-                        ? selectedBattery.voltageText
+                        ? selectedBattery.percentText
                         : 'ยังไม่มีข้อมูลแบต'}
                     </strong>
                     <b>
                       {selectedBattery.available
-                        ? `${selectedBattery.percentText} · ${selectedBattery.statusText}`
+                        ? `${selectedBattery.voltageText} · ${selectedBattery.statusText}`
                         : 'รองรับโหนดที่ยังไม่มีวงจรวัดแบต'}
                     </b>
                   </span>

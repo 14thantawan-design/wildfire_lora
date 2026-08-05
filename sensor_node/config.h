@@ -65,11 +65,11 @@
 #define SHARP_LED_PIN 25
 #define SHARP_ANALOG_PIN 36
 
-#define SENSOR_POWER_PIN -1
-// Keep disabled until the exact TTGO/LILYGO LoRa32 revision and a free ADC1 pin
-// are verified from the physical board. Never select an ADC2 pin because Wi-Fi
-// and other ESP32 peripherals can make ADC2 readings unavailable or unreliable.
-#define BATTERY_ADC_PIN -1
+#define SENSOR_POWER_PIN 4    // TTGO IO4 -> Sharp F5305S SIG+ (HIGH = power ON)
+// LILYGO T3 V1.6.1: GPIO39/VN is an exposed, input-only ADC1 pin and does not
+// conflict with this node's LoRa, GPS, Sharp, SHT31, OLED, or power-control pins.
+// Connect only the midpoint of the external 220k/100k divider to this pin.
+#define BATTERY_ADC_PIN 39
 #define BATTERY_DIVIDER_RATIO 3.2f       // (220k + 100k) / 100k
 #define BATTERY_CALIBRATION_FACTOR 1.0f  // multimeter voltage / reported voltage
 #define BATTERY_ADC_REFERENCE_MV 3300.0f // fallback for old Arduino-ESP32 cores
@@ -77,6 +77,10 @@
 #define BATTERY_ADC_SAMPLE_COUNT 24
 #define BATTERY_ADC_TRIM_COUNT 4
 #define BATTERY_ADC_SAMPLE_DELAY_MS 2UL
+// A disconnected divider leaves GPIO39 floating. Do not send that reading,
+// because the backend correctly rejects impossible Li-ion voltages.
+#define BATTERY_VALID_MIN_V 2.5f
+#define BATTERY_VALID_MAX_V 5.0f
 
 // =========================
 // One-shot GPS install location
@@ -91,7 +95,7 @@
 #define GPS_RX_PIN 34
 #define GPS_TX_PIN -1
 #define GPS_BAUD 9600
-#define GPS_POWER_PIN -1
+#define GPS_POWER_PIN 13   // TTGO IO13 -> GPS F5305S SIG+ (HIGH = power ON)
 #if TEST_MODE
   #define GPS_FIX_TIMEOUT_MS 300000UL       // 5 minutes for cold-start bench/field testing
   #define GPS_RETRY_INTERVAL_MS 60000UL     // retry soon while you are finding a good GPS spot

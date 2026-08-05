@@ -177,8 +177,8 @@ export function MapPanel({ nodes, selectedNodeId, onSelect }: MapPanelProps) {
                 <div className={`sensor-tooltip-battery battery-${battery.tone}`}>
                   <BatteryMedium size={15} />
                   <span>
-                    <strong>{battery.available ? battery.voltageText : battery.statusText}</strong>
-                    <small>{battery.available ? battery.percentText : 'รองรับโหนดที่ยังไม่มีวงจรวัด'}</small>
+                    <strong>{battery.available ? battery.percentText : battery.statusText}</strong>
+                    <small>{battery.available ? `${battery.voltageText} · ${battery.statusText}` : 'รองรับโหนดที่ยังไม่มีวงจรวัด'}</small>
                   </span>
                 </div>
                 <div className="sensor-tooltip-foot">

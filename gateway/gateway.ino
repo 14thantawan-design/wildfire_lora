@@ -10,6 +10,7 @@
 #include <freertos/queue.h>
 #include <freertos/semphr.h>
 #include "config.h"
+#include "wifi_provisioning.h"
 
 #if defined(BLUETOOTH_ENABLED) || defined(CONFIG_BT_ENABLED)
   #include "esp_bt.h"
@@ -145,25 +146,16 @@ void disableUnusedRadios() {
 bool ensureWiFiConnected() {
   if (WiFi.status() == WL_CONNECTED) return true;
 
-  Serial.print("Connecting Wi-Fi: ");
-  Serial.println(WIFI_SSID);
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-
+  // The provisioning service owns WiFi.begin() and reconnect scheduling.
+  // This task only waits briefly so LoRa reception can continue on the other core.
   unsigned long startedAt = millis();
   while (WiFi.status() != WL_CONNECTED && millis() - startedAt < WIFI_CONNECT_TIMEOUT_MS) {
     delay(250);
-    Serial.print(".");
   }
-  Serial.println();
 
   if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("Wi-Fi connect failed");
     return false;
   }
-
-  Serial.print("Wi-Fi connected: ");
-  Serial.println(WiFi.localIP());
   return true;
 }
 
@@ -1106,6 +1098,7 @@ void setup() {
   Serial.println(TEST_MODE ? "TEST_MODE" : "DEPLOY_MODE");
   loraReady = initLoRa();
 #if WIFI_HTTP_ENABLED
+  beginWifiProvisioning();
   Serial.print("Backend URL: ");
   Serial.println(BACKEND_PACKETS_URL);
   if (!startNetworkTask()) Serial.println("Network task init FAILED");
@@ -1115,6 +1108,9 @@ void setup() {
 }
 
 void loop() {
+#if WIFI_HTTP_ENABLED
+  serviceWifiProvisioning();
+#endif
   handleSerialCommands();
   unsigned long now = millis();
   if (!loraReady && now - lastLoRaInitAttemptMs >= LORA_INIT_RETRY_MS) initLoRa();

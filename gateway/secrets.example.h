@@ -1,8 +1,8 @@
 #pragma once
 
 // Copy this file to secrets.h and fill in values for this installation.
-#define WIFI_SSID "YOUR_WIFI_NAME"
-#define WIFI_PASSWORD "YOUR_WIFI_PASSWORD"
+// Wi-Fi is selected from a phone through the Gateway setup portal and is saved
+// in ESP32 NVS, so SSID and password do not belong in this file.
 #define BACKEND_API_BASE_URL "https://wildfire.nattaphat.me/api"
 
 // Paste the PEM root CA that signs the Cloudflare edge certificate.

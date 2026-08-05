@@ -65,7 +65,7 @@ export function getBatteryDisplay(
     tone,
     voltageText: `${voltage.toFixed(2)}V`,
     percent: normalizedPercent,
-    percentText: `แบตประมาณ ${normalizedPercent}%`,
+    percentText: `${normalizedPercent}%`,
     statusText: tone === 'critical' ? 'วิกฤต' : tone === 'low' ? 'แบตต่ำ' : 'ปกติ',
   }
 }
