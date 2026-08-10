@@ -4,9 +4,8 @@
   Wildfire Early Warning Sensor Node - Configuration
   Board target: TTGO / LILYGO LoRa32 ESP32 + SX127x
 
-  Robust no-DS18B20 build
+  SHT31 + Sharp sensor build
   - Primary sensors: SHT31 + Sharp GP2Y1014AU0F
-  - DS18B20 disabled by default
   - Adds baseline warm-up, boot-abnormal guard, critical debounce,
     smoke-required critical, Sharp health checks, and slow baseline drift handling.
 */
@@ -23,9 +22,8 @@
 #define MAX_JSON_SIZE 384     // compact JSON should remain < 255 LoRa bytes
 
 // =========================
-// Optional sensors
+// Optional GPS
 // =========================
-#define USE_DS18B20 0         // keep 0 if you are not using DS18B20
 #define USE_GPS 1             // GPS TX -> GPS_RX_PIN; GPS fix is sent as a separate LoRa packet
 
 // =========================
@@ -61,7 +59,6 @@
 #define I2C_SCL_PIN 22
 #define SHT31_I2C_ADDRESS_PRIMARY 0x44
 #define SHT31_I2C_ADDRESS_SECONDARY 0x45
-#define DS18B20_PIN 13       // ignored when USE_DS18B20 = 0
 #define SHARP_LED_PIN 25
 #define SHARP_ANALOG_PIN 36
 
@@ -207,10 +204,6 @@
 #define HUMIDITY_BASELINE_DROP_WARNING 10.0f
 #define HUMIDITY_BASELINE_DROP_CRITICAL 15.0f
 
-// DS18B20 optional thresholds, ignored when USE_DS18B20 = 0.
-#define SOIL_TEMP_DELTA_WARNING 2.0f
-#define SOIL_TEMP_DELTA_CRITICAL 4.0f
-
 // =========================
 // State logic safety rules
 // =========================
@@ -223,7 +216,7 @@
 // Weak heat+humidity WATCH without smoke must persist before entering WATCH.
 #define WATCH_ENV_CONFIRM_CYCLES 2
 
-// With DS18B20 removed, require smoke/particle evidence for CRITICAL.
+// Require smoke/particle evidence for CRITICAL to reduce heat-only false alarms.
 #define REQUIRE_SMOKE_FOR_CRITICAL 1
 
 // Hold WARNING/CRITICAL for a few clean cycles before downgrading.

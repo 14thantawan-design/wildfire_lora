@@ -1,6 +1,6 @@
 # Codex / Next Developer Notes
 
-This robust no-DS18B20 build fixes the major delta-only issue and adds several safety mechanisms:
+This SHT31 + Sharp build fixes the major delta-only issue and adds several safety mechanisms:
 
 - Baseline warm-up instead of using the first sample as normal baseline
 - Boot abnormal guard so smoke/heat at startup is not learned as baseline

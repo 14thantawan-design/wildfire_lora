@@ -1,4 +1,4 @@
-# Wildfire LoRa Firmware - Robust No-DS18B20 Build
+# Wildfire LoRa Firmware - SHT31 + Sharp Build
 
 เวอร์ชันนี้เป็นโค้ดฐานสำหรับระบบต้นแบบแจ้งเตือนไฟป่าระยะเริ่มต้น โดยใช้:
 
@@ -6,7 +6,6 @@
 - TTGO LoRa32 2 ตัวเป็น Sensor Node (`NODE01`, `NODE02`)
 - SHT31 สำหรับอุณหภูมิอากาศ/ความชื้น
 - Sharp GP2Y1014AU0F สำหรับอนุภาค/ควัน
-- ไม่ใช้ DS18B20 เป็นค่าเริ่มต้น (`USE_DS18B20 0`)
 
 ความถี่ตั้งไว้เป็น `433E6` ตามบอร์ด/เสาที่ใช้อยู่ตอนนี้
 
@@ -36,7 +35,7 @@
 
 ### 3. ห้าม CRITICAL ถ้าไม่มีควันร่วม
 
-เพราะเวอร์ชันนี้ไม่มี DS18B20 แล้ว จึงต้องระวังแดด/กล่องร้อน/ความชื้นต่ำหลอกระบบ
+เนื่องจากเซนเซอร์อุณหภูมิอากาศอาจได้รับผลจากแดดหรือความร้อนสะสมในกล่อง จึงต้องมีควันหรืออนุภาคร่วมก่อนขึ้นสถานะ CRITICAL
 
 ```cpp
 #define REQUIRE_SMOKE_FOR_CRITICAL 1
@@ -81,7 +80,7 @@ Gateway จะแสดงค่า:
 ## โครงสร้างไฟล์
 
 ```text
-wildfire_lora_no_ds18b20_robust/
+wildfire_lora/
   sensor_node/
     sensor_node.ino
     config.h
@@ -102,8 +101,6 @@ wildfire_lora_no_ds18b20_robust/
 2. ArduinoJson by Benoit Blanchon
 3. Adafruit SHT31 Library
 4. Adafruit BusIO
-
-ไม่ต้องติดตั้ง OneWire/DallasTemperature ถ้า `USE_DS18B20` ยังเป็น 0
 
 ---
 
@@ -188,7 +185,6 @@ sensor_node/sensor_node.ino
 
 ```cpp
 #define NODE_ID "NODE01"
-#define USE_DS18B20 0
 #define LORA_FREQUENCY 433E6
 ```
 
@@ -255,9 +251,6 @@ SHT31 หรือ Sharp อ่านค่าผิดปกติ/ขาดห
 ไม่ควรอ้างว่า:
 
 > ตรวจไฟป่าได้ 100% หรือทำนายไฟป่าก่อนเกิดได้แน่นอน
-
-เพราะระบบนี้ยังไม่มี DS18B20 จึงไม่ได้วัดอุณหภูมิดิน/ผิวดินโดยตรง
-
 
 ---
 

@@ -30,12 +30,9 @@ struct ParsedPacket {
   int confidence;
   float airTemp;
   float humidity;
-  float soilTemp;
-  bool soilAvailable;
   int smokeRaw;
   int smokeDelta;
   float airTempDelta;
-  float soilTempDelta;
   float humidityDelta;
   int smokeBaselineDelta;
   float airTempBaselineDelta;
@@ -67,12 +64,9 @@ struct NodeStatus {
   int confidence;
   float airTemp;
   float humidity;
-  float soilTemp;
-  bool soilAvailable;
   int smokeRaw;
   int smokeDelta;
   float airTempDelta;
-  float soilTempDelta;
   float humidityDelta;
   int smokeBaselineDelta;
   float airTempBaselineDelta;
@@ -659,7 +653,6 @@ int getOrCreateNodeIndex(const String &nodeId) {
       nodes[i].gpsSeenMs = 0;
       nodes[i].state = "UNKNOWN";
       nodes[i].confidence = 0;
-      nodes[i].soilAvailable = false;
       nodes[i].groupCount = 0;
       nodes[i].baselineWarmupCount = 0;
       nodes[i].batteryV = NAN;
@@ -742,14 +735,9 @@ bool parseJsonPacket(const String &payload, ParsedPacket &out) {
   out.airTemp = getFloatField(doc, "at", "air_temp", NAN);
   out.humidity = getFloatField(doc, "h", "humidity", NAN);
 
-  out.soilAvailable = false;
-  out.soilTemp = getFloatField(doc, "soil", "soil_temp", NAN);
-  out.soilAvailable = !isnan(out.soilTemp);
-
   out.smokeRaw = getIntField(doc, "sm", "smoke_raw", -1);
   out.smokeDelta = getIntField(doc, "sd", "smoke_delta", 0);
   out.airTempDelta = getFloatField(doc, "ad", "air_temp_delta", 0.0f);
-  out.soilTempDelta = getFloatField(doc, "sod", "soil_temp_delta", 0.0f);
   out.humidityDelta = getFloatField(doc, "hd", "humidity_delta", 0.0f);
 
   out.smokeBaselineDelta = getIntField(doc, "sr", "smoke_baseline_delta", 0);
@@ -804,12 +792,9 @@ void updateNodeStatus(int idx, const ParsedPacket &packet, int rssi, float snr) 
   nodes[idx].confidence = packet.confidence;
   nodes[idx].airTemp = packet.airTemp;
   nodes[idx].humidity = packet.humidity;
-  nodes[idx].soilTemp = packet.soilTemp;
-  nodes[idx].soilAvailable = packet.soilAvailable;
   nodes[idx].smokeRaw = packet.smokeRaw;
   nodes[idx].smokeDelta = packet.smokeDelta;
   nodes[idx].airTempDelta = packet.airTempDelta;
-  nodes[idx].soilTempDelta = packet.soilTempDelta;
   nodes[idx].humidityDelta = packet.humidityDelta;
   nodes[idx].smokeBaselineDelta = packet.smokeBaselineDelta;
   nodes[idx].airTempBaselineDelta = packet.airTempBaselineDelta;
@@ -908,7 +893,6 @@ void printNodeStatus(const NodeStatus &n) {
   printLocationOrNA(n);
   printFloatOrNA("  Air Temp: ", n.airTemp);
   printFloatOrNA("  Humidity: ", n.humidity);
-  printFloatOrNA("  Soil Temp: ", n.soilTemp, n.soilAvailable);
   Serial.print("  Smoke Raw: "); Serial.println(n.smokeRaw);
   Serial.print("  Smoke Delta: "); Serial.println(n.smokeDelta);
   Serial.print("  Air Delta: "); Serial.println(n.airTempDelta);
@@ -970,7 +954,6 @@ void printReceivedPacket(const ParsedPacket &packet, int rssi, float snr) {
   Serial.print("Groups: "); Serial.println(packet.groupCount);
   printFloatOrNA("Air Temp: ", packet.airTemp);
   printFloatOrNA("Humidity: ", packet.humidity);
-  printFloatOrNA("Soil Temp: ", packet.soilTemp, packet.soilAvailable);
   Serial.print("Smoke Raw: "); Serial.println(packet.smokeRaw);
   Serial.print("Smoke Delta: "); Serial.println(packet.smokeDelta);
   Serial.print("Air Delta: "); Serial.println(packet.airTempDelta);
@@ -1078,7 +1061,6 @@ void setup() {
   for (int i = 0; i < MAX_NODES; i++) {
     nodes[i].used = false;
     nodes[i].offline = false;
-    nodes[i].soilAvailable = false;
     nodes[i].hasLocation = false;
     nodes[i].gpsFix = false;
     nodes[i].latitude = 0.0;

@@ -24,11 +24,6 @@
   #include <TinyGPSPlus.h>
 #endif
 
-#if USE_DS18B20
-  #include <OneWire.h>
-  #include <DallasTemperature.h>
-#endif
-
 #if defined(BLUETOOTH_ENABLED) || defined(CONFIG_BT_ENABLED)
   #include "esp_bt.h"
 #endif
@@ -48,11 +43,9 @@ enum FireStatus {
 struct SensorData {
   float airTemp;
   float humidity;
-  float soilTemp;
   int smokeRaw;
   float batteryV;
   bool shtOk;
-  bool soilOk;
   bool sharpOk;
 };
 
@@ -60,19 +53,16 @@ struct DeltaData {
   // Change from the immediately previous reading.
   float airTempDelta;
   float humidityDelta;
-  float soilTempDelta;
   int smokeDelta;
 
   // Rate-normalized previous change. These are safer than raw delta when sleep interval changes.
   float airTempRatePerMin;
   float humidityRatePerMin;  // negative means humidity dropping
-  float soilTempRatePerMin;
   float smokeRatePerMin;
 
   // Change from learned normal baseline. These keep alarms active while values remain high.
   float airTempBaselineDelta;
   float humidityBaselineDelta; // current - baseline; negative means humidity dropped
-  float soilTempBaselineDelta;
   int smokeBaselineDelta;
 
   float elapsedMinutes;
@@ -104,11 +94,6 @@ struct GpsLocation {
 // =========================
 Adafruit_SHT31 sht31 = Adafruit_SHT31();
 uint8_t activeSht31Address = SHT31_I2C_ADDRESS_PRIMARY;
-
-#if USE_DS18B20
-OneWire oneWire(DS18B20_PIN);
-DallasTemperature ds18b20(&oneWire);
-#endif
 
 #if USE_GPS
 TinyGPSPlus gps;
@@ -161,7 +146,6 @@ RTC_DATA_ATTR float warmupHumiditySum = 0.0f;
 RTC_DATA_ATTR long warmupSmokeSum = 0;
 RTC_DATA_ATTR float baselineAirTemp = 0.0f;
 RTC_DATA_ATTR float baselineHumidity = 0.0f;
-RTC_DATA_ATTR float baselineSoilTemp = 0.0f;
 RTC_DATA_ATTR int baselineSmokeRaw = 0;
 
 // Sensor health state.
@@ -334,10 +318,6 @@ void initSensors() {
 
   bool shtOk = beginSht31();
 
-#if USE_DS18B20
-  ds18b20.begin();
-#endif
-
 #if SERIAL_DEBUG
   Serial.print("SHT31 init: ");
   Serial.println(shtOk ? "OK" : "FAILED");
@@ -345,8 +325,6 @@ void initSensors() {
     Serial.print("SHT31 address: 0x");
     Serial.println(activeSht31Address, HEX);
   }
-  Serial.print("DS18B20 enabled: ");
-  Serial.println(USE_DS18B20 ? "YES" : "NO");
   Serial.print("Battery ADC: ");
   if (BATTERY_ADC_PIN < 0) {
     Serial.println("DISABLED");
@@ -394,11 +372,9 @@ SensorData readSensors() {
   SensorData data;
   data.airTemp = NAN;
   data.humidity = NAN;
-  data.soilTemp = NAN;
   data.smokeRaw = -1;
   data.batteryV = readBatteryVoltage();
   data.shtOk = false;
-  data.soilOk = false;
   data.sharpOk = false;
 
   powerSensors(true);
@@ -417,15 +393,6 @@ SensorData readSensors() {
     data.humidity = h;
     data.shtOk = true;
   }
-
-#if USE_DS18B20
-  ds18b20.requestTemperatures();
-  float soil = ds18b20.getTempCByIndex(0);
-  if (soil != DEVICE_DISCONNECTED_C && soil > -55.0f && soil < 125.0f) {
-    data.soilTemp = soil;
-    data.soilOk = true;
-  }
-#endif
 
   int smoke = readSmokeMedian();
   data.smokeRaw = smoke;
@@ -471,10 +438,6 @@ void updateDerivedSensorHealth(SensorData &data) {
 bool hasSensorFault(const SensorData &data) {
   if (!data.shtOk) return true;
   if (!data.sharpOk) return true;
-#if USE_DS18B20
-  // Keep DS18B20 optional. Enable this only if soil temp becomes mandatory.
-  // if (!data.soilOk) return true;
-#endif
   return false;
 }
 
@@ -528,15 +491,12 @@ DeltaData calculateDelta(const SensorData &current, const SensorData &previous, 
   DeltaData d;
   d.airTempDelta = 0.0f;
   d.humidityDelta = 0.0f;
-  d.soilTempDelta = 0.0f;
   d.smokeDelta = 0;
   d.airTempRatePerMin = 0.0f;
   d.humidityRatePerMin = 0.0f;
-  d.soilTempRatePerMin = 0.0f;
   d.smokeRatePerMin = 0.0f;
   d.airTempBaselineDelta = 0.0f;
   d.humidityBaselineDelta = 0.0f;
-  d.soilTempBaselineDelta = 0.0f;
   d.smokeBaselineDelta = 0;
   d.elapsedMinutes = 0.0f;
 
@@ -546,23 +506,16 @@ DeltaData calculateDelta(const SensorData &current, const SensorData &previous, 
 
     if (!isnan(current.airTemp) && !isnan(previous.airTemp)) d.airTempDelta = current.airTemp - previous.airTemp;
     if (!isnan(current.humidity) && !isnan(previous.humidity)) d.humidityDelta = current.humidity - previous.humidity;
-#if USE_DS18B20
-    if (!isnan(current.soilTemp) && !isnan(previous.soilTemp)) d.soilTempDelta = current.soilTemp - previous.soilTemp;
-#endif
     if (current.smokeRaw >= 0 && previous.smokeRaw >= 0) d.smokeDelta = current.smokeRaw - previous.smokeRaw;
 
     d.airTempRatePerMin = d.airTempDelta / d.elapsedMinutes;
     d.humidityRatePerMin = d.humidityDelta / d.elapsedMinutes;
-    d.soilTempRatePerMin = d.soilTempDelta / d.elapsedMinutes;
     d.smokeRatePerMin = d.smokeDelta / d.elapsedMinutes;
   }
 
   if (baselineInitialized) {
     if (!isnan(current.airTemp)) d.airTempBaselineDelta = current.airTemp - baselineAirTemp;
     if (!isnan(current.humidity)) d.humidityBaselineDelta = current.humidity - baselineHumidity;
-#if USE_DS18B20
-    if (!isnan(current.soilTemp)) d.soilTempBaselineDelta = current.soilTemp - baselineSoilTemp;
-#endif
     if (current.smokeRaw >= 0) d.smokeBaselineDelta = current.smokeRaw - baselineSmokeRaw;
   }
 
@@ -613,13 +566,6 @@ EvidenceFlags getEvidenceFlags(const SensorData &data, const DeltaData &delta) {
   e.heatCritical = airTempRateCritical ||
                    delta.airTempBaselineDelta >= AIR_TEMP_BASELINE_CRITICAL ||
                    (!isnan(data.airTemp) && data.airTemp >= AIR_TEMP_ABSOLUTE_CRITICAL);
-
-#if USE_DS18B20
-  e.heatGroup = e.heatGroup || delta.soilTempRatePerMin >= AIR_TEMP_RATE_WARNING_PER_MIN ||
-                delta.soilTempBaselineDelta >= SOIL_TEMP_DELTA_WARNING;
-  e.heatCritical = e.heatCritical || delta.soilTempRatePerMin >= AIR_TEMP_RATE_CRITICAL_PER_MIN ||
-                   delta.soilTempBaselineDelta >= SOIL_TEMP_DELTA_CRITICAL;
-#endif
 
   e.humidityWatch = humidityRateWatch ||
                     humidityDropFromBaseline >= HUMIDITY_BASELINE_DROP_WATCH;
@@ -1475,7 +1421,6 @@ void resetRuntimeStateForTestMode() {
   warmupSmokeSum = 0;
   baselineAirTemp = 0.0f;
   baselineHumidity = 0.0f;
-  baselineSoilTemp = 0.0f;
   baselineSmokeRaw = 0;
   sharpLowStreak = 0;
   sharpHighStreak = 0;
@@ -1502,7 +1447,7 @@ void setup() {
   }
   loadLastHandledCommandId();
 
-  debugPrintln("Starting Wildfire Sensor Node ROBUST no-DS18B20...");
+  debugPrintln("Starting Wildfire Sensor Node...");
   debugPrintln(String("Mode: ") + (TEST_MODE ? "TEST_MODE" : "DEPLOY_MODE"));
   debugPrintln(String("Node ID: ") + NODE_ID);
 
