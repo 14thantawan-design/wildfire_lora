@@ -540,8 +540,7 @@
 
 .node-detail-head,
 .node-detail-head > span,
-.node-detail-values > span,
-.node-detail-battery > span {
+.node-detail-values > span {
   display: flex;
 }
 
@@ -552,8 +551,7 @@
 }
 
 .node-detail-head > span,
-.node-detail-values > span,
-.node-detail-battery > span {
+.node-detail-values > span {
   min-width: 0;
   flex-direction: column;
 }
@@ -598,26 +596,6 @@
   font-size: 7px;
 }
 
-.battery-normal {
-  --battery-color: #347755;
-  --battery-background: #e7f3ea;
-}
-
-.battery-low {
-  --battery-color: #a86a12;
-  --battery-background: #fff0d7;
-}
-
-.battery-critical {
-  --battery-color: #c3443b;
-  --battery-background: #f9dfdc;
-}
-
-.battery-unknown {
-  --battery-color: #6e7772;
-  --battery-background: #ecefec;
-}
-
 .node-detail-card {
   display: flex;
   min-width: 0;
@@ -646,50 +624,6 @@
 .node-detail-select:focus {
   border-color: #6fa286;
   box-shadow: 0 0 0 2px rgba(84, 145, 111, .12);
-}
-
-.node-detail-battery {
-  display: grid;
-  margin-top: auto;
-  padding: 9px;
-  align-items: center;
-  grid-template-columns: 32px minmax(0, 1fr);
-  gap: 8px;
-  color: var(--battery-color);
-  border-radius: 10px;
-  background: var(--battery-background);
-}
-
-.node-battery-icon {
-  display: grid !important;
-  width: 32px;
-  height: 32px;
-  place-items: center;
-  border-radius: 9px;
-  background: rgba(255, 255, 255, .58);
-}
-
-.node-detail-battery small {
-  color: var(--battery-color);
-  font-size: 7px;
-  opacity: .78;
-}
-
-.node-detail-battery strong {
-  overflow: hidden;
-  color: var(--battery-color);
-  font-family: Georgia, "Times New Roman", serif;
-  font-size: 15px;
-  font-weight: 500;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.node-detail-battery b {
-  margin-top: 2px;
-  color: var(--battery-color);
-  font-size: 7px;
-  font-weight: 600;
 }
 
 .dashboard-grid {
@@ -1217,40 +1151,6 @@
   font-family: Georgia, serif;
   font-size: 13px;
   font-weight: 500;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.sensor-tooltip-battery {
-  display: flex;
-  padding: 7px 8px;
-  align-items: center;
-  gap: 7px;
-  color: var(--battery-color);
-  border-radius: 7px;
-  background: var(--battery-background);
-}
-
-.sensor-tooltip-battery > svg {
-  flex: 0 0 auto;
-}
-
-.sensor-tooltip-battery > span {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-}
-
-.sensor-tooltip-battery strong {
-  color: var(--battery-color);
-  font-size: 9px;
-}
-
-.sensor-tooltip-battery small {
-  overflow: hidden;
-  color: var(--battery-color);
-  font-size: 7px;
-  opacity: .8;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

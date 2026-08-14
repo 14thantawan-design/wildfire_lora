@@ -1,7 +1,7 @@
 #pragma once
 
 /*
-  Wildfire Early Warning Sensor Node - Configuration
+  Wildfire Early Warning Sensor Node 2 - Configuration
   Board target: TTGO / LILYGO LoRa32 ESP32 + SX127x
 
   SHT31 + Sharp sensor build
@@ -18,7 +18,7 @@
 // =========================
 // Node identity
 // =========================
-#define NODE_ID "NODE01"     // Change to NODE02 on the second sensor node
+#define NODE_ID "NODE02"     // Dedicated identity for the second sensor node
 #define MAX_JSON_SIZE 384     // compact JSON should remain < 255 LoRa bytes
 
 // =========================

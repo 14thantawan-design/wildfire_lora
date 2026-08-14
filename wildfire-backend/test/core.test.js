@@ -4,20 +4,12 @@ const assert = require('node:assert/strict');
 const { evaluateRisk } = require('../src/services/riskEngine');
 const {
   buildPacketIdentity,
-  mapBatteryPersistenceFields,
   validateGpsPacket,
   validateSensorPacket
 } = require('../src/services/packetHandler');
-const {
-  batteryPercentFromMillivolts,
-  batteryPercentFromVoltage
-} = require('../src/services/battery');
 const { hasDistinctNormalStreak, severityOf } = require('../src/services/alertService');
 const { isTrustedAdminRequest } = require('../src/middleware/security');
-const Reading = require('../src/models/Reading');
-const NodeModel = require('../src/models/Node');
 const { buildGpsReacquireUpdate } = require('../src/routes/nodes');
-const { serializeReading } = require('../src/routes/readings');
 
 function validSensorPacket(overrides = {}) {
   return {
@@ -45,51 +37,9 @@ test('humidity drop uses the firmware current-minus-baseline sign', () => {
 
 test('sensor validation rejects incomplete or impossible packets', () => {
   assert.equal(validateSensorPacket(validSensorPacket()), null);
-  assert.equal(validateSensorPacket(validSensorPacket({ bv: 3.84 })), null);
   assert.match(validateSensorPacket({ t: 's', id: 'NODE01' }), /sequence/);
   assert.match(validateSensorPacket(validSensorPacket({ sm: 5000 })), /smoke/);
   assert.match(validateSensorPacket(validSensorPacket({ sh: 'OK', at: null })), /missing/);
-  assert.match(validateSensorPacket(validSensorPacket({ bv: 0 })), /bv/);
-  assert.match(validateSensorPacket(validSensorPacket({ bv: 5.1 })), /bv/);
-});
-
-test('battery percent uses the configured piecewise curve and clamps its result', () => {
-  assert.equal(batteryPercentFromMillivolts(3300), 0);
-  assert.equal(batteryPercentFromMillivolts(3450), 8);
-  assert.equal(batteryPercentFromVoltage(3.84), 64);
-  assert.equal(batteryPercentFromVoltage(3.2), 0);
-  assert.equal(batteryPercentFromVoltage(4.3), 100);
-  assert.equal(batteryPercentFromVoltage(undefined), undefined);
-});
-
-test('battery persistence mapping is optional and stores voltage plus estimate', () => {
-  assert.deepEqual(mapBatteryPersistenceFields(validSensorPacket()), {});
-  assert.deepEqual(
-    mapBatteryPersistenceFields(validSensorPacket({ bv: 3.84 })),
-    { battery_v: 3.84, battery_percent: 64 }
-  );
-  assert.ok(Reading.schema.path('battery_v'));
-  assert.ok(Reading.schema.path('battery_percent'));
-  assert.ok(NodeModel.schema.path('battery_v'));
-  assert.ok(NodeModel.schema.path('battery_percent'));
-});
-
-test('reading API maps battery data from legacy raw packets without inventing zero', () => {
-  const legacyReading = serializeReading({
-    node_id: 'NODE01',
-    state: 'NORMAL',
-    raw_packet: { bv: 3.84 }
-  });
-  const oldNodeWithoutBattery = serializeReading({
-    node_id: 'NODE02',
-    state: 'NORMAL',
-    raw_packet: {}
-  });
-
-  assert.equal(legacyReading.battery_v, 3.84);
-  assert.equal(legacyReading.battery_percent, 64);
-  assert.equal(Object.hasOwn(oldNodeWithoutBattery, 'battery_v'), false);
-  assert.equal(Object.hasOwn(oldNodeWithoutBattery, 'battery_percent'), false);
 });
 
 test('GPS validation requires a real coordinate when fixed', () => {

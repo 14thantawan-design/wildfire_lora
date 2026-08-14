@@ -26,6 +26,5 @@ Suggested next improvements:
 1. Add ACK for CRITICAL packets from Gateway to Node.
 2. Save baseline to NVS/Preferences after calibration.
 3. Add a manual recalibration command or button.
-4. Add battery voltage calibration.
-5. Add web/API upload from Gateway.
-6. Add outdoor enclosure/radiation shield validation.
+4. Add web/API upload from Gateway.
+5. Add outdoor enclosure/radiation shield validation.

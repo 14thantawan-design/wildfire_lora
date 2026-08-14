@@ -1,6 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useState, type FormEvent } from 'react'
 import {
-  BatteryMedium,
   Bell,
   ChevronRight,
   Clock3,
@@ -22,7 +21,6 @@ import {
   X,
 } from 'lucide-react'
 import type { Alert, NodeState, Reading } from './types'
-import { getBatteryDisplay } from './battery'
 import { useDashboard } from './useDashboard'
 import type { TimeRangeKey } from './timeRanges'
 import './App.css'
@@ -410,10 +408,6 @@ function App() {
     if (count === 0) return `${selectedNode.node_id} · ยังไม่มีข้อมูลย้อนหลัง`
     return `${selectedNode.node_id} · ${count}/10 ข้อมูล · ${timeAgo(latestAverageTimestamp)}`
   }
-  const selectedBattery = getBatteryDisplay(
-    selectedLiveNode?.battery_v,
-    selectedLiveNode?.battery_percent,
-  )
   const highestState = useMemo(
     () =>
       nodes.reduce<NodeState>(
@@ -864,15 +858,15 @@ function App() {
 
             <div className="dashboard-side-column">
               <aside
-                aria-label="รายละเอียดและแบตเตอรี่ของ Node"
-                className={`panel node-detail-card battery-${selectedBattery.tone}`}
+                aria-label="รายละเอียดของ Node"
+                className="panel node-detail-card"
               >
                 <div className="node-detail-head">
                   <span>
-                    <small>เลือกดูรายละเอียดและแบตเตอรี่</small>
+                    <small>เลือกดูรายละเอียด</small>
                     {nodes.length > 0 ? (
                       <select
-                        aria-label="เลือก Node เพื่อดูรายละเอียดและแบตเตอรี่"
+                        aria-label="เลือก Node เพื่อดูรายละเอียด"
                         className="node-detail-select"
                         value={selectedNode?.node_id ?? ''}
                         onChange={(event) => setSelectedNodeId(event.target.value)}
@@ -895,22 +889,6 @@ function App() {
                   <span>อุณหภูมิ <strong><Value value={selectedLiveNode?.air_temp} suffix="°C" fractionDigits={1} /></strong></span>
                   <span>ความชื้น <strong><Value value={selectedLiveNode?.humidity} suffix="%" fractionDigits={1} /></strong></span>
                   <span>ควัน <strong><Value value={selectedSmoke} suffix=" raw" /></strong></span>
-                </div>
-                <div className="node-detail-battery">
-                  <span className="node-battery-icon"><BatteryMedium size={23} /></span>
-                  <span>
-                    <small>แบตเตอรี่</small>
-                    <strong>
-                      {selectedBattery.available
-                        ? selectedBattery.percentText
-                        : 'ยังไม่มีข้อมูลแบต'}
-                    </strong>
-                    <b>
-                      {selectedBattery.available
-                        ? `${selectedBattery.voltageText} · ${selectedBattery.statusText}`
-                        : 'รองรับโหนดที่ยังไม่มีวงจรวัดแบต'}
-                    </b>
-                  </span>
                 </div>
               </aside>
 

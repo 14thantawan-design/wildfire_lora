@@ -39,8 +39,6 @@ struct ParsedPacket {
   float humidityBaselineDelta;
   int groupCount;
   uint16_t baselineWarmupCount;
-  float batteryV;
-  bool batteryAvailable;
   String sensorHealth;
   String eventId;
 };
@@ -73,8 +71,6 @@ struct NodeStatus {
   float humidityBaselineDelta;
   int groupCount;
   uint16_t baselineWarmupCount;
-  float batteryV;
-  bool batteryAvailable;
   String sensorHealth;
   String eventId;
   int rssi;
@@ -655,8 +651,6 @@ int getOrCreateNodeIndex(const String &nodeId) {
       nodes[i].confidence = 0;
       nodes[i].groupCount = 0;
       nodes[i].baselineWarmupCount = 0;
-      nodes[i].batteryV = NAN;
-      nodes[i].batteryAvailable = false;
       Serial.print("New node registered: ");
       Serial.println(nodeId);
       return i;
@@ -746,9 +740,6 @@ bool parseJsonPacket(const String &payload, ParsedPacket &out) {
   out.groupCount = getIntField(doc, "g", "groups", 0);
   out.baselineWarmupCount = getIntField(doc, "bc", "baseline_count", 0);
 
-  out.batteryV = getFloatField(doc, "bv", "battery_v", NAN);
-  out.batteryAvailable = isfinite(out.batteryV) && out.batteryV > 0.0f;
-  if (!out.batteryAvailable) out.batteryV = NAN;
   out.sensorHealth = getStringField(doc, "sh", "sensor_health", "UNKNOWN");
   out.eventId = getStringField(doc, "eid", "event_id", "");
 
@@ -801,12 +792,6 @@ void updateNodeStatus(int idx, const ParsedPacket &packet, int rssi, float snr) 
   nodes[idx].humidityBaselineDelta = packet.humidityBaselineDelta;
   nodes[idx].groupCount = packet.groupCount;
   nodes[idx].baselineWarmupCount = packet.baselineWarmupCount;
-  // Preserve the last real battery reading when an older node sends a packet
-  // without bv/battery_v. Never manufacture a 0V value for missing data.
-  if (packet.batteryAvailable) {
-    nodes[idx].batteryV = packet.batteryV;
-    nodes[idx].batteryAvailable = true;
-  }
   nodes[idx].sensorHealth = packet.sensorHealth;
   nodes[idx].eventId = packet.eventId;
 }
@@ -901,7 +886,6 @@ void printNodeStatus(const NodeStatus &n) {
   Serial.print("  Air From Baseline: "); Serial.println(n.airTempBaselineDelta);
   Serial.print("  Humidity From Baseline: "); Serial.println(n.humidityBaselineDelta);
   Serial.print("  Baseline Warmup Count: "); Serial.println(n.baselineWarmupCount);
-  printFloatOrNA("  Battery V: ", n.batteryV, n.batteryAvailable);
   Serial.print("  Sensor Health: "); Serial.println(n.sensorHealth);
   Serial.print("  Event ID: "); Serial.println(n.eventId);
   Serial.print("  RSSI: "); Serial.println(n.rssi);
@@ -962,7 +946,6 @@ void printReceivedPacket(const ParsedPacket &packet, int rssi, float snr) {
   Serial.print("Air From Baseline: "); Serial.println(packet.airTempBaselineDelta);
   Serial.print("Humidity From Baseline: "); Serial.println(packet.humidityBaselineDelta);
   Serial.print("Baseline Warmup Count: "); Serial.println(packet.baselineWarmupCount);
-  printFloatOrNA("Battery V: ", packet.batteryV, packet.batteryAvailable);
   Serial.print("Sensor Health: "); Serial.println(packet.sensorHealth);
   Serial.print("Event ID: "); Serial.println(packet.eventId);
   Serial.print("RSSI: "); Serial.println(rssi);
@@ -1069,8 +1052,6 @@ void setup() {
     nodes[i].hdop = 0.0f;
     nodes[i].gpsError = "";
     nodes[i].gpsSeenMs = 0;
-    nodes[i].batteryV = NAN;
-    nodes[i].batteryAvailable = false;
   }
   for (int i = 0; i < MAX_PENDING_COMMANDS; i++) pendingCommands[i].used = false;
   for (int i = 0; i < MAX_PENDING_COMMANDS; i++) acknowledgedCommandIds[i] = "";

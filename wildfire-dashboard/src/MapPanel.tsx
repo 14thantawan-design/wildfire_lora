@@ -1,8 +1,6 @@
 import { useEffect, useMemo } from 'react'
-import { BatteryMedium } from 'lucide-react'
 import { Circle, MapContainer, TileLayer, Tooltip, useMap } from 'react-leaflet'
 import type { LatLngBoundsExpression } from 'leaflet'
-import { getBatteryDisplay } from './battery'
 import type { NodeState, NodeStatus } from './types'
 
 interface MapPanelProps {
@@ -118,10 +116,6 @@ export function MapPanel({ nodes, selectedNodeId, onSelect }: MapPanelProps) {
         {locatedNodes.map((node) => {
           const selected = node.node_id === selectedNodeId
           const color = node.online ? stateColor[node.state] ?? stateColor.UNKNOWN : '#7f8782'
-          const battery = getBatteryDisplay(
-            node.online ? node.battery_v : undefined,
-            node.online ? node.battery_percent : undefined,
-          )
 
           return (
             <Circle
@@ -173,13 +167,6 @@ export function MapPanel({ nodes, selectedNodeId, onSelect }: MapPanelProps) {
                     <span>ค่าควัน</span>
                     <strong>{formatSensorValue(node.online ? node.smoke_raw : undefined)}</strong>
                   </div>
-                </div>
-                <div className={`sensor-tooltip-battery battery-${battery.tone}`}>
-                  <BatteryMedium size={15} />
-                  <span>
-                    <strong>{battery.available ? battery.percentText : battery.statusText}</strong>
-                    <small>{battery.available ? `${battery.voltageText} · ${battery.statusText}` : 'รองรับโหนดที่ยังไม่มีวงจรวัด'}</small>
-                  </span>
                 </div>
                 <div className="sensor-tooltip-foot">
                   <span className={node.online ? 'online' : 'offline'}>

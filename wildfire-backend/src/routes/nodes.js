@@ -1,7 +1,6 @@
 const express = require('express');
 const NodeModel = require('../models/Node');
 const { enqueueCommand } = require('../services/commandQueue');
-const { batteryPercentFromVoltage } = require('../services/battery');
 const { requireLocalAdmin } = require('../middleware/security');
 
 const router = express.Router();
@@ -22,12 +21,6 @@ function withOnlineStatus(node) {
   obj.server_risk_score = obj.server_risk_score ?? 0;
   obj.server_reasons = obj.server_reasons || [];
   obj.fire_danger_level = obj.fire_danger_level || 'LOW';
-  if (typeof obj.battery_v === 'number' && Number.isFinite(obj.battery_v)) {
-    obj.battery_percent = typeof obj.battery_percent === 'number' &&
-      Number.isFinite(obj.battery_percent)
-      ? Math.max(0, Math.min(100, Math.round(obj.battery_percent)))
-      : batteryPercentFromVoltage(obj.battery_v);
-  }
   if (!obj.location_source && obj.gps_fixed && obj.lat !== undefined && obj.lng !== undefined) {
     obj.location_source = 'gps';
   }
