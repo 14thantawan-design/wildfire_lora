@@ -37,11 +37,40 @@ GATEWAY_OFFLINE_TIMEOUT_MS=30000
 GATEWAY_API_KEY=replace-with-a-long-random-key
 CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
 ADMIN_API_KEY=
+TELEGRAM_BOT_TOKEN=
+TELEGRAM_CHAT_ID=
+TELEGRAM_DASHBOARD_URL=https://wildfire.nattaphat.me
+TELEGRAM_TIMEZONE=Asia/Bangkok
 ```
 
 Leave `SERIAL_PORT` empty for field mode. Set it only for prototype mode, for example `SERIAL_PORT=COM3` on Windows.
 
 `GATEWAY_API_KEY` must be the same value as `GATEWAY_API_KEY` in `gateway/secrets.h`. Keep both files private. `ADMIN_API_KEY` is only needed when GPS or alert-management actions must be called from a computer other than the backend computer.
+
+## Telegram Channel Notifications
+
+Telegram notifications use the existing server alert lifecycle. No fire-detection thresholds are changed:
+
+- A new `WATCH`, `WARNING`, `CRITICAL`, or `SENSOR_FAULT` alert sends one message.
+- An active alert sends another message only when its level increases.
+- Repeated readings at the same level do not send duplicate messages.
+- If Telegram is temporarily unreachable, the next reading retries the unsent alert.
+- After three distinct `NORMAL` readings close the alert, one resolved message is sent.
+- `CALIBRATING` and `NORMAL` without an active alert do not send messages.
+
+Setup:
+
+1. Open `@BotFather` in Telegram, run `/newbot`, and securely copy the bot token.
+2. Create a public Telegram Channel and choose a public username, for example `@WildfireLoraAlerts`.
+3. Add the bot to the Channel as an administrator and allow it to post messages.
+4. Set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID=@YourChannelUsername` in `.env`.
+5. Send a harmless connection test:
+
+```bash
+npm run telegram:test
+```
+
+Restart the backend after changing `.env`. The health endpoint exposes only `telegram_configured: true` or `false`; it never exposes the bot token. Keep `.env` private and never commit or paste the bot token into source code.
 
 ## Run
 
@@ -78,6 +107,8 @@ serial bridge started: COM3 @ 115200
 - `POST /api/commands/:command_id/ack` (requires `X-Gateway-Key`)
 
 GPS commands are stored in MongoDB until the Sensor Node acknowledges them, so restarting the backend or Gateway does not silently lose a pending command.
+
+The live Node list is heartbeat-driven. A Node appears automatically while it is sending recent packets and drops out of the live dashboard after its report-aware offline timeout. When it sends again, it returns automatically without configuration changes or deleting history.
 
 ## Test Without Gateway
 

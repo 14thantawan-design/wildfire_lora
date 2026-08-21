@@ -21,7 +21,14 @@ const alertSchema = new mongoose.Schema(
     },
     reasons: { type: [String], default: [] },
     message: { type: String },
-    last_reading: { type: mongoose.Schema.Types.Mixed }
+    last_reading: { type: mongoose.Schema.Types.Mixed },
+    telegram_notified_level: {
+      type: String,
+      enum: ['WATCH', 'WARNING', 'CRITICAL', 'SENSOR_FAULT']
+    },
+    telegram_notified_at: { type: Date },
+    telegram_resolved_notified_at: { type: Date },
+    telegram_last_error: { type: String }
   },
   {
     collection: 'alerts',

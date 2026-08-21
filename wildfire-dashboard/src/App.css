@@ -276,7 +276,6 @@
 }
 
 .icon-button,
-.notification-button,
 .menu-button {
   display: grid;
   width: 34px;
@@ -293,33 +292,12 @@
   display: none;
 }
 
-.icon-button:hover,
-.notification-button:hover {
+.icon-button:hover {
   border-color: #bec4bd;
 }
 
 .icon-button:disabled {
   cursor: progress;
-}
-
-.notification-button {
-  position: relative;
-}
-
-.notification-button b {
-  position: absolute;
-  top: -5px;
-  right: -5px;
-  display: grid;
-  min-width: 17px;
-  height: 17px;
-  padding: 0 4px;
-  place-items: center;
-  color: #fff;
-  font-size: 8px;
-  border: 2px solid #f8f7f2;
-  border-radius: 12px;
-  background: var(--ember);
 }
 
 .spin {
@@ -510,21 +488,34 @@
   flex-direction: column;
 }
 
-.stat-grid article > div span {
+.stat-grid article > div > span {
   color: #7b837e;
   font-size: 9px;
 }
 
 .stat-grid article > div strong {
+  display: inline-flex;
+  min-width: 0;
   margin-top: 2px;
+  align-items: baseline;
   color: #24332b;
   font-family: Georgia, serif;
   font-size: 22px;
   font-weight: 500;
   line-height: 1;
+  white-space: nowrap;
+}
+
+.metric-number {
+  font-variant-numeric: tabular-nums;
+}
+
+.metric-number + small {
+  margin-left: 4px;
 }
 
 .stat-grid strong small {
+  flex: 0 0 auto;
   font-family: "Leelawadee UI", sans-serif;
   font-size: 9px;
   font-weight: 500;

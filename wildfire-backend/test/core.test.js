@@ -7,9 +7,18 @@ const {
   validateGpsPacket,
   validateSensorPacket
 } = require('../src/services/packetHandler');
-const { hasDistinctNormalStreak, severityOf } = require('../src/services/alertService');
+const {
+  hasDistinctNormalStreak,
+  severityOf,
+  shouldNotifyLevel
+} = require('../src/services/alertService');
 const { isTrustedAdminRequest } = require('../src/middleware/security');
 const { buildGpsReacquireUpdate } = require('../src/routes/nodes');
+const {
+  buildTelegramMessage,
+  escapeHtml,
+  isTelegramConfigured
+} = require('../src/services/telegramService');
 
 function validSensorPacket(overrides = {}) {
   return {
@@ -92,6 +101,69 @@ test('duplicate readings cannot satisfy the normal clean streak', () => {
 
 test('critical fire outranks a sensor fault', () => {
   assert.ok(severityOf('CRITICAL') > severityOf('SENSOR_FAULT'));
+});
+
+test('WATCH is an alert level so early warning reaches Telegram', () => {
+  const { ALERT_LEVELS } = require('../src/services/alertService');
+  assert.ok(ALERT_LEVELS.includes('WATCH'));
+
+  const message = buildTelegramMessage('created', {
+    node_id: 'NODE02',
+    level: 'WATCH'
+  }, {
+    server_state: 'WATCH',
+    server_risk_score: 35,
+    server_reasons: ['smoke_weak']
+  }, { timezone: 'Asia/Bangkok' });
+
+  assert.match(message, /WATCH \(เฝ้าระวัง\)/);
+  assert.match(message, /NODE02/);
+});
+
+test('an unsent Telegram alert is retried without duplicating a delivered level', () => {
+  assert.equal(shouldNotifyLevel('WATCH', undefined), true);
+  assert.equal(shouldNotifyLevel('WATCH', 'WATCH'), false);
+  assert.equal(shouldNotifyLevel('WARNING', 'WATCH'), true);
+  assert.equal(shouldNotifyLevel('CRITICAL', 'WARNING'), true);
+});
+
+test('Telegram alert uses the existing server state and Thai reason labels', () => {
+  const message = buildTelegramMessage('created', {
+    node_id: 'NODE01',
+    level: 'WARNING',
+    started_at: '2026-08-21T07:35:00.000Z'
+  }, {
+    server_state: 'WARNING',
+    server_risk_score: 62,
+    server_reasons: ['smoke_strong', 'humidity_dry'],
+    air_temp: 39.4,
+    humidity: 32,
+    smoke_raw: 1280,
+    timestamp: '2026-08-21T07:35:00.000Z'
+  }, {
+    dashboardUrl: 'https://wildfire.example.test',
+    timezone: 'Asia/Bangkok'
+  });
+
+  assert.match(message, /WARNING \(เตือนภัย\)/);
+  assert.match(message, /62\/100/);
+  assert.match(message, /พบสัญญาณควันชัดเจน/);
+  assert.match(message, /https:\/\/wildfire\.example\.test/);
+});
+
+test('Telegram resolved message and configuration are safe by default', () => {
+  const message = buildTelegramMessage('resolved', {
+    node_id: 'NODE<01>',
+    level: 'CRITICAL',
+    ended_at: '2026-08-21T08:00:00.000Z'
+  }, undefined, { timezone: 'Asia/Bangkok' });
+
+  assert.match(message, /เหตุการณ์สิ้นสุดแล้ว/);
+  assert.match(message, /NORMAL \(ปกติ\)/);
+  assert.match(message, /NODE&lt;01&gt;/);
+  assert.equal(escapeHtml('<b>&"'), '&lt;b&gt;&amp;&quot;');
+  assert.equal(isTelegramConfigured({}), false);
+  assert.equal(isTelegramConfigured({ TELEGRAM_BOT_TOKEN: 'token', TELEGRAM_CHAT_ID: '@channel' }), true);
 });
 
 function mockRequest({ remoteAddress, headers = {} }) {

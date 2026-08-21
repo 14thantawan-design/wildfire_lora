@@ -57,9 +57,10 @@ function buildGpsReacquireUpdate(node) {
 router.get('/', async (req, res, next) => {
   try {
     const nodes = await NodeModel.find().sort({ node_id: 1 });
-    res.json(nodes.map(withOnlineStatus));
+    const liveNodes = nodes.map(withOnlineStatus).filter((node) => node.online);
+    return res.json(liveNodes);
   } catch (error) {
-    next(error);
+    return next(error);
   }
 });
 

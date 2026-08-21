@@ -151,20 +151,19 @@ function Value({
   suffix?: string
   fractionDigits?: number
 }) {
-  const displayValue =
-    value === undefined
-      || value === null
-      ? '—'
-      : fractionDigits !== undefined
-        ? value.toFixed(fractionDigits)
-        : Number.isInteger(value)
-          ? value
-          : value.toFixed(1)
+  const hasValue = value !== undefined && value !== null
+  const digits = fractionDigits ?? (hasValue && Number.isInteger(value) ? 0 : 1)
+  const displayValue = hasValue
+    ? value.toLocaleString('en-US', {
+        minimumFractionDigits: digits,
+        maximumFractionDigits: digits,
+      })
+    : '—'
 
   return (
     <>
-      {displayValue}
-      {value !== undefined && value !== null && suffix && <small>{suffix}</small>}
+      <span className="metric-number">{displayValue}</span>
+      {hasValue && suffix && <small>{suffix.trim()}</small>}
     </>
   )
 }
@@ -380,7 +379,8 @@ function App() {
       setSelectedNodeId(nodes[0].node_id)
     }
   }, [nodes, selectedNodeId])
-  const activeAlerts = alerts.filter((alert) => alert.active)
+  const liveNodeIds = new Set(nodes.map((node) => node.node_id))
+  const activeAlerts = alerts.filter((alert) => alert.active && liveNodeIds.has(alert.node_id))
   const onlineNodes = nodes.filter((node) => node.online)
   const gatewayConnected = !backendUnavailable && Boolean(health?.gateway.connected)
   const selectedLiveNode = gatewayConnected && selectedNode?.online ? selectedNode : undefined
@@ -467,11 +467,6 @@ function App() {
   const selectMapNode = (nodeId: string) => {
     setSelectedNodeId(nodeId)
     setGpsRequestError(undefined)
-  }
-
-  const scrollToAlerts = () => {
-    setActiveSection('alerts')
-    document.querySelector('#alerts')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
   const closeMobileNav = () => {
@@ -735,16 +730,6 @@ function App() {
             >
               <RefreshCw className={loading ? 'spin' : ''} size={17} />
             </button>
-            <button
-              aria-label="ดูการแจ้งเตือน"
-              className="notification-button"
-              onClick={scrollToAlerts}
-              title="ดูการแจ้งเตือน"
-              type="button"
-            >
-              <Bell size={18} />
-              {activeAlerts.length > 0 && <b>{activeAlerts.length}</b>}
-            </button>
           </div>
         </header>
 
@@ -766,7 +751,7 @@ function App() {
               {isSafe ? <ShieldCheck size={27} /> : <TriangleAlert size={27} />}
             </span>
             <div>
-              <span>{!canAssessSafety ? 'ยังประเมินสถานการณ์ไม่ได้' : isSafe ? 'สถานการณ์โดยรวม' : 'ต้องตรวจสอบทันที'}</span>
+              <span>{!canAssessSafety ? 'ยังประเมินสถานการณ์ไม่ได้' : isSafe ? 'สถานการณ์จากจุดตรวจออนไลน์' : 'ต้องตรวจสอบทันที'}</span>
               <strong>
                 {!canAssessSafety
                   ? 'ข้อมูลสดจาก Gateway หรือจุดตรวจวัดไม่พร้อม'
@@ -777,7 +762,7 @@ function App() {
             </div>
             <span className="safety-detail">
               {!canAssessSafety ? 'ตรวจสอบการเชื่อมต่อระบบ' : (
-                <>ระดับสูงสุด <b className={`text-${highestState.toLowerCase()}`}>{stateLabels[highestState]}</b></>
+                <>ประเมินจาก {onlineNodes.length} จุด · ระดับสูงสุด <b className={`text-${highestState.toLowerCase()}`}>{stateLabels[highestState]}</b></>
               )}
             </span>
           </section>
@@ -916,9 +901,10 @@ function App() {
                 ) : (
                   visibleAlerts.map((alert) => {
                     const diagnostics = buildAlertDiagnostics(alert)
+                    const isLiveAlert = alert.active && liveNodeIds.has(alert.node_id)
 
                     return (
-                      <article className={`alert-row ${alert.active ? '' : 'resolved'}`} key={alert._id}>
+                      <article className={`alert-row ${isLiveAlert ? '' : 'resolved'}`} key={alert._id}>
                         <button className="alert-main" onClick={() => selectNode(alert.node_id)} type="button">
                         <span className={`alert-level state-${alert.level.toLowerCase()}`}>
                           <TriangleAlert size={17} />
@@ -927,6 +913,9 @@ function App() {
                           <strong>
                             {stateLabels[alert.level]} · {alert.node_id}
                             {!alert.active && <span className="resolved-badge">สิ้นสุดแล้ว</span>}
+                            {alert.active && !isLiveAlert && (
+                              <span className="resolved-badge">ไม่อยู่ในรายการสด</span>
+                            )}
                           </strong>
                           <span>{formatAlertMessage(alert)}</span>
                           <small>{timeAgo(alert.started_at)}</small>

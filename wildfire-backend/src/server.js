@@ -14,6 +14,7 @@ const { handlePacket } = require('./services/packetHandler');
 const { createSerialBridge } = require('./serialBridge');
 const { corsOptions, requireGatewayKey } = require('./middleware/security');
 const { gatewayStatus, markGatewayPacket } = require('./services/gatewayStatus');
+const { isTelegramConfigured } = require('./services/telegramService');
 
 const app = express();
 const dashboardDirectory = path.resolve(__dirname, '../../wildfire-dashboard/dist');
@@ -36,6 +37,7 @@ app.get('/api/health', (req, res) => {
     uptime_sec: Math.round(process.uptime()),
     mongo_state: mongoose.connection.readyState,
     serial_enabled: Boolean(process.env.SERIAL_PORT),
+    telegram_configured: isTelegramConfigured(),
     serial: serialBridge ? serialBridge.status() : { enabled: false },
     gateway: gatewayStatus()
   });

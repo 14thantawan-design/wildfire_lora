@@ -1,7 +1,8 @@
 const Alert = require('../models/Alert');
 const Reading = require('../models/Reading');
+const { notifyTelegram } = require('./telegramService');
 
-const ALERT_LEVELS = ['WARNING', 'CRITICAL', 'SENSOR_FAULT'];
+const ALERT_LEVELS = ['WATCH', 'WARNING', 'CRITICAL', 'SENSOR_FAULT'];
 const SEVERITY = {
   NORMAL: 0,
   WATCH: 1,
@@ -16,6 +17,26 @@ function isAlertLevel(state) {
 
 function severityOf(level) {
   return SEVERITY[level] || 0;
+}
+
+function shouldNotifyLevel(level, notifiedLevel) {
+  return severityOf(level) > severityOf(notifiedLevel);
+}
+
+async function saveTelegramResult(alert, level, notification, now) {
+  if (!alert || !notification) return;
+
+  if (notification.status === 'sent') {
+    alert.telegram_notified_level = level;
+    alert.telegram_notified_at = now;
+    alert.telegram_last_error = undefined;
+  } else if (notification.status === 'failed') {
+    alert.telegram_last_error = notification.reason;
+  }
+
+  if (notification.status === 'sent' || notification.status === 'failed') {
+    await alert.save();
+  }
 }
 
 function normalizeReason(reason) {
@@ -111,11 +132,24 @@ async function processAlertForReading(reading) {
       return { action: 'clean_streak_pending' };
     }
 
+    const closingAlert = await Alert.findOne({ node_id: nodeId, active: true })
+      .sort({ started_at: -1 });
     const closed = await Alert.updateMany(
       { node_id: nodeId, active: true },
       { $set: { active: false, ended_at: now } }
     );
-    return { action: 'closed', count: closed.modifiedCount || 0 };
+    const count = closed.modifiedCount || 0;
+    const closingData = closingAlert?.toObject ? closingAlert.toObject() : closingAlert;
+    const notification = count && closingData?.telegram_notified_level
+      ? await notifyTelegram('resolved', { ...closingData, ended_at: now }, reading)
+      : { status: 'skipped', reason: closingData ? 'start_not_notified' : 'no_active_alert' };
+    if (notification.status === 'sent' && closingData?._id) {
+      await Alert.updateOne(
+        { _id: closingData._id },
+        { $set: { telegram_resolved_notified_at: now }, $unset: { telegram_last_error: '' } }
+      );
+    }
+    return { action: 'closed', count, notification: notification.status };
   }
 
   if (!isAlertLevel(state)) {
@@ -140,14 +174,17 @@ async function processAlertForReading(reading) {
         last_reading: lastReading
       });
 
-      return { action: 'created', alert_id: alert._id };
+      const notification = await notifyTelegram('created', alert, reading);
+      await saveTelegramResult(alert, state, notification, now);
+      return { action: 'created', alert_id: alert._id, notification: notification.status };
     } catch (error) {
       if (error?.code === 11000) return processAlertForReading(reading);
       throw error;
     }
   }
 
-  const nextLevel = severityOf(state) > severityOf(activeAlert.level) ? state : activeAlert.level;
+  const previousLevel = activeAlert.level;
+  const nextLevel = severityOf(state) > severityOf(previousLevel) ? state : previousLevel;
   activeAlert.level = nextLevel;
   activeAlert.max_confidence = Math.max(activeAlert.max_confidence || 0, confidence);
   activeAlert.max_risk_score = Math.max(activeAlert.max_risk_score || 0, riskScore);
@@ -158,12 +195,19 @@ async function processAlertForReading(reading) {
   activeAlert.last_reading = lastReading;
   await activeAlert.save();
 
-  return { action: 'updated', alert_id: activeAlert._id };
+  const needsNotification = shouldNotifyLevel(nextLevel, activeAlert.telegram_notified_level);
+  const notification = needsNotification
+    ? await notifyTelegram(activeAlert.telegram_notified_level ? 'escalated' : 'created', activeAlert, reading)
+    : { status: 'skipped', reason: 'level_unchanged' };
+  await saveTelegramResult(activeAlert, nextLevel, notification, now);
+
+  return { action: 'updated', alert_id: activeAlert._id, notification: notification.status };
 }
 
 module.exports = {
   ALERT_LEVELS,
   processAlertForReading,
   severityOf,
+  shouldNotifyLevel,
   hasDistinctNormalStreak
 };
