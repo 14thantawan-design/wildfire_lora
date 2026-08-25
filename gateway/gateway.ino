@@ -20,6 +20,8 @@ struct ParsedPacket {
   String packetType;
   String nodeId;
   uint32_t seq;
+  uint32_t sessionId;
+  uint32_t reportIntervalSec;
   bool gpsFix;
   double latitude;
   double longitude;
@@ -48,6 +50,8 @@ struct NodeStatus {
   bool offline;
   String nodeId;
   uint32_t lastSeq;
+  uint32_t lastSessionId;
+  uint32_t reportIntervalSec;
   unsigned long lastSeenMs;
   bool hasLocation;
   bool gpsFix;
@@ -466,6 +470,8 @@ void processCommandReport(CommandReportJob &job) {
 
 void networkTask(void *parameter) {
   (void)parameter;
+  HttpPacketJob pendingPacket = {};
+  bool hasPendingPacket = false;
 
   for (;;) {
     CommandReportJob report;
@@ -473,11 +479,19 @@ void networkTask(void *parameter) {
       processCommandReport(report);
     }
 
-    HttpPacketJob packet;
-    if (xQueueReceive(httpPacketQueue, &packet, 0) == pdTRUE) {
-      if (!postPacketToBackend(String(packet.payload), packet.rssi, packet.snr) && packet.attempts < 2) {
-        packet.attempts++;
-        xQueueSend(httpPacketQueue, &packet, 0);
+    if (!hasPendingPacket && xQueueReceive(httpPacketQueue, &pendingPacket, 0) == pdTRUE) {
+      hasPendingPacket = true;
+    }
+
+    if (hasPendingPacket) {
+      if (postPacketToBackend(String(pendingPacket.payload), pendingPacket.rssi, pendingPacket.snr)) {
+        hasPendingPacket = false;
+      } else if (pendingPacket.attempts < 2) {
+        // Keep retrying the same packet instead of moving it to the queue tail.
+        // This prevents old seq values from arriving after newer live readings.
+        pendingPacket.attempts++;
+      } else {
+        hasPendingPacket = false;
       }
     }
 
@@ -638,6 +652,8 @@ int getOrCreateNodeIndex(const String &nodeId) {
       nodes[i].offline = false;
       nodes[i].nodeId = nodeId;
       nodes[i].lastSeq = 0;
+      nodes[i].lastSessionId = 0;
+      nodes[i].reportIntervalSec = 0;
       nodes[i].lastSeenMs = millis();
       nodes[i].hasLocation = false;
       nodes[i].gpsFix = false;
@@ -682,6 +698,13 @@ int getIntField(TDoc &doc, const char *compactKey, const char *longKey, int fall
 }
 
 template <typename TDoc>
+uint32_t getUIntField(TDoc &doc, const char *compactKey, const char *longKey, uint32_t fallback) {
+  if (!doc[compactKey].isNull()) return doc[compactKey].template as<uint32_t>();
+  if (!doc[longKey].isNull()) return doc[longKey].template as<uint32_t>();
+  return fallback;
+}
+
+template <typename TDoc>
 float getFloatField(TDoc &doc, const char *compactKey, const char *longKey, float fallback) {
   if (!doc[compactKey].isNull()) return doc[compactKey].template as<float>();
   if (!doc[longKey].isNull()) return doc[longKey].template as<float>();
@@ -717,7 +740,9 @@ bool parseJsonPacket(const String &payload, ParsedPacket &out) {
   // Supports compact robust packets and older long-key packets.
   out.packetType = normalizePacketType(getStringField(doc, "t", "packet_type", "sensor"));
   out.nodeId = getStringField(doc, "id", "node_id", "");
-  out.seq = getIntField(doc, "q", "seq", 0);
+  out.seq = getUIntField(doc, "q", "seq", 0);
+  out.sessionId = getUIntField(doc, "sid", "session_id", 0);
+  out.reportIntervalSec = getUIntField(doc, "ri", "report_interval_sec", 0);
   out.gpsFix = getIntField(doc, "gf", "gps_fix", 0) == 1;
   out.latitude = getDoubleField(doc, "la", "lat", 0.0);
   out.longitude = getDoubleField(doc, "ln", "lng", 0.0);
@@ -751,14 +776,17 @@ bool parseJsonPacket(const String &payload, ParsedPacket &out) {
 }
 
 bool isDuplicatePacket(int idx, const ParsedPacket &packet) {
-  if (nodes[idx].used && packet.seq == nodes[idx].lastSeq) return true;
-  return false;
+  return nodes[idx].used && packet.sessionId != 0 &&
+         nodes[idx].lastSessionId == packet.sessionId &&
+         packet.seq <= nodes[idx].lastSeq;
 }
 
 void updateNodeStatus(int idx, const ParsedPacket &packet, int rssi, float snr) {
   nodes[idx].offline = false;
   nodes[idx].lastSeenMs = millis();
   nodes[idx].lastSeq = packet.seq;
+  nodes[idx].lastSessionId = packet.sessionId;
+  if (packet.reportIntervalSec > 0) nodes[idx].reportIntervalSec = packet.reportIntervalSec;
   nodes[idx].packetType = packet.packetType;
   nodes[idx].rssi = rssi;
   nodes[idx].snr = snr;
@@ -828,11 +856,21 @@ String calculateAreaStatus() {
   return "NORMAL";
 }
 
+uint32_t nodeOfflineTimeoutMs(const NodeStatus &node) {
+  if (node.reportIntervalSec == 0) return OFFLINE_TIMEOUT_MS;
+  uint64_t adaptive =
+    ((uint64_t)node.reportIntervalSec * 1000ULL * OFFLINE_INTERVAL_NUMERATOR) /
+    OFFLINE_INTERVAL_DENOMINATOR + OFFLINE_JITTER_GRACE_MS;
+  if (adaptive < OFFLINE_TIMEOUT_MS) return OFFLINE_TIMEOUT_MS;
+  if (adaptive > UINT32_MAX) return UINT32_MAX;
+  return (uint32_t)adaptive;
+}
+
 void checkOfflineNodes() {
   unsigned long now = millis();
   for (int i = 0; i < MAX_NODES; i++) {
     if (!nodes[i].used) continue;
-    if (now - nodes[i].lastSeenMs > OFFLINE_TIMEOUT_MS) nodes[i].offline = true;
+    if (now - nodes[i].lastSeenMs > nodeOfflineTimeoutMs(nodes[i])) nodes[i].offline = true;
   }
 }
 
@@ -982,6 +1020,36 @@ bool handleCommandAckPacket(const String &payload) {
   return true;
 }
 
+bool sendCriticalUplinkAck(const ParsedPacket &packet) {
+#if CRITICAL_UPLINK_ACK_ENABLED
+  if (packet.packetType != "critical") return false;
+
+  StaticJsonDocument<192> doc;
+  doc["t"] = "rx_ack";
+  doc["id"] = packet.nodeId;
+  doc["q"] = packet.seq;
+  doc["sid"] = packet.sessionId;
+  String payload;
+  serializeJson(doc, payload);
+
+  LoRa.idle();
+  LoRa.beginPacket();
+  LoRa.print(payload);
+  bool sent = LoRa.endPacket();
+  LoRa.receive();
+  if (sent) {
+    Serial.print("Critical uplink ACK: ");
+    Serial.print(packet.nodeId);
+    Serial.print(" seq=");
+    Serial.println(packet.seq);
+  }
+  return sent;
+#else
+  (void)packet;
+  return false;
+#endif
+}
+
 void handleIncomingLoRa() {
   int packetSize = LoRa.parsePacket();
   if (!packetSize) return;
@@ -1014,6 +1082,8 @@ void handleIncomingLoRa() {
   }
 
   // The node opens a short receive window immediately after every uplink.
+  // A CRITICAL ACK is sent first; any queued command follows in the same window.
+  sendCriticalUplinkAck(parsed);
   sendPendingCommandForNode(parsed.nodeId);
 
   if (isDuplicatePacket(idx, parsed)) {

@@ -1,8 +1,10 @@
 import { lazy, Suspense, useEffect, useMemo, useState, type FormEvent } from 'react'
 import {
+  ArrowLeft,
   Bell,
   ChevronRight,
   Clock3,
+  Database,
   Droplets,
   Flame,
   History,
@@ -20,9 +22,11 @@ import {
   Wrench,
   X,
 } from 'lucide-react'
+import { AdminReadingsPage } from './AdminReadingsPage'
 import type { Alert, NodeState, Reading } from './types'
 import { useDashboard } from './useDashboard'
 import type { TimeRangeKey } from './timeRanges'
+import { formatReason, stateLabels, stateSeverity } from './nodeStates'
 import './App.css'
 
 const MapPanel = lazy(() =>
@@ -77,48 +81,6 @@ function loadManualLocationHistory() {
   }
 }
 
-const stateLabels: Record<NodeState, string> = {
-  CALIBRATING: 'กำลังปรับค่า',
-  NORMAL: 'ปกติ',
-  WATCH: 'เฝ้าระวัง',
-  WARNING: 'เตือนภัย',
-  CRITICAL: 'วิกฤต',
-  SENSOR_FAULT: 'เซนเซอร์ขัดข้อง',
-  UNKNOWN: 'ไม่ทราบสถานะ',
-}
-
-const severity: Record<NodeState, number> = {
-  UNKNOWN: -1,
-  NORMAL: 0,
-  CALIBRATING: 1,
-  WATCH: 2,
-  SENSOR_FAULT: 3,
-  WARNING: 4,
-  CRITICAL: 5,
-}
-
-const alertReasonLabels: Record<string, string> = {
-  baseline_calibrating: 'กำลังเรียนค่าเริ่มต้นของเซนเซอร์',
-  smoke_sensor_low_stuck: 'ค่าควัน 0 ต่อเนื่อง',
-  smoke_low_stable: 'ค่าควันต่ำคงที่',
-  sensor_data_incomplete: 'ข้อมูลเซนเซอร์ประกอบไม่ครบ',
-  sht31_missing: 'อุณหภูมิ/ความชื้นไม่ส่งค่า',
-  sensor_fault: 'ตรวจพบปัญหาเซนเซอร์',
-  smoke_weak: 'เริ่มพบสัญญาณควัน',
-  smoke_strong: 'พบสัญญาณควันชัดเจน',
-  smoke_critical: 'ควันสูงผิดปกติ',
-  heat_weak: 'อุณหภูมิเริ่มสูงกว่าปกติ',
-  heat_strong: 'อุณหภูมิสูงผิดปกติ',
-  heat_critical: 'อุณหภูมิสูงระดับวิกฤต',
-  temperature_fast_rise: 'อุณหภูมิเพิ่มเร็ว',
-  humidity_dry: 'ความชื้นต่ำ',
-  humidity_very_dry: 'อากาศแห้งมาก',
-  humidity_critical_drop: 'ความชื้นลดลงแรง',
-  humidity_fast_drop: 'ความชื้นลดเร็ว',
-  weather_drift: 'อากาศเปลี่ยนตามธรรมชาติ',
-  drying_condition: 'ความชื้นลดตามสภาพอากาศ',
-}
-
 function getHashSection(): NavSection {
   const hash = window.location.hash.replace('#', '') as NavSection
   return navSections.includes(hash) ? hash : 'overview'
@@ -168,6 +130,62 @@ function Value({
   )
 }
 
+function safetyBannerFor(canAssess: boolean, state: NodeState) {
+  if (!canAssess || state === 'UNKNOWN') {
+    return {
+      tone: 'unknown',
+      heading: 'ยังประเมินสถานการณ์ไม่ได้',
+      message: 'ข้อมูลสดจาก Gateway หรือจุดตรวจวัดไม่พร้อม',
+    }
+  }
+
+  if (state === 'CALIBRATING') {
+    return {
+      tone: 'unknown',
+      heading: 'กำลังประเมินสถานการณ์',
+      message: 'จุดตรวจวัดกำลังเรียนค่าเริ่มต้นของเซนเซอร์',
+    }
+  }
+
+  if (state === 'WATCH') {
+    return {
+      tone: 'watch',
+      heading: 'สถานการณ์ต้องเฝ้าติดตาม',
+      message: 'เริ่มพบสัญญาณผิดปกติ ควรติดตามอย่างใกล้ชิด',
+    }
+  }
+
+  if (state === 'SENSOR_FAULT') {
+    return {
+      tone: 'danger',
+      heading: 'ต้องตรวจสอบอุปกรณ์',
+      message: 'พบจุดตรวจวัดที่มีเซนเซอร์ขัดข้อง',
+    }
+  }
+
+  if (state === 'WARNING') {
+    return {
+      tone: 'danger',
+      heading: 'ต้องตรวจสอบทันที',
+      message: 'พบจุดตรวจวัดที่อยู่ในระดับเตือนภัย',
+    }
+  }
+
+  if (state === 'CRITICAL') {
+    return {
+      tone: 'danger',
+      heading: 'สถานการณ์ระดับวิกฤต',
+      message: 'พบสัญญาณไฟป่าระดับอันตราย',
+    }
+  }
+
+  return {
+    tone: 'safe',
+    heading: 'สถานการณ์จากจุดตรวจออนไลน์',
+    message: 'ยังไม่พบสัญญาณไฟป่าระดับอันตราย',
+  }
+}
+
 type AverageMetric = 'air_temp' | 'humidity' | 'smoke_raw'
 
 function averageReadings(readings: Reading[], metric: AverageMetric) {
@@ -181,10 +199,6 @@ function averageReadings(readings: Reading[], metric: AverageMetric) {
       ? values.reduce((sum, value) => sum + value, 0) / values.length
       : undefined,
   }
-}
-
-function formatAlertReason(reason: string) {
-  return alertReasonLabels[reason] ?? reason.replaceAll('_', ' ')
 }
 
 function pickReason(reasons: string[], candidates: string[]) {
@@ -210,45 +224,57 @@ function summarizeAlertReasons(reasons: string[] = []) {
     .filter(Boolean) as string[]
 
   return orderedReasons.length
-    ? orderedReasons.map(formatAlertReason).join(' + ')
-    : reasons.slice(0, 3).map(formatAlertReason).join(', ')
-}
-
-function formatAlertMessage(alert: Alert) {
-  const reasons = alert.reasons?.length
-    ? summarizeAlertReasons(alert.reasons)
-    : undefined
-
-  if (alert.level === 'SENSOR_FAULT') {
-    return reasons
-      ? `เซนเซอร์ผิดปกติ: ${reasons}`
-      : 'เซนเซอร์ผิดปกติ'
-  }
-
-  if (alert.level === 'CRITICAL') {
-    return reasons
-      ? `ระดับอันตราย: ${reasons}`
-      : 'ระดับอันตราย'
-  }
-
-  if (alert.level === 'WARNING') {
-    return reasons
-      ? `ต้องตรวจสอบ: ${reasons}`
-      : 'ต้องตรวจสอบ'
-  }
-
-  if (alert.level === 'WATCH') {
-    return reasons
-      ? `เฝ้าระวัง: ${reasons}`
-      : 'เฝ้าระวัง'
-  }
-
-  return alert.message || 'ตรวจพบค่าสัญญาณผิดปกติ'
+    ? orderedReasons.map(formatReason).join(' + ')
+    : reasons.slice(0, 3).map(formatReason).join(', ')
 }
 
 function formatMetric(value: number | null | undefined, suffix = '') {
   if (value === undefined || value === null) return '—'
   return `${Number.isInteger(value) ? value : value.toFixed(1)}${suffix}`
+}
+
+function formatPositiveChange(value: number | null | undefined, suffix: string) {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return undefined
+  return formatMetric(value, suffix)
+}
+
+function formatAlertSummary(alert: Alert) {
+  const reasons = alert.reasons ?? []
+  const reading = alert.last_reading
+  const anomalies: string[] = []
+  const hasReason = (...candidates: string[]) => candidates.some((reason) => reasons.includes(reason))
+  const smokeChange = formatPositiveChange(reading?.smoke_baseline_delta, ' raw')
+  const heatChange = formatPositiveChange(reading?.air_baseline_delta, '°C')
+  const humidityDrop = typeof reading?.humidity_baseline_delta === 'number'
+    ? formatPositiveChange(-reading.humidity_baseline_delta, '%')
+    : undefined
+
+  if (hasReason('smoke_sensor_low_stuck', 'smoke_low_stable')) {
+    const latestSmoke = typeof reading?.smoke_raw === 'number'
+      ? ` (ล่าสุด ${formatMetric(reading.smoke_raw, ' raw')})`
+      : ''
+    anomalies.push(`ค่าควันต่ำผิดปกติ${latestSmoke}`)
+  } else if (hasReason('smoke_critical', 'smoke_strong', 'smoke_weak')) {
+    anomalies.push(smokeChange ? `ควันสูงขึ้น ${smokeChange}` : 'ค่าควันสูงผิดปกติ')
+  }
+
+  if (hasReason('heat_critical', 'heat_strong', 'temperature_fast_rise', 'heat_weak')) {
+    anomalies.push(heatChange ? `อุณหภูมิสูงขึ้น ${heatChange}` : 'อุณหภูมิสูงผิดปกติ')
+  }
+
+  if (hasReason('humidity_critical_drop', 'humidity_fast_drop', 'humidity_very_dry', 'humidity_dry')) {
+    anomalies.push(humidityDrop ? `ความชื้นลดลง ${humidityDrop}` : 'ความชื้นต่ำผิดปกติ')
+  }
+
+  if (hasReason('sht31_missing')) {
+    anomalies.push('อุณหภูมิ/ความชื้นไม่ส่งข้อมูล')
+  } else if (hasReason('sensor_data_incomplete', 'sensor_fault')) {
+    anomalies.push('ข้อมูลเซนเซอร์ไม่ครบ')
+  }
+
+  if (anomalies.length > 0) return [...new Set(anomalies)].join(' · ')
+  if (reasons.length > 0) return summarizeAlertReasons(reasons)
+  return alert.message || 'ตรวจพบค่าสัญญาณผิดปกติ'
 }
 
 function buildAlertDiagnostics(alert: Alert) {
@@ -344,6 +370,9 @@ function App() {
   const adminMode = currentHostname === ADMIN_HOSTNAME ||
     currentHostname === 'localhost' ||
     currentHostname === '127.0.0.1'
+  const [adminDataOpen, setAdminDataOpen] = useState(
+    () => adminMode && window.location.hash === '#admin-data',
+  )
   const [deletingAlertId, setDeletingAlertId] = useState<string>()
   const [gpsRequestingNodeId, setGpsRequestingNodeId] = useState<string>()
   const [gpsRequestError, setGpsRequestError] = useState<{ nodeId: string; message: string }>()
@@ -408,23 +437,17 @@ function App() {
     if (count === 0) return `${selectedNode.node_id} · ยังไม่มีข้อมูลย้อนหลัง`
     return `${selectedNode.node_id} · ${count}/10 ข้อมูล · ${timeAgo(latestAverageTimestamp)}`
   }
-  const highestState = useMemo(
-    () =>
-      nodes.reduce<NodeState>(
-        (highest, node) => (severity[node.state] > severity[highest] ? node.state : highest),
-        'UNKNOWN',
-      ),
-    [nodes],
+  const highestNodeState = nodes.reduce<NodeState>(
+    (highest, node) => (stateSeverity[node.state] > stateSeverity[highest] ? node.state : highest),
+    'UNKNOWN',
   )
-  const hasUnsafeNode = nodes.some((node) =>
-    ['WARNING', 'CRITICAL', 'SENSOR_FAULT'].includes(node.state),
-  )
-  const hasActiveDangerAlert = activeAlerts.some((alert) =>
-    ['WARNING', 'CRITICAL', 'SENSOR_FAULT'].includes(alert.level),
+  const highestState = activeAlerts.reduce<NodeState>(
+    (highest, alert) => (stateSeverity[alert.level] > stateSeverity[highest] ? alert.level : highest),
+    highestNodeState,
   )
   const canAssessSafety = !backendUnavailable && Boolean(health?.ok) &&
     Boolean(health?.gateway.connected) && nodes.length > 0 && onlineNodes.length === nodes.length
-  const isSafe = canAssessSafety && !hasUnsafeNode && !hasActiveDangerAlert
+  const safetyBanner = safetyBannerFor(canAssessSafety, highestState)
   const visibleAlerts = showAllAlerts ? alerts : alerts.slice(0, 5)
   const hiddenAlertCount = Math.max(0, alerts.length - visibleAlerts.length)
   const gpsRequesting = gpsRequestingNodeId === selectedNode?.node_id
@@ -475,6 +498,7 @@ function App() {
 
   const activateNav = (section: NavSection) => {
     setActiveSection(section)
+    setAdminDataOpen(false)
     closeMobileNav()
   }
 
@@ -595,10 +619,13 @@ function App() {
   const navClass = (section: NavSection) => (activeSection === section ? 'active' : undefined)
 
   useEffect(() => {
-    const syncNavWithHash = () => setActiveSection(getHashSection())
+    const syncNavWithHash = () => {
+      setAdminDataOpen(adminMode && window.location.hash === '#admin-data')
+      setActiveSection(getHashSection())
+    }
     window.addEventListener('hashchange', syncNavWithHash)
     return () => window.removeEventListener('hashchange', syncNavWithHash)
-  }, [])
+  }, [adminMode])
 
   useEffect(() => {
     if (!manualLocation) return
@@ -719,6 +746,17 @@ function App() {
                 : 'เชื่อมต่อ Backend · รอสัญญาณจาก Gateway'}
           </div>
           <div className="topbar-actions">
+            {adminMode && (
+              <a
+                aria-current={adminDataOpen ? 'page' : undefined}
+                className={`admin-data-link ${adminDataOpen ? 'active' : ''}`}
+                href={adminDataOpen ? '#overview' : '#admin-data'}
+                title={adminDataOpen ? 'กลับหน้าภาพรวม' : 'จัดการข้อมูลที่ตรวจวัด'}
+              >
+                {adminDataOpen ? <ArrowLeft size={15} /> : <Database size={15} />}
+                <span>{adminDataOpen ? 'กลับหน้าภาพรวม' : 'จัดการข้อมูล'}</span>
+              </a>
+            )}
             <span><Clock3 size={15} /> อัปเดต {formatTime(lastUpdated)}</span>
             <button
               aria-label="โหลดข้อมูลใหม่"
@@ -733,6 +771,9 @@ function App() {
           </div>
         </header>
 
+        {adminDataOpen ? (
+          <AdminReadingsPage onDataChanged={refresh} />
+        ) : (
         <div className="content" id="overview">
           <section className="page-heading">
             <div>
@@ -746,19 +787,13 @@ function App() {
             </div>
           </section>
 
-          <section className={`safety-banner ${!canAssessSafety ? 'unknown' : isSafe ? 'safe' : 'danger'}`}>
+          <section className={`safety-banner ${safetyBanner.tone}`}>
             <span className="safety-icon">
-              {isSafe ? <ShieldCheck size={27} /> : <TriangleAlert size={27} />}
+              {safetyBanner.tone === 'safe' ? <ShieldCheck size={27} /> : <TriangleAlert size={27} />}
             </span>
             <div>
-              <span>{!canAssessSafety ? 'ยังประเมินสถานการณ์ไม่ได้' : isSafe ? 'สถานการณ์จากจุดตรวจออนไลน์' : 'ต้องตรวจสอบทันที'}</span>
-              <strong>
-                {!canAssessSafety
-                  ? 'ข้อมูลสดจาก Gateway หรือจุดตรวจวัดไม่พร้อม'
-                  : isSafe
-                    ? 'ยังไม่พบสัญญาณไฟป่าระดับอันตราย'
-                    : 'พบจุดตรวจวัดที่มีสถานะผิดปกติ'}
-              </strong>
+              <span>{safetyBanner.heading}</span>
+              <strong>{safetyBanner.message}</strong>
             </div>
             <span className="safety-detail">
               {!canAssessSafety ? 'ตรวจสอบการเชื่อมต่อระบบ' : (
@@ -917,7 +952,7 @@ function App() {
                               <span className="resolved-badge">ไม่อยู่ในรายการสด</span>
                             )}
                           </strong>
-                          <span>{formatAlertMessage(alert)}</span>
+                          <span className="alert-summary">{formatAlertSummary(alert)}</span>
                           <small>{timeAgo(alert.started_at)}</small>
                         </div>
                           <ChevronRight size={16} />
@@ -935,23 +970,29 @@ function App() {
                           </button>
                         )}
                         {diagnostics && (
-                          <div className="alert-diagnostics">
-                            <div className="alert-diagnostics-head">
-                              <span><Wrench size={13} /></span>
-                              <strong>{diagnostics.title}</strong>
-                              {diagnostics.timestamp && <small>{formatTime(diagnostics.timestamp)}</small>}
-                            </div>
-                            <div className="diagnostic-columns">
-                              <div>
-                                <span>หลักฐานที่ระบบเห็น</span>
-                                {diagnostics.evidence.map((item) => <b key={item}>{item}</b>)}
+                          <details className="alert-details">
+                            <summary>
+                              <span>ดูรายละเอียดทางเทคนิค</span>
+                              <ChevronRight size={13} />
+                            </summary>
+                            <div className="alert-diagnostics">
+                              <div className="alert-diagnostics-head">
+                                <span><Wrench size={13} /></span>
+                                <strong>{diagnostics.title}</strong>
+                                {diagnostics.timestamp && <small>{formatTime(diagnostics.timestamp)}</small>}
                               </div>
-                              <div>
-                                <span>จุดที่ควรเช็ก</span>
-                                {diagnostics.checks.map((item) => <b key={item}>{item}</b>)}
+                              <div className="diagnostic-columns">
+                                <div>
+                                  <span>ข้อมูลที่ระบบใช้</span>
+                                  {diagnostics.evidence.map((item) => <b key={item}>{item}</b>)}
+                                </div>
+                                <div>
+                                  <span>วิธีตรวจสอบเพิ่มเติม</span>
+                                  {diagnostics.checks.map((item) => <b key={item}>{item}</b>)}
+                                </div>
                               </div>
                             </div>
-                          </div>
+                          </details>
                         )}
                       </article>
                     )
@@ -989,6 +1030,7 @@ function App() {
             <span>Prototype dashboard · ไม่ใช่ระบบยืนยันเหตุเพลิงไหม้ 100%</span>
           </footer>
         </div>
+        )}
       </main>
 
       {adminMode && manualLocation && (
@@ -1016,6 +1058,9 @@ function App() {
               </button>
             </header>
             <form onSubmit={(event) => void submitManualLocation(event)}>
+              <p className="location-form-note">
+                เมื่อบันทึก ระบบจะใช้พิกัดนี้แทนและสั่งให้ Node หยุดค้นหา GPS ในรอบสื่อสารถัดไป
+              </p>
               <div className="coordinate-fields">
                 <label>
                   <span>ละติจูด</span>

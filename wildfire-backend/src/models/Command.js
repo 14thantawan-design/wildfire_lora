@@ -4,7 +4,7 @@ const commandSchema = new mongoose.Schema(
   {
     command_id: { type: String, required: true, unique: true, index: true },
     node_id: { type: String, required: true, index: true, trim: true },
-    command: { type: String, required: true, enum: ['gps_reacquire'] },
+    command: { type: String, required: true, enum: ['gps_reacquire', 'gps_manual'] },
     status: {
       type: String,
       required: true,

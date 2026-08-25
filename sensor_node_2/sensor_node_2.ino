@@ -107,6 +107,7 @@ bool gpsFailureReportPending = false;
 #endif
 String lastHandledCommandId;
 Preferences commandPrefs;
+Preferences baselinePrefs;
 unsigned long lastLoRaInitAttemptMs = 0;
 bool loraReady = false;
 
@@ -135,6 +136,7 @@ RTC_DATA_ATTR long warmupSmokeSum = 0;
 RTC_DATA_ATTR float baselineAirTemp = 0.0f;
 RTC_DATA_ATTR float baselineHumidity = 0.0f;
 RTC_DATA_ATTR int baselineSmokeRaw = 0;
+RTC_DATA_ATTR uint16_t baselineNvsCyclesSinceSave = 0;
 
 // Sensor health state.
 RTC_DATA_ATTR uint8_t sharpLowStreak = 0;
@@ -171,9 +173,11 @@ void disableUnusedRadios() {
 
 void powerSensors(bool on) {
   if (SENSOR_POWER_PIN >= 0) {
+    static bool powered = false;
+    if (powered == on) return;
     digitalWrite(SENSOR_POWER_PIN, on ? HIGH : LOW);
-    // If you later power Sharp through MOSFET, increase this to about 1000 ms.
-    if (on) delay(50);
+    powered = on;
+    if (on) delay(SENSOR_POWER_STABILIZE_MS);
   }
 }
 
@@ -360,6 +364,67 @@ bool isBootAbnormalReading(const SensorData &data) {
   return false;
 }
 
+bool isStoredBaselineSane(float airTemp, float humidity, int smokeRaw) {
+  return !isnan(airTemp) && !isnan(humidity) &&
+         airTemp >= SHT31_MIN_TEMP_C && airTemp <= SHT31_MAX_TEMP_C &&
+         humidity >= SHT31_MIN_HUMIDITY && humidity <= SHT31_MAX_HUMIDITY &&
+         smokeRaw >= 0 && smokeRaw <= 4095;
+}
+
+bool loadBaselineFromNvs() {
+#if BASELINE_SAVE_TO_NVS && !TEST_MODE
+  if (baselineInitialized) return true;
+
+#if BASELINE_FORCE_RECALIBRATE
+  if (baselinePrefs.begin("node_base", false)) {
+    baselinePrefs.clear();
+    baselinePrefs.end();
+  }
+  return false;
+#else
+  if (!baselinePrefs.begin("node_base", true)) return false;
+  bool valid = baselinePrefs.getBool("valid", false);
+  uint32_t version = baselinePrefs.getUInt("ver", 0);
+  float airTemp = baselinePrefs.getFloat("air", NAN);
+  float humidity = baselinePrefs.getFloat("hum", NAN);
+  int smokeRaw = baselinePrefs.getInt("smoke", -1);
+  baselinePrefs.end();
+
+  if (!valid || version != BASELINE_STORAGE_VERSION ||
+      !isStoredBaselineSane(airTemp, humidity, smokeRaw)) return false;
+
+  baselineAirTemp = airTemp;
+  baselineHumidity = humidity;
+  baselineSmokeRaw = smokeRaw;
+  baselineInitialized = true;
+  baselineWarmupCount = BASELINE_WARMUP_CYCLES;
+  bootAbnormalCount = 0;
+  baselineNvsCyclesSinceSave = 0;
+  debugPrintln("Baseline restored from NVS");
+  return true;
+#endif
+#else
+  return false;
+#endif
+}
+
+void saveBaselineToNvs() {
+#if BASELINE_SAVE_TO_NVS && !TEST_MODE
+  if (!baselineInitialized ||
+      !isStoredBaselineSane(baselineAirTemp, baselineHumidity, baselineSmokeRaw)) return;
+  if (!baselinePrefs.begin("node_base", false)) return;
+  baselinePrefs.putBool("valid", false);
+  baselinePrefs.putUInt("ver", BASELINE_STORAGE_VERSION);
+  baselinePrefs.putFloat("air", baselineAirTemp);
+  baselinePrefs.putFloat("hum", baselineHumidity);
+  baselinePrefs.putInt("smoke", baselineSmokeRaw);
+  baselinePrefs.putBool("valid", true);
+  baselinePrefs.end();
+  baselineNvsCyclesSinceSave = 0;
+  debugPrintln("Baseline saved to NVS");
+#endif
+}
+
 bool updateBaselineWarmup(const SensorData &data) {
   if (baselineInitialized) return true;
   if (hasSensorFault(data)) return false;
@@ -379,6 +444,7 @@ bool updateBaselineWarmup(const SensorData &data) {
     baselineHumidity = warmupHumiditySum / baselineWarmupCount;
     baselineSmokeRaw = (int)(warmupSmokeSum / baselineWarmupCount);
     baselineInitialized = true;
+    saveBaselineToNvs();
   }
 
   return baselineInitialized;
@@ -661,6 +727,12 @@ void updateBaselineAfterDecision(const SensorData &data, const DeltaData &delta,
     baselineAirTemp = baselineAirTemp + BASELINE_EMA_ALPHA * (data.airTemp - baselineAirTemp);
     baselineHumidity = baselineHumidity + BASELINE_EMA_ALPHA * (data.humidity - baselineHumidity);
     baselineSmokeRaw = (int)(baselineSmokeRaw + BASELINE_EMA_ALPHA * (data.smokeRaw - baselineSmokeRaw));
+    if (baselineNvsCyclesSinceSave < BASELINE_NVS_SAVE_INTERVAL_CYCLES) {
+      baselineNvsCyclesSinceSave++;
+    }
+    if (baselineNvsCyclesSinceSave >= BASELINE_NVS_SAVE_INTERVAL_CYCLES) {
+      saveBaselineToNvs();
+    }
   } else if (status == WATCH && !e.smokeWatch && !e.smokeGroup) {
     // Natural day/night heat and humidity drift can produce WATCH without smoke.
     // Adapt slowly so the node does not stay in WATCH all afternoon.
@@ -755,9 +827,9 @@ String buildJsonPacket(const SensorData &data, const DeltaData &delta, const Evi
   return payload;
 }
 
-void listenForGatewayCommand();
+bool listenForGatewayCommand(uint32_t expectedSeq);
 
-bool sendLoRaPacket(const String &payload, bool useRandomDelay) {
+bool sendLoRaPacket(const String &payload, bool useRandomDelay, bool requireGatewayAck = false) {
   if (!ensureLoRaReady()) {
     debugPrintln("TX skipped: LoRa is not ready");
     return false;
@@ -776,7 +848,8 @@ bool sendLoRaPacket(const String &payload, bool useRandomDelay) {
   LoRa.beginPacket();
   LoRa.print(payload);
   bool ok = LoRa.endPacket();
-  if (ok) listenForGatewayCommand();
+  bool acknowledged = false;
+  if (ok) acknowledged = listenForGatewayCommand(seq);
   else LoRa.sleep();
 
 #if SERIAL_DEBUG
@@ -786,8 +859,12 @@ bool sendLoRaPacket(const String &payload, bool useRandomDelay) {
   Serial.println(payload);
   Serial.print("TX status: ");
   Serial.println(ok ? "OK" : "FAILED");
+  if (requireGatewayAck) {
+    Serial.print("Gateway ACK: ");
+    Serial.println(acknowledged ? "YES" : "NO");
+  }
 #endif
-  return ok;
+  return ok && (!requireGatewayAck || acknowledged);
 }
 
 #if USE_GPS
@@ -833,10 +910,23 @@ bool loadGpsLocationFromNvs(GpsLocation &fix) {
 #endif
 }
 
+bool loadGpsManualModeFromNvs() {
+#if GPS_SAVE_TO_NVS
+  if (GPS_FORCE_RECALIBRATE) return false;
+  if (!gpsPrefs.begin("node_gps", true)) return false;
+  bool manualMode = gpsPrefs.getBool("manual", false);
+  gpsPrefs.end();
+  return manualMode;
+#else
+  return false;
+#endif
+}
+
 void saveGpsLocationToNvs(const GpsLocation &fix) {
 #if GPS_SAVE_TO_NVS
   if (!fix.valid) return;
   if (!gpsPrefs.begin("node_gps", false)) return;
+  gpsPrefs.putBool("manual", false);
   gpsPrefs.putBool("valid", true);
   gpsPrefs.putDouble("lat", fix.latitude);
   gpsPrefs.putDouble("lng", fix.longitude);
@@ -845,6 +935,15 @@ void saveGpsLocationToNvs(const GpsLocation &fix) {
   gpsPrefs.end();
 #else
   (void)fix;
+#endif
+}
+
+void saveGpsManualModeToNvs() {
+#if GPS_SAVE_TO_NVS
+  if (!gpsPrefs.begin("node_gps", false)) return;
+  gpsPrefs.clear();
+  gpsPrefs.putBool("manual", true);
+  gpsPrefs.end();
 #endif
 }
 
@@ -905,6 +1004,21 @@ void resetGpsLocation(GpsLocation &fix) {
 void stopGpsAcquisition() {
   Serial2.end();
   powerGps(false);
+}
+
+void stopGpsAndUseManualLocation() {
+  if (gpsOneShotState == GPS_ONE_SHOT_ACQUIRING) stopGpsAcquisition();
+  resetGpsLocation(nodeGpsLocation);
+  resetGpsLocation(gpsWorkingLocation);
+  gpsFixReportPending = false;
+  gpsFailureReportPending = false;
+  gpsRetryRemainingSec = 0;
+  gpsOneShotState = GPS_ONE_SHOT_DONE;
+  saveGpsManualModeToNvs();
+
+#if SERIAL_DEBUG
+  Serial.println("Manual location accepted; automatic GPS search disabled");
+#endif
 }
 
 void startGpsAcquisition() {
@@ -1034,6 +1148,14 @@ void serviceOneShotGps() {
 void startOneShotGpsIfNeeded() {
   if (!USE_GPS) return;
 
+  if (loadGpsManualModeFromNvs()) {
+    gpsOneShotState = GPS_ONE_SHOT_DONE;
+#if SERIAL_DEBUG
+    Serial.println("GPS one-shot: manual location mode, automatic search skipped");
+#endif
+    return;
+  }
+
   GpsLocation fix;
   if (loadGpsLocationFromNvs(fix)) {
     nodeGpsLocation = fix;
@@ -1113,21 +1235,34 @@ String handleGatewayCommand(const String &payload) {
 
   String commandId = String((const char *)(doc["cid"] | ""));
   String command = String((const char *)(doc["cmd"] | ""));
-  if (commandId.length() == 0 || command != "gps_reacquire") return "";
+  if (commandId.length() == 0 ||
+      (command != "gps_reacquire" && command != "gps_manual")) return "";
   if (commandId == lastHandledCommandId) return commandId;
 
 #if USE_GPS
+  if (command == "gps_manual") stopGpsAndUseManualLocation();
+  else startGpsReacquisition();
   saveLastHandledCommandId(commandId);
-  startGpsReacquisition();
   return commandId;
 #else
   return "";
 #endif
 }
 
-void listenForGatewayCommand() {
+bool isUplinkAck(const String &payload, uint32_t expectedSeq) {
+  StaticJsonDocument<COMMAND_MAX_JSON_SIZE> doc;
+  if (deserializeJson(doc, payload)) return false;
+  if (String((const char *)(doc["t"] | "")) != "rx_ack") return false;
+  if (String((const char *)(doc["id"] | "")) != NODE_ID) return false;
+  uint32_t ackSessionId = doc["sid"] | 0UL;
+  uint32_t ackSeq = doc["q"] | 0UL;
+  return ackSessionId == bootSessionId && ackSeq == expectedSeq;
+}
+
+bool listenForGatewayCommand(uint32_t expectedSeq) {
   unsigned long startedAt = millis();
   String commandAckId;
+  bool uplinkAcknowledged = false;
   LoRa.receive();
 
   while (millis() - startedAt < COMMAND_RX_WINDOW_MS) {
@@ -1139,6 +1274,7 @@ void listenForGatewayCommand() {
 
     String payload;
     while (LoRa.available()) payload += (char)LoRa.read();
+    if (isUplinkAck(payload, expectedSeq)) uplinkAcknowledged = true;
     String handledCommandId = handleGatewayCommand(payload);
     if (handledCommandId.length() > 0) commandAckId = handledCommandId;
     LoRa.receive();
@@ -1146,6 +1282,7 @@ void listenForGatewayCommand() {
 
   if (commandAckId.length() > 0) sendCommandAckPacket(commandAckId);
   if (loraReady) LoRa.sleep();
+  return uplinkAcknowledged;
 }
 
 void delayWithBackgroundTasks(unsigned long durationMs) {
@@ -1219,10 +1356,8 @@ void storeExpectedNextInterval(FireStatus status) {
 #endif
 }
 
-void enterDeepSleepByStatus(FireStatus status) {
+void enterDeepSleepForSeconds(uint64_t sleepSec) {
 #if !TEST_MODE
-  uint64_t sleepSec = sleepSecondsForStatus(status);
-
 #if USE_GPS
   accountGpsRetryBeforeSleep(sleepSec);
 #endif
@@ -1233,16 +1368,63 @@ void enterDeepSleepByStatus(FireStatus status) {
 #endif
 }
 
+void enterDeepSleepByStatus(FireStatus status) {
+#if !TEST_MODE
+  enterDeepSleepForSeconds(sleepSecondsForStatus(status));
+#else
+  (void)status;
+#endif
+}
+
+#if USE_GPS
+void serviceGpsUntilNextMeasurementOrSleep(FireStatus status) {
+#if !TEST_MODE
+  const uint64_t intervalSec = sleepSecondsForStatus(status);
+  const unsigned long intervalMs = (unsigned long)(intervalSec * 1000ULL);
+  const unsigned long startedAt = millis();
+
+  // GPS needs the ESP32 awake to parse UART, but the environmental sensors do
+  // not need to be powered or retransmitted while waiting for a fix.
+  powerSensors(false);
+  while (isOneShotGpsActive() && millis() - startedAt < intervalMs) {
+    serviceOneShotGps();
+    delay(50);
+  }
+
+  const unsigned long elapsedMs = millis() - startedAt;
+  if (elapsedMs >= intervalMs) return;
+
+  const uint64_t remainingMs = (uint64_t)intervalMs - elapsedMs;
+  const uint64_t remainingSec = (remainingMs + 999ULL) / 1000ULL;
+  enterDeepSleepForSeconds(remainingSec > 0 ? remainingSec : 1);
+#else
+  (void)status;
+#endif
+}
+#endif
+
 void handleCriticalSending(const SensorData &current, const DeltaData &delta, const EvidenceFlags &e, FireStatus status, int confidence) {
   if (status == CRITICAL) {
     if (!criticalEventActive) {
       criticalEventActive = true;
       currentEventId = makeEventId();
       String payload = buildJsonPacket(current, delta, e, status, confidence);
+#if CRITICAL_REQUIRE_GATEWAY_ACK
+      for (int i = 0; i < CRITICAL_BURST_COUNT; i++) {
+        if (sendLoRaPacket(payload, true, true)) break;
+      }
+#else
       for (int i = 0; i < CRITICAL_BURST_COUNT; i++) sendLoRaPacket(payload, true);
+#endif
     } else {
       String payload = buildJsonPacket(current, delta, e, status, confidence);
+#if CRITICAL_REQUIRE_GATEWAY_ACK
+      for (int i = 0; i < CRITICAL_ACK_RETRY_COUNT; i++) {
+        if (sendLoRaPacket(payload, true, true)) break;
+      }
+#else
       sendLoRaPacket(payload, true);
+#endif
     }
   } else {
     if (criticalEventActive) {
@@ -1281,13 +1463,15 @@ void runOneMeasurementCycle() {
   if (status == CRITICAL) delayWithBackgroundTasks(CRITICAL_CONTINUE_INTERVAL_MS);
   else delayWithBackgroundTasks(LOOP_INTERVAL_MS);
 #else
-  if (status == CRITICAL) {
-    delayWithBackgroundTasks(CRITICAL_CONTINUE_INTERVAL_MS);
+  if (status == CRITICAL || (KEEP_AWAKE_DURING_WARNING && status == WARNING)) {
+    const unsigned long activeIntervalMs = status == CRITICAL
+      ? CRITICAL_CONTINUE_INTERVAL_MS
+      : WARNING_SLEEP_SEC * 1000UL;
+    delayWithBackgroundTasks(activeIntervalMs);
   }
 #if USE_GPS
   else if (isOneShotGpsActive()) {
-    expectedNextElapsedMinutes = GPS_ACTIVE_LOOP_DELAY_MS / 60000.0f;
-    delayWithBackgroundTasks(GPS_ACTIVE_LOOP_DELAY_MS);
+    serviceGpsUntilNextMeasurementOrSleep(status);
   }
 #endif
   else {
@@ -1323,6 +1507,7 @@ void resetRuntimeStateForTestMode() {
   baselineAirTemp = 0.0f;
   baselineHumidity = 0.0f;
   baselineSmokeRaw = 0;
+  baselineNvsCyclesSinceSave = 0;
   sharpLowStreak = 0;
   sharpHighStreak = 0;
   sharpStuckStreak = 0;
@@ -1346,6 +1531,7 @@ void setup() {
       bootSessionId = esp_random();
     } while (bootSessionId == 0);
   }
+  loadBaselineFromNvs();
   loadLastHandledCommandId();
 
   debugPrintln("Starting Wildfire Sensor Node...");

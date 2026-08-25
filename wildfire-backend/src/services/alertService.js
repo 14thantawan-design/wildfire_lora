@@ -114,6 +114,13 @@ async function hasCleanNormalStreak(nodeId, count = 3) {
   return hasDistinctNormalStreak(recent, count);
 }
 
+function isFirmwareConfirmedNormal(reading) {
+  if (!reading) return false;
+  const serverState = reading.server_state || reading.state;
+  const nodeState = reading.node_state || reading.raw_packet?.st;
+  return serverState === 'NORMAL' && nodeState === 'NORMAL';
+}
+
 async function processAlertForReading(reading) {
   if (!reading || !reading.node_id) {
     return { action: 'ignored' };
@@ -127,7 +134,11 @@ async function processAlertForReading(reading) {
   const reasons = reading.server_reasons || [];
 
   if (state === 'NORMAL') {
-    const clean = await hasCleanNormalStreak(nodeId, 3);
+    // The field firmware already holds WATCH/WARNING/CRITICAL until three clean
+    // measurement cycles have passed. When both engines agree on NORMAL, avoid
+    // waiting for three more 10-minute field reports. Legacy packets without a
+    // node_state still use the database streak as a safe fallback.
+    const clean = isFirmwareConfirmedNormal(reading) || await hasCleanNormalStreak(nodeId, 3);
     if (!clean) {
       return { action: 'clean_streak_pending' };
     }
@@ -209,5 +220,6 @@ module.exports = {
   processAlertForReading,
   severityOf,
   shouldNotifyLevel,
-  hasDistinctNormalStreak
+  hasDistinctNormalStreak,
+  isFirmwareConfirmedNormal
 };

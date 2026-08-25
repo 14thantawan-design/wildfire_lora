@@ -4,16 +4,20 @@ const assert = require('node:assert/strict');
 const { evaluateRisk } = require('../src/services/riskEngine');
 const {
   buildPacketIdentity,
+  isOutOfOrderPacket,
   validateGpsPacket,
   validateSensorPacket
 } = require('../src/services/packetHandler');
 const {
   hasDistinctNormalStreak,
+  isFirmwareConfirmedNormal,
   severityOf,
   shouldNotifyLevel
 } = require('../src/services/alertService');
 const { isTrustedAdminRequest } = require('../src/middleware/security');
-const { buildGpsReacquireUpdate } = require('../src/routes/nodes');
+const CommandModel = require('../src/models/Command');
+const { buildGpsReacquireUpdate, offlineTimeoutMs } = require('../src/routes/nodes');
+const { buildReadingUpdate, normalizeReadingIds } = require('../src/routes/readings');
 const {
   buildTelegramMessage,
   escapeHtml,
@@ -78,6 +82,43 @@ test('GPS reacquire preserves a manual fallback but clears a stale GPS fix', () 
   });
 });
 
+test('GPS command model supports manual mode and reacquisition', () => {
+  const commands = CommandModel.schema.path('command').enumValues;
+  assert.deepEqual([...commands].sort(), ['gps_manual', 'gps_reacquire']);
+});
+
+test('admin reading edits only accept measured fields in sensor ranges', () => {
+  const update = buildReadingUpdate({
+    timestamp: '2026-08-25T08:30:00.000Z',
+    air_temp: 34.5,
+    humidity: 48,
+    smoke_raw: 620,
+    sensor_health: 'ok',
+    rssi: -76,
+    snr: 7.5
+  });
+
+  assert.equal(update.$set.air_temp, 34.5);
+  assert.equal(update.$set['raw_packet.at'], 34.5);
+  assert.equal(update.$set.sensor_health, 'OK');
+  assert.equal(update.$set['raw_packet.sh'], 'OK');
+  assert.equal(update.$set.timestamp.toISOString(), '2026-08-25T08:30:00.000Z');
+  assert.throws(() => buildReadingUpdate({ humidity: 101 }), /out of range/);
+  assert.throws(() => buildReadingUpdate({ timestamp: null }), /timestamp is invalid/);
+  assert.throws(() => buildReadingUpdate({ server_state: 'NORMAL' }), /no editable/);
+});
+
+test('bulk reading deletion validates, deduplicates, and limits ids', () => {
+  const firstId = '507f1f77bcf86cd799439011';
+  const secondId = '507f191e810c19729de860ea';
+
+  assert.deepEqual(normalizeReadingIds([firstId, firstId, secondId]), [firstId, secondId]);
+  assert.throws(() => normalizeReadingIds([]), /non-empty/);
+  assert.throws(() => normalizeReadingIds(['not-an-object-id']), /invalid/);
+  assert.throws(() => normalizeReadingIds(Array.from({ length: 501 }, (_, index) =>
+    index.toString(16).padStart(24, '0'))), /more than 500/);
+});
+
 test('packet identity ignores transport signal metadata', () => {
   const now = new Date('2026-07-15T00:00:00.000Z');
   const first = buildPacketIdentity(validSensorPacket({ rssi: -40, snr: 8 }), now);
@@ -85,6 +126,34 @@ test('packet identity ignores transport signal metadata', () => {
 
   assert.equal(first.packetId, retry.packetId);
   assert.equal(first.packetHash, retry.packetHash);
+});
+
+test('older packets in the same boot session cannot overwrite the live node snapshot', () => {
+  const node = { session_id: 1234, last_seq: 42 };
+
+  assert.equal(isOutOfOrderPacket(node, validSensorPacket({ sid: 1234, q: 41 })), true);
+  assert.equal(isOutOfOrderPacket(node, validSensorPacket({ sid: 1234, q: 42 })), true);
+  assert.equal(isOutOfOrderPacket(node, validSensorPacket({ sid: 1234, q: 43 })), false);
+  assert.equal(isOutOfOrderPacket(node, validSensorPacket({ sid: 5678, q: 1 })), false);
+});
+
+test('adaptive offline timeout tolerates one missed field report', () => {
+  const previousMultiplier = process.env.OFFLINE_INTERVAL_MULTIPLIER;
+  const previousJitter = process.env.OFFLINE_JITTER_GRACE_MS;
+  const previousMinimum = process.env.OFFLINE_TIMEOUT_MS;
+  delete process.env.OFFLINE_INTERVAL_MULTIPLIER;
+  delete process.env.OFFLINE_JITTER_GRACE_MS;
+  process.env.OFFLINE_TIMEOUT_MS = '60000';
+
+  assert.equal(offlineTimeoutMs({ report_interval_sec: 600 }), 1530000);
+  assert.equal(offlineTimeoutMs({ report_interval_sec: 120 }), 330000);
+
+  if (previousMultiplier === undefined) delete process.env.OFFLINE_INTERVAL_MULTIPLIER;
+  else process.env.OFFLINE_INTERVAL_MULTIPLIER = previousMultiplier;
+  if (previousJitter === undefined) delete process.env.OFFLINE_JITTER_GRACE_MS;
+  else process.env.OFFLINE_JITTER_GRACE_MS = previousJitter;
+  if (previousMinimum === undefined) delete process.env.OFFLINE_TIMEOUT_MS;
+  else process.env.OFFLINE_TIMEOUT_MS = previousMinimum;
 });
 
 test('duplicate readings cannot satisfy the normal clean streak', () => {
@@ -97,6 +166,21 @@ test('duplicate readings cannot satisfy the normal clean streak', () => {
 
   assert.equal(hasDistinctNormalStreak(duplicateRows, 3), false);
   assert.equal(hasDistinctNormalStreak(distinctRows, 3), true);
+});
+
+test('firmware-confirmed NORMAL avoids a second three-report recovery delay', () => {
+  assert.equal(isFirmwareConfirmedNormal({
+    server_state: 'NORMAL', node_state: 'NORMAL'
+  }), true);
+  assert.equal(isFirmwareConfirmedNormal({
+    server_state: 'NORMAL', node_state: 'WARNING'
+  }), false);
+  assert.equal(isFirmwareConfirmedNormal({
+    server_state: 'WARNING', node_state: 'NORMAL'
+  }), false);
+  assert.equal(isFirmwareConfirmedNormal({
+    server_state: 'NORMAL', raw_packet: { st: 'NORMAL' }
+  }), true);
 });
 
 test('critical fire outranks a sensor fault', () => {

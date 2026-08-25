@@ -1,7 +1,8 @@
 import { useEffect, useMemo } from 'react'
 import { Circle, MapContainer, TileLayer, Tooltip, useMap } from 'react-leaflet'
 import type { LatLngBoundsExpression } from 'leaflet'
-import type { NodeState, NodeStatus } from './types'
+import type { NodeStatus } from './types'
+import { formatReason, stateColors, stateLabels } from './nodeStates'
 
 interface MapPanelProps {
   nodes: NodeStatus[]
@@ -9,56 +10,10 @@ interface MapPanelProps {
   onSelect: (nodeId: string) => void
 }
 
-const stateColor: Record<string, string> = {
-  NORMAL: '#66c98a',
-  WATCH: '#f5ad45',
-  WARNING: '#f57845',
-  CRITICAL: '#e34b42',
-  SENSOR_FAULT: '#a779e9',
-  CALIBRATING: '#6fb3d9',
-  UNKNOWN: '#9ca3af',
-}
-
-const stateLabels: Record<NodeState, string> = {
-  CALIBRATING: 'กำลังปรับค่า',
-  NORMAL: 'ปกติ',
-  WATCH: 'เฝ้าระวัง',
-  WARNING: 'เตือนภัย',
-  CRITICAL: 'วิกฤต',
-  SENSOR_FAULT: 'เซนเซอร์ขัดข้อง',
-  UNKNOWN: 'ไม่ทราบสถานะ',
-}
-
-const reasonLabels: Record<string, string> = {
-  baseline_calibrating: 'กำลังเรียนค่าเริ่มต้นของเซนเซอร์',
-  smoke_sensor_low_stuck: 'ค่าควัน 0 ต่อเนื่อง',
-  smoke_low_stable: 'ค่าควันต่ำคงที่',
-  sensor_data_incomplete: 'ข้อมูลเซนเซอร์ประกอบไม่ครบ',
-  sht31_missing: 'อุณหภูมิ/ความชื้นไม่ส่งค่า',
-  sensor_fault: 'ตรวจพบปัญหาเซนเซอร์',
-  smoke_weak: 'เริ่มพบสัญญาณควัน',
-  smoke_strong: 'พบสัญญาณควันชัดเจน',
-  smoke_critical: 'ควันสูงผิดปกติ',
-  heat_weak: 'อุณหภูมิเริ่มสูงกว่าปกติ',
-  heat_strong: 'อุณหภูมิสูงผิดปกติ',
-  heat_critical: 'อุณหภูมิสูงระดับวิกฤต',
-  temperature_fast_rise: 'อุณหภูมิเพิ่มเร็ว',
-  humidity_dry: 'ความชื้นต่ำ',
-  humidity_very_dry: 'อากาศแห้งมาก',
-  humidity_critical_drop: 'ความชื้นลดลงแรง',
-  humidity_fast_drop: 'ความชื้นลดเร็ว',
-  weather_drift: 'อากาศเปลี่ยนตามธรรมชาติ',
-  drying_condition: 'ความชื้นลดตามสภาพอากาศ',
-}
-
 function formatSensorValue(value?: number | null, suffix = '') {
   if (value === undefined || value === null) return '—'
   const displayValue = Number.isInteger(value) ? value : value.toFixed(1)
   return `${displayValue}${suffix}`
-}
-
-function formatReason(reason: string) {
-  return reasonLabels[reason] ?? reason.replaceAll('_', ' ')
 }
 
 function timeAgo(value?: string) {
@@ -115,7 +70,7 @@ export function MapPanel({ nodes, selectedNodeId, onSelect }: MapPanelProps) {
         <FitNodes nodes={locatedNodes} />
         {locatedNodes.map((node) => {
           const selected = node.node_id === selectedNodeId
-          const color = node.online ? stateColor[node.state] ?? stateColor.UNKNOWN : '#7f8782'
+          const color = node.online ? stateColors[node.state] : '#7f8782'
 
           return (
             <Circle

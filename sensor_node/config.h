@@ -13,7 +13,7 @@
 // =========================
 // Mode
 // =========================
-#define TEST_MODE 1   // 1 = bench test/debug, 0 = deploy-like mode
+#define TEST_MODE 0   // 1 = bench test/debug, 0 = field/deep-sleep mode
 
 // =========================
 // Node identity
@@ -63,6 +63,7 @@
 #define SHARP_ANALOG_PIN 36
 
 #define SENSOR_POWER_PIN 4    // TTGO IO4 -> Sharp F5305S SIG+ (HIGH = power ON)
+#define SENSOR_POWER_STABILIZE_MS 1000UL
 
 // =========================
 // One-shot GPS install location
@@ -91,7 +92,6 @@
 #define GPS_SAVE_TO_NVS 1
 #define GPS_FORCE_RECALIBRATE 0
 #define GPS_PACKET_REPEAT_COUNT 3
-#define GPS_ACTIVE_LOOP_DELAY_MS 5000UL
 
 // =========================
 // Timing
@@ -108,6 +108,9 @@
 
 #define CRITICAL_BURST_COUNT 3
 #define CRITICAL_CONTINUE_INTERVAL_MS 20000UL
+#define KEEP_AWAKE_DURING_WARNING 1
+#define CRITICAL_REQUIRE_GATEWAY_ACK 1
+#define CRITICAL_ACK_RETRY_COUNT 3
 
 // =========================
 // Baseline warm-up and calibration
@@ -122,6 +125,15 @@
 #define BOOT_ABNORMAL_REQUIRED_CYCLES 2
 #define BASELINE_EMA_ALPHA 0.05f
 #define BASELINE_WATCH_NO_SMOKE_ALPHA 0.01f
+
+// Keep a known-good baseline across a complete power loss. Normal deep sleep
+// already preserves RTC memory; NVS is only a fallback for a cold boot.
+#define BASELINE_SAVE_TO_NVS 1
+#define BASELINE_STORAGE_VERSION 1
+#define BASELINE_FORCE_RECALIBRATE 0
+// Persist slow baseline drift at most about once per day in NORMAL mode
+// (144 cycles x 10 minutes), which avoids unnecessary flash wear.
+#define BASELINE_NVS_SAVE_INTERVAL_CYCLES 144
 
 // =========================
 // Sensor health checks

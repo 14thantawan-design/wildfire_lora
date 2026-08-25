@@ -108,7 +108,12 @@ serial bridge started: COM3 @ 115200
 
 GPS commands are stored in MongoDB until the Sensor Node acknowledges them, so restarting the backend or Gateway does not silently lose a pending command.
 
-The live Node list is heartbeat-driven. A Node appears automatically while it is sending recent packets and drops out of the live dashboard after its report-aware offline timeout. When it sends again, it returns automatically without configuration changes or deleting history.
+Saving a manual location also queues `gps_manual`. On its next uplink, the Node
+turns off GPS and persists manual-location mode. `gps_reacquire` clears that mode
+and starts the physical GPS again. GPS acquisition never shortens the sensor's
+normal measurement/report interval.
+
+The live Node list is heartbeat-driven. A Node appears automatically while it is sending recent packets and drops out of the live dashboard after its report-aware offline timeout. The default timeout is 2.5 report intervals plus 30 seconds, so one missed report is tolerated. When it sends again, it returns automatically without configuration changes or deleting history.
 
 ## Test Without Gateway
 

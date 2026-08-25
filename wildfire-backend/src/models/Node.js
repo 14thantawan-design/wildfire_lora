@@ -35,6 +35,7 @@ const nodeSchema = new mongoose.Schema(
     location_source: { type: String, enum: ['gps', 'manual'] },
     location_updated_at: { type: Date },
     last_seen: { type: Date },
+    session_id: { type: Number },
     last_seq: { type: Number },
     report_interval_sec: { type: Number },
     rssi: { type: Number },

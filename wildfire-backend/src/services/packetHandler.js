@@ -159,6 +159,12 @@ function buildPacketIdentity(packet, now = new Date()) {
   return { packetHash, packetId, sessionId };
 }
 
+function isOutOfOrderPacket(node, packet) {
+  if (!node || !isValidSessionId(packet.sid) || !isValidSequence(packet.q)) return false;
+  if (!isValidSessionId(node.session_id) || !isValidSequence(node.last_seq)) return false;
+  return node.session_id === packet.sid && packet.q <= node.last_seq;
+}
+
 function invalidPacket(reason) {
   return { ignored: true, invalid: true, reason };
 }
@@ -232,6 +238,19 @@ async function handleSensorPacket(packet, meta = {}) {
       node_id: nodeId,
       reading_id: duplicate._id,
       duplicate: true
+    };
+  }
+
+  const currentNode = await NodeModel.findOne({ node_id: nodeId })
+    .select('session_id last_seq')
+    .lean();
+  if (isOutOfOrderPacket(currentNode, packet)) {
+    return {
+      type: 'sensor',
+      node_id: nodeId,
+      ignored: true,
+      stale: true,
+      seq: packet.q
     };
   }
 
@@ -314,6 +333,7 @@ async function handleSensorPacket(packet, meta = {}) {
     smoke_raw: smokeRaw,
     sensor_health: sensorHealth,
     last_seen: now,
+    session_id: identity.sessionId,
     last_seq: toNumber(packet.q),
     report_interval_sec: toNumber(packet.ri),
     online: true
@@ -345,12 +365,25 @@ async function handleGpsPacket(packet, meta = {}) {
 
   const nodeId = packet.id.trim();
   const now = new Date();
+  const currentNode = await NodeModel.findOne({ node_id: nodeId })
+    .select('session_id last_seq')
+    .lean();
+  if (isOutOfOrderPacket(currentNode, packet)) {
+    return {
+      type: 'gps',
+      node_id: nodeId,
+      ignored: true,
+      stale: true,
+      seq: packet.q
+    };
+  }
   const gpsFixed = packet.gf === 1;
   const rssi = extractRssi(packet, meta);
   const snr = extractSnr(packet, meta);
 
   const nodeSet = {
     last_seen: now,
+    session_id: isValidSessionId(packet.sid) ? packet.sid : undefined,
     last_seq: toNumber(packet.q),
     online: true,
     gps_fixed: gpsFixed
@@ -410,5 +443,6 @@ module.exports = {
   parseMetaFromLine,
   validateSensorPacket,
   validateGpsPacket,
-  buildPacketIdentity
+  buildPacketIdentity,
+  isOutOfOrderPacket
 };

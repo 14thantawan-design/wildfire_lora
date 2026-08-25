@@ -7,8 +7,16 @@ const router = express.Router();
 
 function offlineTimeoutMs(node) {
   const configuredMinimum = Number(process.env.OFFLINE_TIMEOUT_MS || 60000);
+  const configuredMultiplier = Number(process.env.OFFLINE_INTERVAL_MULTIPLIER || 2.5);
+  const configuredJitter = Number(process.env.OFFLINE_JITTER_GRACE_MS || 30000);
+  const intervalMultiplier = Number.isFinite(configuredMultiplier) && configuredMultiplier >= 1
+    ? configuredMultiplier
+    : 2.5;
+  const jitterGraceMs = Number.isFinite(configuredJitter) && configuredJitter >= 0
+    ? configuredJitter
+    : 30000;
   const expectedIntervalMs = Number(node?.report_interval_sec || 0) * 1000;
-  return Math.max(configuredMinimum, expectedIntervalMs * 1.5 + 30000);
+  return Math.max(configuredMinimum, expectedIntervalMs * intervalMultiplier + jitterGraceMs);
 }
 
 function withOnlineStatus(node) {
@@ -126,6 +134,10 @@ router.post('/:node_id/location/manual', requireLocalAdmin, async (req, res, nex
       return res.status(404).json({ error: 'node not found' });
     }
 
+    // Manual coordinates are authoritative. Tell the physical Node to stop its
+    // automatic GPS search as soon as its next uplink opens a command window.
+    await enqueueCommand(node.node_id, 'gps_manual');
+
     return res.json(withOnlineStatus(node));
   } catch (error) {
     return next(error);
@@ -134,4 +146,5 @@ router.post('/:node_id/location/manual', requireLocalAdmin, async (req, res, nex
 
 module.exports = router;
 module.exports.buildGpsReacquireUpdate = buildGpsReacquireUpdate;
+module.exports.offlineTimeoutMs = offlineTimeoutMs;
 module.exports.withOnlineStatus = withOnlineStatus;

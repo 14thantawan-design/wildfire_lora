@@ -13,7 +13,7 @@
   Gateway receives packets from multiple sensor nodes.
 */
 
-#define TEST_MODE 1
+#define TEST_MODE 0
 #define MAX_NODES 10
 #define MAX_JSON_SIZE 512
 
@@ -85,11 +85,15 @@
 #define COMMAND_REPEAT_COUNT 3
 #define COMMAND_REPEAT_DELAY_MS 80UL
 #define COMMAND_HTTP_JSON_SIZE 2048
+#define CRITICAL_UPLINK_ACK_ENABLED 1
 
 #if TEST_MODE
   #define OFFLINE_TIMEOUT_MS 60000UL      // 60 sec for bench testing
   #define SUMMARY_PRINT_INTERVAL_MS 10000UL
 #else
-  #define OFFLINE_TIMEOUT_MS 900000UL     // 15 minutes deploy-like
+  #define OFFLINE_TIMEOUT_MS 60000UL      // minimum; adaptive timeout uses report interval
   #define SUMMARY_PRINT_INTERVAL_MS 60000UL
 #endif
+#define OFFLINE_INTERVAL_NUMERATOR 5UL    // 2.5 expected report intervals
+#define OFFLINE_INTERVAL_DENOMINATOR 2UL
+#define OFFLINE_JITTER_GRACE_MS 30000UL
