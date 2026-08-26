@@ -106,11 +106,10 @@
   #define SENSOR_FAULT_SLEEP_SEC 300UL
 #endif
 
-#define CRITICAL_BURST_COUNT 3
 #define CRITICAL_CONTINUE_INTERVAL_MS 20000UL
 #define KEEP_AWAKE_DURING_WARNING 1
-#define CRITICAL_REQUIRE_GATEWAY_ACK 1
-#define CRITICAL_ACK_RETRY_COUNT 3
+#define SENSOR_REQUIRE_GATEWAY_ACK 1
+#define SENSOR_ACK_MAX_ATTEMPTS 3
 
 // =========================
 // Baseline warm-up and calibration

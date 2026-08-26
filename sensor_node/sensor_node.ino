@@ -867,6 +867,24 @@ bool sendLoRaPacket(const String &payload, bool useRandomDelay, bool requireGate
   return ok && (!requireGatewayAck || acknowledged);
 }
 
+bool sendSensorPacketWithAck(const String &payload) {
+#if SENSOR_REQUIRE_GATEWAY_ACK
+  for (int attempt = 1; attempt <= SENSOR_ACK_MAX_ATTEMPTS; attempt++) {
+#if SERIAL_DEBUG
+    Serial.print("Sensor TX attempt: ");
+    Serial.print(attempt);
+    Serial.print("/");
+    Serial.println(SENSOR_ACK_MAX_ATTEMPTS);
+#endif
+    if (sendLoRaPacket(payload, true, true)) return true;
+  }
+  debugPrintln("Sensor TX ended without Gateway ACK");
+  return false;
+#else
+  return sendLoRaPacket(payload, true);
+#endif
+}
+
 #if USE_GPS
 bool isGpsCoordinateValid(double latitude, double longitude) {
   if (isnan(latitude) || isnan(longitude)) return false;
@@ -1408,32 +1426,16 @@ void handleCriticalSending(const SensorData &current, const DeltaData &delta, co
     if (!criticalEventActive) {
       criticalEventActive = true;
       currentEventId = makeEventId();
-      String payload = buildJsonPacket(current, delta, e, status, confidence);
-#if CRITICAL_REQUIRE_GATEWAY_ACK
-      for (int i = 0; i < CRITICAL_BURST_COUNT; i++) {
-        if (sendLoRaPacket(payload, true, true)) break;
-      }
-#else
-      for (int i = 0; i < CRITICAL_BURST_COUNT; i++) sendLoRaPacket(payload, true);
-#endif
-    } else {
-      String payload = buildJsonPacket(current, delta, e, status, confidence);
-#if CRITICAL_REQUIRE_GATEWAY_ACK
-      for (int i = 0; i < CRITICAL_ACK_RETRY_COUNT; i++) {
-        if (sendLoRaPacket(payload, true, true)) break;
-      }
-#else
-      sendLoRaPacket(payload, true);
-#endif
     }
   } else {
     if (criticalEventActive) {
       criticalEventActive = false;
       currentEventId = "";
     }
-    String payload = buildJsonPacket(current, delta, e, status, confidence);
-    sendLoRaPacket(payload, true);
   }
+
+  String payload = buildJsonPacket(current, delta, e, status, confidence);
+  sendSensorPacketWithAck(payload);
 }
 
 void runOneMeasurementCycle() {

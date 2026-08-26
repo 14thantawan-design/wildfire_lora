@@ -1020,9 +1020,9 @@ bool handleCommandAckPacket(const String &payload) {
   return true;
 }
 
-bool sendCriticalUplinkAck(const ParsedPacket &packet) {
-#if CRITICAL_UPLINK_ACK_ENABLED
-  if (packet.packetType != "critical") return false;
+bool sendSensorUplinkAck(const ParsedPacket &packet) {
+#if SENSOR_UPLINK_ACK_ENABLED
+  if (packet.packetType != "sensor" && packet.packetType != "critical") return false;
 
   StaticJsonDocument<192> doc;
   doc["t"] = "rx_ack";
@@ -1038,7 +1038,7 @@ bool sendCriticalUplinkAck(const ParsedPacket &packet) {
   bool sent = LoRa.endPacket();
   LoRa.receive();
   if (sent) {
-    Serial.print("Critical uplink ACK: ");
+    Serial.print("Sensor uplink ACK: ");
     Serial.print(packet.nodeId);
     Serial.print(" seq=");
     Serial.println(packet.seq);
@@ -1082,8 +1082,8 @@ void handleIncomingLoRa() {
   }
 
   // The node opens a short receive window immediately after every uplink.
-  // A CRITICAL ACK is sent first; any queued command follows in the same window.
-  sendCriticalUplinkAck(parsed);
+  // A sensor ACK is sent first; any queued command follows in the same window.
+  sendSensorUplinkAck(parsed);
   sendPendingCommandForNode(parsed.nodeId);
 
   if (isDuplicatePacket(idx, parsed)) {
