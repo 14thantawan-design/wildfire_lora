@@ -29,6 +29,9 @@ uint32_t sessionId = 0;
 uint32_t sequenceNumber = 0;
 uint32_t completedCycles = 0;
 uint32_t acknowledgedCycles = 0;
+bool wireStarted = false;
+int activeOledSdaPin = -1;
+int activeOledSclPin = -1;
 
 void disableUnusedRadios() {
   WiFi.mode(WIFI_OFF);
@@ -128,13 +131,64 @@ void showResult(const AckResult &result) {
   finishDisplayFrame();
 }
 
+bool probeDisplayBus(int sdaPin, int sclPin) {
+  if (wireStarted) {
+    Wire.end();
+    wireStarted = false;
+    delay(10);
+  }
+  Serial.print("Probing OLED SDA=");
+  Serial.print(sdaPin);
+  Serial.print(" SCL=");
+  Serial.println(sclPin);
+  if (!Wire.begin(sdaPin, sclPin)) return false;
+  wireStarted = true;
+  Wire.setTimeOut(50);
+  Wire.beginTransmission(OLED_I2C_ADDRESS);
+  return Wire.endTransmission() == 0;
+}
+
+bool selectDisplayBus(int &selectedSda, int &selectedScl) {
+  const int candidatePins[][2] = {
+    {OLED_PRIMARY_SDA_PIN, OLED_PRIMARY_SCL_PIN},
+    {OLED_FALLBACK_SDA_PIN, OLED_FALLBACK_SCL_PIN},
+  };
+
+  for (const auto &pins : candidatePins) {
+    if (!probeDisplayBus(pins[0], pins[1])) continue;
+    selectedSda = pins[0];
+    selectedScl = pins[1];
+    return true;
+  }
+  return false;
+}
+
 bool initDisplay() {
-  Wire.begin(OLED_SDA_PIN, OLED_SCL_PIN);
-  displayReady = display.begin(SSD1306_SWITCHCAPVCC, OLED_I2C_ADDRESS);
+  int selectedSda = -1;
+  int selectedScl = -1;
+  if (!selectDisplayBus(selectedSda, selectedScl)) {
+    Serial.println("OLED not found on SDA/SCL 4/15 or 21/22");
+    return false;
+  }
+
+  // Wire already uses the detected pins. periphBegin=false prevents the
+  // Adafruit library from calling Wire.begin() again on the default pins.
+  displayReady = display.begin(
+    SSD1306_SWITCHCAPVCC,
+    OLED_I2C_ADDRESS,
+    false,
+    false
+  );
   if (!displayReady) {
     Serial.println("OLED init FAILED");
     return false;
   }
+  activeOledSdaPin = selectedSda;
+  activeOledSclPin = selectedScl;
+  Serial.print("OLED init OK SDA=");
+  Serial.print(selectedSda);
+  Serial.print(" SCL=");
+  Serial.println(selectedScl);
   showStartup("Starting...");
   return true;
 }
@@ -248,7 +302,7 @@ bool sendAttempt(const String &payload, AckResult &result) {
   );
   delay(randomDelayMs);
 
-  showAttempt(sequenceNumber, result.attempt, "TRANSMITTING...");
+  showAttempt(sequenceNumber, result.attempt, "TX + WAIT FOR ACK");
   LoRa.idle();
   LoRa.beginPacket();
   LoRa.print(payload);
@@ -258,15 +312,17 @@ bool sendAttempt(const String &payload, AckResult &result) {
     return false;
   }
 
+  // Enter receive mode immediately. Serial and OLED work here would make the
+  // node miss the short ACK that the Gateway sends as soon as the uplink ends.
+  const bool acknowledged = waitForAck(sequenceNumber, result);
+
   Serial.print("TX NODE03 seq=");
   Serial.print(sequenceNumber);
   Serial.print(" attempt=");
   Serial.print(result.attempt);
   Serial.print(" bytes=");
   Serial.println(payload.length());
-
-  showAttempt(sequenceNumber, result.attempt, "WAITING FOR ACK");
-  return waitForAck(sequenceNumber, result);
+  return acknowledged;
 }
 
 void runRangeTestCycle() {
@@ -302,6 +358,15 @@ void runRangeTestCycle() {
   Serial.print(" (");
   Serial.print(successPercent());
   Serial.println("%)");
+  Serial.print("OLED: ");
+  if (displayReady) {
+    Serial.print("OK SDA=");
+    Serial.print(activeOledSdaPin);
+    Serial.print(" SCL=");
+    Serial.println(activeOledSclPin);
+  } else {
+    Serial.println("NOT FOUND");
+  }
 
   showResult(result);
   delay(TEST_CYCLE_PAUSE_MS);
@@ -310,14 +375,18 @@ void runRangeTestCycle() {
 void setup() {
   Serial.begin(SERIAL_BAUD);
   delay(500);
+  Serial.println("NODE03 boot");
   disableUnusedRadios();
+  Serial.println("Unused radios disabled");
   randomSeed(esp_random());
 
   do {
     sessionId = esp_random();
   } while (sessionId == 0);
+  Serial.println("Session ready");
 
   initDisplay();
+  Serial.println("Display init finished");
   initLoRa();
 
   Serial.println("NODE03 LoRa range test ready");

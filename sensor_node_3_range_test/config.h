@@ -38,9 +38,11 @@
 // =========================
 #define OLED_WIDTH 128
 #define OLED_HEIGHT 64
-#define OLED_SDA_PIN 4
-#define OLED_SCL_PIN 15
-#define OLED_RESET_PIN 16
+#define OLED_PRIMARY_SDA_PIN 4
+#define OLED_PRIMARY_SCL_PIN 15
+#define OLED_FALLBACK_SDA_PIN 21
+#define OLED_FALLBACK_SCL_PIN 22
+#define OLED_RESET_PIN -1
 #define OLED_I2C_ADDRESS 0x3C
 
 // =========================
