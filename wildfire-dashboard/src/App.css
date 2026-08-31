@@ -87,8 +87,7 @@
   font-size: 8px;
 }
 
-.gateway-card small i,
-.panel-meta i {
+.gateway-card small i {
   display: inline-block;
   width: 6px;
   height: 6px;
@@ -668,11 +667,6 @@
 .rotate-up {
   transform: rotate(-90deg);
   transition: transform 160ms ease;
-}
-
-.panel-meta {
-  color: #808982;
-  font-size: 8px;
 }
 
 .panel-head > .map-head-actions {

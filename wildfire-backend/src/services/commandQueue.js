@@ -2,7 +2,6 @@ const crypto = require('crypto');
 const Command = require('../models/Command');
 
 const COMMAND_TTL_MS = 24 * 60 * 60 * 1000;
-const listeners = new Set();
 
 function createCommandId() {
   return `cmd_${Date.now().toString(36)}_${crypto.randomBytes(4).toString('hex')}`;
@@ -46,14 +45,6 @@ async function enqueueCommand(nodeId, commandName) {
   });
   const serialized = serializeCommand(command);
 
-  for (const listener of listeners) {
-    try {
-      listener(serialized);
-    } catch (error) {
-      console.error(`command listener error: ${error.message}`);
-    }
-  }
-
   return { command: serialized, duplicate: false };
 }
 
@@ -95,10 +86,6 @@ async function completeCommand(commandId, accepted = true, reason = '') {
     { new: true }
   );
   return serializeCommand(command);
-}
-
-async function acknowledgeCommand(commandId) {
-  return Boolean(await completeCommand(commandId, true));
 }
 
 async function getLatestCommandForNode(nodeId, commandName) {
@@ -162,13 +149,7 @@ async function recordBaselineRecalibrationProgress(nodeId, telemetry, timestamp 
   return serializeCommand(updated);
 }
 
-function onCommand(listener) {
-  listeners.add(listener);
-  return () => listeners.delete(listener);
-}
-
 module.exports = {
-  acknowledgeCommand,
   buildBaselineProgressUpdate,
   completeCommand,
   enqueueCommand,
@@ -176,6 +157,5 @@ module.exports = {
   isBaselineCalibrationInProgress,
   listPendingCommands,
   markCommandSent,
-  onCommand,
   recordBaselineRecalibrationProgress
 };

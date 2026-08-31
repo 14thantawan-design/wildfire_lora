@@ -7,16 +7,9 @@
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
-  --forest-950: #10251d;
-  --forest-900: #173127;
-  --forest-800: #244438;
   --forest-600: #377e5d;
-  --paper: #f8f7f2;
-  --card: #ffffff;
   --line: #e0e1da;
-  --muted: #747d77;
   --ember: #eb7043;
-  --amber: #f3aa43;
 }
 
 * {

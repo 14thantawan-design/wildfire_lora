@@ -168,43 +168,6 @@ function invalidPacket(reason) {
   return { ignored: true, invalid: true, reason };
 }
 
-function parseMetaFromLine(line) {
-  const meta = {};
-  const rssiMatch = line.match(/\brssi\s*[:=]\s*(-?\d+(?:\.\d+)?)/i);
-  const snrMatch = line.match(/\bsnr\s*[:=]\s*(-?\d+(?:\.\d+)?)/i);
-
-  if (rssiMatch) meta.rssi = toNumber(rssiMatch[1]);
-  if (snrMatch) meta.snr = toNumber(snrMatch[1]);
-
-  return meta;
-}
-
-function parsePacketLine(line) {
-  const trimmed = String(line || '').trim();
-  if (!trimmed) return null;
-
-  const meta = parseMetaFromLine(trimmed);
-  const payloadIndex = trimmed.indexOf('payload=');
-  const candidate = payloadIndex >= 0 ? trimmed.slice(payloadIndex + 'payload='.length).trim() : trimmed;
-  const firstBrace = candidate.indexOf('{');
-  const lastBrace = candidate.lastIndexOf('}');
-
-  if (firstBrace < 0 || lastBrace <= firstBrace) {
-    return null;
-  }
-
-  const jsonText = candidate.slice(firstBrace, lastBrace + 1);
-
-  try {
-    return {
-      packet: JSON.parse(jsonText),
-      meta
-    };
-  } catch (error) {
-    return null;
-  }
-}
-
 function extractRssi(packet, meta) {
   return toNumber(firstDefined(packet.rssi, packet.RSSI, packet.rs, meta && meta.rssi));
 }
@@ -449,8 +412,6 @@ module.exports = {
   handlePacket,
   handleSensorPacket,
   handleGpsPacket,
-  parsePacketLine,
-  parseMetaFromLine,
   validateSensorPacket,
   validateGpsPacket,
   buildPacketIdentity,

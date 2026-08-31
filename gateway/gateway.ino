@@ -57,7 +57,6 @@ struct NodeStatus {
   double longitude;
   String gpsError;
   unsigned long gpsSeenMs;
-  String packetType;
   String state;
   int confidence;
   float airTemp;
@@ -345,13 +344,6 @@ bool wasCommandAcknowledgedUnlocked(const String &commandId) {
     if (acknowledgedCommandIds[i] == commandId) return true;
   }
   return false;
-}
-
-bool hasPendingCommand(const String &commandId) {
-  lockPendingCommands();
-  bool found = hasPendingCommandUnlocked(commandId);
-  unlockPendingCommands();
-  return found;
 }
 
 bool queuePendingCommand(const String &commandId, const String &nodeId, const String &command) {
@@ -806,7 +798,6 @@ void updateNodeStatus(int idx, const ParsedPacket &packet, int rssi, float snr) 
   nodes[idx].lastSeq = packet.seq;
   nodes[idx].lastSessionId = packet.sessionId;
   if (packet.reportIntervalSec > 0) nodes[idx].reportIntervalSec = packet.reportIntervalSec;
-  nodes[idx].packetType = packet.packetType;
   nodes[idx].rssi = rssi;
   nodes[idx].snr = snr;
 

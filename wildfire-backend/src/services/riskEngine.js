@@ -1,5 +1,3 @@
-const SERVER_STATES = ['CALIBRATING', 'NORMAL', 'WATCH', 'WARNING', 'CRITICAL', 'SENSOR_FAULT', 'OFFLINE'];
-const FIRE_DANGER_LEVELS = ['LOW', 'MODERATE', 'HIGH', 'VERY_HIGH'];
 const SMOKE_LOW_STABLE_RAW = 2;
 const SMOKE_LOW_STABLE_CONFIRMATIONS = 3;
 
@@ -410,7 +408,5 @@ function evaluateRisk(packet, history = [], options = {}) {
 }
 
 module.exports = {
-  FIRE_DANGER_LEVELS,
-  SERVER_STATES,
   evaluateRisk
 };
