@@ -3,6 +3,7 @@ import { getTimeRange, type TimeRangeKey } from './timeRanges'
 import type {
   Alert,
   ApiHealth,
+  BaselineRecalibrationStatus,
   GpsReacquireCommand,
   ManualLocationInput,
   NodeStatus,
@@ -43,7 +44,10 @@ async function postJson<T>(path: string, body?: unknown): Promise<T> {
   })
 
   if (!response.ok) {
-    throw new Error(`API ${response.status}`)
+    const errorPayload = await response.json().catch(() => null) as
+      | { message?: string; error?: string }
+      | null
+    throw new Error(errorPayload?.message || errorPayload?.error || `API ${response.status}`)
   }
 
   return response.json() as Promise<T>
@@ -54,11 +58,8 @@ export function useDashboard(selectedNodeId: string, timeRange: TimeRangeKey) {
   const [alerts, setAlerts] = useState<Alert[]>([])
   const [readings, setReadings] = useState<Reading[]>([])
   const [recentReadings, setRecentReadings] = useState<Reading[]>([])
-  const [loading, setLoading] = useState(true)
   const [backendUnavailable, setBackendUnavailable] = useState(false)
   const [health, setHealth] = useState<ApiHealth>()
-  const [apiError, setApiError] = useState<string>()
-  const [lastUpdated, setLastUpdated] = useState<Date>()
   const activeRequestRef = useRef<AbortController | undefined>(undefined)
   const requestIdRef = useRef(0)
 
@@ -68,7 +69,6 @@ export function useDashboard(selectedNodeId: string, timeRange: TimeRangeKey) {
     const controller = new AbortController()
     activeRequestRef.current = controller
     const timeout = window.setTimeout(() => controller.abort(), 4_500)
-    setLoading(true)
 
     try {
       const selectedRange = getTimeRange(timeRange)
@@ -109,17 +109,11 @@ export function useDashboard(selectedNodeId: string, timeRange: TimeRangeKey) {
       setRecentReadings(recentReadingData)
       setHealth(healthData)
       setBackendUnavailable(false)
-      setApiError(undefined)
-      setLastUpdated(new Date())
-    } catch (error) {
+    } catch {
       if (requestId !== requestIdRef.current) return
       setBackendUnavailable(true)
-      setApiError(error instanceof DOMException && error.name === 'AbortError'
-        ? 'API timeout'
-        : error instanceof Error ? error.message : 'API unavailable')
     } finally {
       window.clearTimeout(timeout)
-      if (requestId === requestIdRef.current) setLoading(false)
     }
   }, [selectedNodeId, timeRange])
 
@@ -171,19 +165,32 @@ export function useDashboard(selectedNodeId: string, timeRange: TimeRangeKey) {
     [load],
   )
 
+  const recalibrateBaseline = useCallback(
+    async (nodeId: string) => postJson<BaselineRecalibrationStatus>(
+      `/nodes/${encodeURIComponent(nodeId)}/baseline/recalibration`,
+    ),
+    [],
+  )
+
+  const getBaselineRecalibrationStatus = useCallback(
+    async (nodeId: string) => getJson<BaselineRecalibrationStatus>(
+      `/nodes/${encodeURIComponent(nodeId)}/baseline/recalibration`,
+    ),
+    [],
+  )
+
   return {
     nodes,
     alerts,
     readings,
     recentReadings,
-    loading,
     backendUnavailable,
     health,
-    apiError,
-    lastUpdated,
     refresh: load,
     deleteAlert,
     reacquireGps,
+    recalibrateBaseline,
+    getBaselineRecalibrationStatus,
     saveManualLocation,
   }
 }

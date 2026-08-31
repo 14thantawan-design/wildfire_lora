@@ -35,6 +35,8 @@ const readingSchema = new mongoose.Schema(
     air_baseline_delta: { type: Number },
     humidity_baseline_delta: { type: Number },
     sensor_health: { type: String },
+    baseline_warmup_count: { type: Number },
+    baseline_warmup_target: { type: Number },
     rssi: { type: Number },
     snr: { type: Number },
     raw_packet: { type: mongoose.Schema.Types.Mixed, required: true }

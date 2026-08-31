@@ -53,12 +53,6 @@ Remove any old `WIFI_SSID` and `WIFI_PASSWORD` definitions from `secrets.h`.
 They are not used by the new connection manager and should not remain in the
 installation's source configuration.
 
-In `wildfire-backend/.env` leave serial disabled:
-
-```env
-SERIAL_PORT=
-```
-
 The gateway receives LoRa packets and posts them directly to `POST /api/packets` using the private gateway key.
 No computer or COM port is needed at the gateway site.
 
@@ -72,23 +66,4 @@ an acknowledgement. The backend keeps the command in MongoDB until that acknowle
 arrives, including across backend or gateway restarts.
 
 Upload the updated sketches to both the gateway and every sensor node before using
-the button. In prototype mode, the same command travels over the existing USB serial
-connection instead of Wi-Fi.
-
-## Prototype Mode
-
-Use this only for bench testing on your laptop.
-
-In `gateway/config.h`:
-
-```cpp
-#define WIFI_HTTP_ENABLED 0
-```
-
-In `wildfire-backend/.env`:
-
-```env
-SERIAL_PORT=COM3
-```
-
-The gateway prints LoRa packets over USB serial and the backend reads that serial port.
+the button. Commands travel between the Gateway and Backend over Wi-Fi/HTTP.

@@ -1,6 +1,6 @@
 const express = require('express');
 const {
-  acknowledgeCommand,
+  completeCommand,
   listPendingCommands,
   markCommandSent
 } = require('../services/commandQueue');
@@ -33,8 +33,15 @@ router.post('/:command_id/sent', async (req, res, next) => {
 router.post('/:command_id/ack', async (req, res, next) => {
   try {
     markGatewayPacket('http');
-    const acknowledged = await acknowledgeCommand(req.params.command_id);
-    return res.json({ acknowledged });
+    const accepted = req.body?.accepted !== false;
+    const command = accepted
+      ? await completeCommand(req.params.command_id, true)
+      : await completeCommand(req.params.command_id, false, req.body?.reason);
+    return res.json({
+      acknowledged: Boolean(command),
+      accepted,
+      command
+    });
   } catch (error) {
     return next(error);
   }

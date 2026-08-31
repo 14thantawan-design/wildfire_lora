@@ -1,6 +1,10 @@
 const express = require('express');
 const NodeModel = require('../models/Node');
-const { enqueueCommand } = require('../services/commandQueue');
+const {
+  enqueueCommand,
+  getLatestCommandForNode,
+  isBaselineCalibrationInProgress
+} = require('../services/commandQueue');
 const { requireLocalAdmin } = require('../middleware/security');
 
 const router = express.Router();
@@ -43,10 +47,7 @@ function isValidCoordinate(latitude, longitude) {
 }
 
 function buildGpsReacquireUpdate(node) {
-  const unset = {
-    gps_satellites: '',
-    gps_hdop: ''
-  };
+  const unset = {};
 
   // A manually entered location remains a fallback while the node searches.
   if (node?.location_source !== 'manual') {
@@ -59,6 +60,63 @@ function buildGpsReacquireUpdate(node) {
   return {
     $set: { gps_fixed: false, gps_error: 'gps_reacquiring' },
     $unset: unset
+  };
+}
+
+function baselineRecalibrationBlock(node) {
+  const liveNode = withOnlineStatus(node);
+  if (!liveNode.online) {
+    return { code: 'node_offline', message: 'Node ออฟไลน์อยู่ จึงยังสั่งเรียน baseline ใหม่ไม่ได้' };
+  }
+
+  const nodeState = String(liveNode.node_state || '').toUpperCase();
+  const serverState = String(liveNode.server_state || liveNode.state || '').toUpperCase();
+  if (isBaselineCalibrationInProgress(liveNode) || serverState === 'CALIBRATING') {
+    return { code: 'already_calibrating', message: 'Node กำลังเรียน baseline อยู่แล้ว' };
+  }
+  const serverUnsafe = ['WARNING', 'CRITICAL', 'SENSOR_FAULT'].includes(serverState);
+  const nodeUnsafe = ['CRITICAL', 'SENSOR_FAULT'].includes(nodeState);
+  if (serverUnsafe || nodeUnsafe) {
+    return { code: 'unsafe_state', message: 'สถานะของ Node ยังไม่ปลอดภัยสำหรับการเรียน baseline ใหม่' };
+  }
+  if (String(liveNode.sensor_health || '').toUpperCase() !== 'OK') {
+    return { code: 'sensor_not_ready', message: 'เซนเซอร์ยังไม่พร้อม จึงไม่สามารถเรียน baseline ใหม่ได้' };
+  }
+  if (Number(liveNode.smoke_raw) >= 1200 ||
+      Number(liveNode.air_temp) >= 40 ||
+      Number(liveNode.humidity) <= 35) {
+    return { code: 'unsafe_reading', message: 'ค่าปัจจุบันผิดปกติ กรุณารอให้อากาศกลับสู่สภาพปลอดภัยก่อน' };
+  }
+  return null;
+}
+
+function buildBaselineRecalibrationSnapshot(node, command) {
+  const liveNode = withOnlineStatus(node);
+  const baselineInProgress = isBaselineCalibrationInProgress(liveNode);
+  let phase = 'idle';
+
+  if (baselineInProgress) phase = 'calibrating';
+  else if (command?.status === 'pending') phase = 'pending';
+  else if (command?.status === 'sent') phase = 'sent';
+  else if (command?.status === 'rejected') phase = 'rejected';
+  else if (command?.status === 'acknowledged') {
+    if (command.completed_at) {
+      phase = 'completed';
+    } else if (command.baseline_started_at) {
+      phase = 'calibrating';
+    } else {
+      phase = 'accepted';
+    }
+  }
+
+  return {
+    phase,
+    command: command || null,
+    node_id: liveNode.node_id,
+    node_state: liveNode.node_state,
+    online: liveNode.online,
+    baseline_warmup_count: liveNode.baseline_warmup_count ?? null,
+    baseline_warmup_target: liveNode.baseline_warmup_target ?? null
   };
 }
 
@@ -80,6 +138,41 @@ router.get('/:node_id', async (req, res, next) => {
     }
 
     return res.json(withOnlineStatus(node));
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.get('/:node_id/baseline/recalibration', requireLocalAdmin, async (req, res, next) => {
+  try {
+    const node = await NodeModel.findOne({ node_id: req.params.node_id });
+    if (!node) {
+      return res.status(404).json({ error: 'node not found' });
+    }
+    const command = await getLatestCommandForNode(node.node_id, 'baseline_recalibrate');
+    return res.json(buildBaselineRecalibrationSnapshot(node, command));
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.post('/:node_id/baseline/recalibration', requireLocalAdmin, async (req, res, next) => {
+  try {
+    const node = await NodeModel.findOne({ node_id: req.params.node_id });
+    if (!node) {
+      return res.status(404).json({ error: 'node not found' });
+    }
+
+    const block = baselineRecalibrationBlock(node);
+    if (block) {
+      return res.status(409).json({ error: block.code, message: block.message });
+    }
+
+    const { command, duplicate } = await enqueueCommand(node.node_id, 'baseline_recalibrate');
+    return res.status(202).json({
+      ...buildBaselineRecalibrationSnapshot(node, command),
+      duplicate
+    });
   } catch (error) {
     return next(error);
   }
@@ -146,5 +239,7 @@ router.post('/:node_id/location/manual', requireLocalAdmin, async (req, res, nex
 
 module.exports = router;
 module.exports.buildGpsReacquireUpdate = buildGpsReacquireUpdate;
+module.exports.baselineRecalibrationBlock = baselineRecalibrationBlock;
+module.exports.buildBaselineRecalibrationSnapshot = buildBaselineRecalibrationSnapshot;
 module.exports.offlineTimeoutMs = offlineTimeoutMs;
 module.exports.withOnlineStatus = withOnlineStatus;

@@ -3,6 +3,7 @@ const NodeModel = require('../models/Node');
 const Reading = require('../models/Reading');
 const { processAlertForReading } = require('./alertService');
 const { evaluateRisk } = require('./riskEngine');
+const { recordBaselineRecalibrationProgress } = require('./commandQueue');
 
 const NODE_ID_PATTERN = /^[A-Za-z0-9_-]{1,32}$/;
 const SENSOR_STATES = new Set([
@@ -96,6 +97,8 @@ function validateSensorPacket(packet) {
     ['sr', -4095, 4095],
     ['ar', -100, 100],
     ['hr', -100, 100],
+    ['bc', 0, 100],
+    ['bt', 1, 100],
     ['ri', 1, 86400]
   ];
 
@@ -122,10 +125,6 @@ function validateGpsPacket(packet) {
     return 'gps packet has invalid coordinates';
   }
 
-  const satelliteError = validateOptionalNumber(packet, 'sat', 0, 100);
-  if (satelliteError) return satelliteError;
-  const hdopError = validateOptionalNumber(packet, 'hd', 0, 100);
-  if (hdopError) return hdopError;
   if (packet.er !== undefined && (typeof packet.er !== 'string' || packet.er.length > 64)) {
     return 'gps packet has invalid error code';
   }
@@ -270,6 +269,8 @@ async function handleSensorPacket(packet, meta = {}) {
   const smokeBaselineDelta = packetNumber(packet, 'sr');
   const airBaselineDelta = packetNumber(packet, 'ar');
   const humidityBaselineDelta = packetNumber(packet, 'hr');
+  const baselineWarmupCount = packetNumber(packet, 'bc');
+  const baselineWarmupTarget = packetNumber(packet, 'bt');
   const sensorHealth = packet.sh.trim().toUpperCase();
   const nodeState = packet.st.trim().toUpperCase();
 
@@ -299,6 +300,8 @@ async function handleSensorPacket(packet, meta = {}) {
     air_baseline_delta: airBaselineDelta,
     humidity_baseline_delta: humidityBaselineDelta,
     sensor_health: sensorHealth,
+    baseline_warmup_count: baselineWarmupCount,
+    baseline_warmup_target: baselineWarmupTarget,
     rssi,
     snr,
     raw_packet: packet
@@ -332,6 +335,8 @@ async function handleSensorPacket(packet, meta = {}) {
     humidity,
     smoke_raw: smokeRaw,
     sensor_health: sensorHealth,
+    baseline_warmup_count: baselineWarmupCount ?? null,
+    baseline_warmup_target: baselineWarmupTarget ?? null,
     last_seen: now,
     session_id: identity.sessionId,
     last_seq: toNumber(packet.q),
@@ -347,6 +352,13 @@ async function handleSensorPacket(packet, meta = {}) {
     { $set: nodeSet, $setOnInsert: { node_id: nodeId } },
     { upsert: true, new: true, setDefaultsOnInsert: true }
   );
+
+  await recordBaselineRecalibrationProgress(nodeId, {
+    node_state: nodeState,
+    sensor_health: sensorHealth,
+    baseline_warmup_count: baselineWarmupCount,
+    baseline_warmup_target: baselineWarmupTarget
+  }, now);
 
   const alertResult = await processAlertForReading(reading);
 
@@ -389,8 +401,6 @@ async function handleGpsPacket(packet, meta = {}) {
     gps_fixed: gpsFixed
   };
 
-  setIfDefined(nodeSet, 'gps_satellites', toNumber(packet.sat));
-  setIfDefined(nodeSet, 'gps_hdop', toNumber(packet.hd));
   setIfDefined(nodeSet, 'rssi', rssi);
   setIfDefined(nodeSet, 'snr', snr);
 

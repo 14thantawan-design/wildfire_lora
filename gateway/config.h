@@ -39,13 +39,7 @@
 // =========================
 // Backend uplink
 // =========================
-// Prototype mode:
-//   WIFI_HTTP_ENABLED 0 -> Gateway prints LoRa packets to USB Serial.
-//   Backend reads that USB port with SERIAL_PORT=COM3.
-//
-// Field mode:
-//   WIFI_HTTP_ENABLED 1 -> Gateway posts packets directly to backend over Wi-Fi.
-//   Backend .env should use SERIAL_PORT= because no USB serial bridge is needed.
+// Gateway posts packets directly to the backend over Wi-Fi/HTTP.
 #define WIFI_HTTP_ENABLED 1
 #ifndef BACKEND_ROOT_CA
   #define BACKEND_ROOT_CA ""

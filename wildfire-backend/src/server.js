@@ -11,7 +11,6 @@ const readingsRouter = require('./routes/readings');
 const alertsRouter = require('./routes/alerts');
 const commandsRouter = require('./routes/commands');
 const { handlePacket } = require('./services/packetHandler');
-const { createSerialBridge } = require('./serialBridge');
 const { corsOptions, requireGatewayKey } = require('./middleware/security');
 const { gatewayStatus, markGatewayPacket } = require('./services/gatewayStatus');
 const { isTelegramConfigured } = require('./services/telegramService');
@@ -21,7 +20,6 @@ const dashboardDirectory = path.resolve(__dirname, '../../wildfire-dashboard/dis
 const dashboardIndex = path.join(dashboardDirectory, 'index.html');
 const dashboardAvailable = fs.existsSync(dashboardIndex);
 const port = Number(process.env.PORT || 4000);
-let serialBridge = null;
 let httpServer = null;
 
 app.use(cors(corsOptions()));
@@ -36,9 +34,7 @@ app.get('/api/health', (req, res) => {
     dashboard_served: dashboardAvailable,
     uptime_sec: Math.round(process.uptime()),
     mongo_state: mongoose.connection.readyState,
-    serial_enabled: Boolean(process.env.SERIAL_PORT),
     telegram_configured: isTelegramConfigured(),
-    serial: serialBridge ? serialBridge.status() : { enabled: false },
     gateway: gatewayStatus()
   });
 });
@@ -95,9 +91,6 @@ async function start() {
       httpServer.once('error', reject);
     });
     console.log(`API running: http://localhost:${port}`);
-
-    serialBridge = createSerialBridge();
-    serialBridge.start();
   } catch (error) {
     console.error(`startup failed: ${error.message}`);
     process.exitCode = 1;
@@ -106,7 +99,6 @@ async function start() {
 
 function shutdown(signal) {
   console.log(`${signal} received, shutting down`);
-  if (serialBridge) serialBridge.close();
   if (httpServer) httpServer.close();
   mongoose.connection.close(false).finally(() => process.exit(0));
 }

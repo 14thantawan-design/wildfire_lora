@@ -72,8 +72,6 @@ struct EvidenceFlags {
 struct GpsLocation {
   double latitude;
   double longitude;
-  uint8_t satellites;
-  float hdop;
   bool valid;
 };
 
@@ -88,8 +86,8 @@ TinyGPSPlus gps;
 #if GPS_SAVE_TO_NVS
 Preferences gpsPrefs;
 #endif
-GpsLocation nodeGpsLocation = {0.0, 0.0, 0, 0.0f, false};
-GpsLocation gpsWorkingLocation = {0.0, 0.0, 0, 0.0f, false};
+GpsLocation nodeGpsLocation = {0.0, 0.0, false};
+GpsLocation gpsWorkingLocation = {0.0, 0.0, false};
 enum GpsOneShotState {
   GPS_ONE_SHOT_IDLE,
   GPS_ONE_SHOT_ACQUIRING,
@@ -110,6 +108,12 @@ Preferences commandPrefs;
 Preferences baselinePrefs;
 unsigned long lastLoRaInitAttemptMs = 0;
 bool loraReady = false;
+SensorData commandSafetyData = {NAN, NAN, -1, false, false};
+FireStatus commandSafetyStatus = SENSOR_FAULT;
+bool commandSafetyReady = false;
+bool baselineRecalibrationAcceptedThisCycle = false;
+bool lastCommandAccepted = true;
+String lastCommandResultReason;
 
 RTC_DATA_ATTR uint32_t seq = 0;
 RTC_DATA_ATTR uint32_t bootSessionId = 0;
@@ -423,6 +427,45 @@ void saveBaselineToNvs() {
   baselineNvsCyclesSinceSave = 0;
   debugPrintln("Baseline saved to NVS");
 #endif
+}
+
+bool clearLearnedBaseline() {
+#if BASELINE_SAVE_TO_NVS && !TEST_MODE
+  if (!baselinePrefs.begin("node_base", false)) return false;
+  baselinePrefs.clear();
+  baselinePrefs.end();
+#endif
+
+  baselineInitialized = false;
+  baselineWarmupCount = 0;
+  bootAbnormalCount = 0;
+  warmupAirSum = 0.0f;
+  warmupHumiditySum = 0.0f;
+  warmupSmokeSum = 0;
+  baselineAirTemp = 0.0f;
+  baselineHumidity = 0.0f;
+  baselineSmokeRaw = 0;
+  baselineNvsCyclesSinceSave = 0;
+  latchedStatusValue = CALIBRATING;
+  releaseCounter = 0;
+  criticalCandidateCounter = 0;
+  weakWatchCandidateCounter = 0;
+  baselineRecalibrationAcceptedThisCycle = true;
+  debugPrintln("Baseline cleared; recalibration requested");
+  return true;
+}
+
+String baselineRecalibrationBlockReason() {
+  if (!commandSafetyReady) return "measurement_unavailable";
+  if (hasSensorFault(commandSafetyData)) return "sensor_fault";
+  if (commandSafetyStatus == CALIBRATING) return "already_calibrating";
+  // Relocation from a cool room to a warmer site can leave the old baseline in
+  // WARNING even though the current absolute readings are still safe.
+  if (commandSafetyStatus == CRITICAL || commandSafetyStatus == SENSOR_FAULT) {
+    return "unsafe_state";
+  }
+  if (isBootAbnormalReading(commandSafetyData)) return "unsafe_reading";
+  return "";
 }
 
 bool updateBaselineWarmup(const SensorData &data) {
@@ -798,7 +841,10 @@ String buildJsonPacket(const SensorData &data, const DeltaData &delta, const Evi
   doc["g"] = e.groupCount;
   doc["sh"] = sensorHealthString(data);
 
-  if (!baselineInitialized) doc["bc"] = baselineWarmupCount;
+  if (!baselineInitialized) {
+    doc["bc"] = baselineWarmupCount;
+    doc["bt"] = BASELINE_WARMUP_CYCLES;
+  }
   if (currentEventId.length() > 0) doc["eid"] = currentEventId;
 
   String payload;
@@ -821,6 +867,10 @@ String buildJsonPacket(const SensorData &data, const DeltaData &delta, const Evi
     mini["ar"] = delta.airTempBaselineDelta;
     mini["hr"] = delta.humidityBaselineDelta;
     mini["sh"] = sensorHealthString(data);
+    if (!baselineInitialized) {
+      mini["bc"] = baselineWarmupCount;
+      mini["bt"] = BASELINE_WARMUP_CYCLES;
+    }
     serializeJson(mini, payload);
   }
 
@@ -910,16 +960,12 @@ bool loadGpsLocationFromNvs(GpsLocation &fix) {
   bool storedValid = gpsPrefs.getBool("valid", false);
   double latitude = gpsPrefs.getDouble("lat", 0.0);
   double longitude = gpsPrefs.getDouble("lng", 0.0);
-  uint8_t satellites = (uint8_t)gpsPrefs.getUInt("sat", 0);
-  float hdop = gpsPrefs.getFloat("hdop", 0.0f);
   gpsPrefs.end();
 
   if (!storedValid || !isGpsCoordinateValid(latitude, longitude)) return false;
 
   fix.latitude = latitude;
   fix.longitude = longitude;
-  fix.satellites = satellites;
-  fix.hdop = hdop;
   fix.valid = true;
   return true;
 #else
@@ -948,8 +994,6 @@ void saveGpsLocationToNvs(const GpsLocation &fix) {
   gpsPrefs.putBool("valid", true);
   gpsPrefs.putDouble("lat", fix.latitude);
   gpsPrefs.putDouble("lng", fix.longitude);
-  gpsPrefs.putUInt("sat", fix.satellites);
-  gpsPrefs.putFloat("hdop", fix.hdop);
   gpsPrefs.end();
 #else
   (void)fix;
@@ -986,12 +1030,8 @@ String buildGpsPacket(const GpsLocation &fix, bool gpsFix, const char *errorCode
   if (gpsFix && fix.valid) {
     doc["la"] = fix.latitude;
     doc["ln"] = fix.longitude;
-    doc["sat"] = fix.satellites;
-    doc["hd"] = fix.hdop;
   } else {
     doc["er"] = errorCode;
-    doc["sat"] = fix.satellites;
-    doc["hd"] = fix.hdop;
   }
 
   String payload;
@@ -1014,8 +1054,6 @@ void sendGpsFailedPacket(const GpsLocation &partialFix) {
 void resetGpsLocation(GpsLocation &fix) {
   fix.latitude = 0.0;
   fix.longitude = 0.0;
-  fix.satellites = 0;
-  fix.hdop = 0.0f;
   fix.valid = false;
 }
 
@@ -1101,9 +1139,6 @@ void serviceOneShotGps() {
     gpsByteCount++;
   }
 
-  if (gps.satellites.isValid()) gpsWorkingLocation.satellites = (uint8_t)gps.satellites.value();
-  if (gps.hdop.isValid()) gpsWorkingLocation.hdop = (float)gps.hdop.hdop();
-
   if (gps.location.isValid() &&
       gps.satellites.isValid() &&
       gps.satellites.value() >= GPS_MIN_SATELLITES &&
@@ -1114,8 +1149,6 @@ void serviceOneShotGps() {
       isGpsCoordinateValid(gps.location.lat(), gps.location.lng())) {
     gpsWorkingLocation.latitude = gps.location.lat();
     gpsWorkingLocation.longitude = gps.location.lng();
-    gpsWorkingLocation.satellites = (uint8_t)gps.satellites.value();
-    gpsWorkingLocation.hdop = gps.hdop.isValid() ? (float)gps.hdop.hdop() : 0.0f;
     gpsWorkingLocation.valid = true;
     nodeGpsLocation = gpsWorkingLocation;
     saveGpsLocationToNvs(nodeGpsLocation);
@@ -1154,9 +1187,9 @@ void serviceOneShotGps() {
     Serial.print(" fail=");
     Serial.print(gps.failedChecksum());
     Serial.print(" sat=");
-    Serial.print(gpsWorkingLocation.satellites);
+    Serial.print(gps.satellites.isValid() ? gps.satellites.value() : 0);
     Serial.print(" hdop=");
-    Serial.print(gpsWorkingLocation.hdop);
+    Serial.print(gps.hdop.isValid() ? gps.hdop.hdop() : 0.0);
     Serial.print(" elapsed_sec=");
     Serial.println((millis() - gpsStartMs) / 1000UL);
   }
@@ -1230,12 +1263,14 @@ void saveLastHandledCommandId(const String &commandId) {
   lastHandledCommandId = commandId;
 }
 
-void sendCommandAckPacket(const String &commandId) {
+void sendCommandAckPacket(const String &commandId, bool accepted, const String &reason) {
   StaticJsonDocument<COMMAND_MAX_JSON_SIZE> doc;
   doc["t"] = "cmd_ack";
   doc["id"] = NODE_ID;
   doc["cid"] = commandId;
   doc["sid"] = bootSessionId;
+  doc["ok"] = accepted ? 1 : 0;
+  if (!accepted && reason.length() > 0) doc["r"] = reason;
 
   String payload;
   serializeJson(doc, payload);
@@ -1254,8 +1289,27 @@ String handleGatewayCommand(const String &payload) {
   String commandId = String((const char *)(doc["cid"] | ""));
   String command = String((const char *)(doc["cmd"] | ""));
   if (commandId.length() == 0 ||
-      (command != "gps_reacquire" && command != "gps_manual")) return "";
+      (command != "gps_reacquire" && command != "gps_manual" &&
+       command != "baseline_recalibrate")) return "";
+
+  lastCommandAccepted = true;
+  lastCommandResultReason = "";
   if (commandId == lastHandledCommandId) return commandId;
+
+  if (command == "baseline_recalibrate") {
+    lastCommandResultReason = baselineRecalibrationBlockReason();
+    if (lastCommandResultReason.length() > 0) {
+      lastCommandAccepted = false;
+      return commandId;
+    }
+    if (!clearLearnedBaseline()) {
+      lastCommandAccepted = false;
+      lastCommandResultReason = "storage_error";
+      return commandId;
+    }
+    saveLastHandledCommandId(commandId);
+    return commandId;
+  }
 
 #if USE_GPS
   if (command == "gps_manual") stopGpsAndUseManualLocation();
@@ -1280,6 +1334,8 @@ bool isUplinkAck(const String &payload, uint32_t expectedSeq) {
 bool listenForGatewayCommand(uint32_t expectedSeq) {
   unsigned long startedAt = millis();
   String commandAckId;
+  bool commandAccepted = true;
+  String commandResultReason;
   bool uplinkAcknowledged = false;
   LoRa.receive();
 
@@ -1294,11 +1350,17 @@ bool listenForGatewayCommand(uint32_t expectedSeq) {
     while (LoRa.available()) payload += (char)LoRa.read();
     if (isUplinkAck(payload, expectedSeq)) uplinkAcknowledged = true;
     String handledCommandId = handleGatewayCommand(payload);
-    if (handledCommandId.length() > 0) commandAckId = handledCommandId;
+    if (handledCommandId.length() > 0) {
+      commandAckId = handledCommandId;
+      commandAccepted = lastCommandAccepted;
+      commandResultReason = lastCommandResultReason;
+    }
     LoRa.receive();
   }
 
-  if (commandAckId.length() > 0) sendCommandAckPacket(commandAckId);
+  if (commandAckId.length() > 0) {
+    sendCommandAckPacket(commandAckId, commandAccepted, commandResultReason);
+  }
   if (loraReady) LoRa.sleep();
   return uplinkAcknowledged;
 }
@@ -1449,8 +1511,16 @@ void runOneMeasurementCycle() {
   int confidence = calculateConfidence(current, delta, evidence);
   FireStatus status = evaluateFireStatus(current, evidence, confidence);
 
+  commandSafetyData = current;
+  commandSafetyStatus = status;
+  commandSafetyReady = true;
+
   printSensorDebug(current, delta, evidence, status, confidence);
   handleCriticalSending(current, delta, evidence, status, confidence);
+  if (baselineRecalibrationAcceptedThisCycle) {
+    status = CALIBRATING;
+    baselineRecalibrationAcceptedThisCycle = false;
+  }
 #if USE_GPS
   serviceOneShotGps();
 #endif

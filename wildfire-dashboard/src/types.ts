@@ -22,10 +22,10 @@ export interface NodeStatus {
   humidity?: number | null
   smoke_raw?: number | null
   sensor_health?: string
+  baseline_warmup_count?: number | null
+  baseline_warmup_target?: number | null
   lat?: number
   lng?: number
-  gps_satellites?: number
-  gps_hdop?: number
   gps_fixed?: boolean
   gps_error?: string
   location_source?: 'gps' | 'manual'
@@ -44,6 +44,40 @@ export interface GpsReacquireCommand {
   command: 'gps_reacquire'
   created_at: string
   duplicate: boolean
+}
+
+export type BaselineRecalibrationPhase =
+  | 'idle'
+  | 'pending'
+  | 'sent'
+  | 'accepted'
+  | 'calibrating'
+  | 'completed'
+  | 'rejected'
+
+export interface BaselineRecalibrationCommand {
+  command_id: string
+  node_id: string
+  command: 'baseline_recalibrate'
+  status: 'pending' | 'sent' | 'acknowledged' | 'rejected'
+  created_at: string
+  sent_at?: string
+  acknowledged_at?: string
+  baseline_started_at?: string
+  completed_at?: string
+  result_reason?: string
+  attempts?: number
+}
+
+export interface BaselineRecalibrationStatus {
+  phase: BaselineRecalibrationPhase
+  command: BaselineRecalibrationCommand | null
+  node_id: string
+  node_state: NodeState
+  online: boolean
+  baseline_warmup_count: number | null
+  baseline_warmup_target: number | null
+  duplicate?: boolean
 }
 
 export interface ManualLocationInput {
@@ -79,7 +113,7 @@ export interface Reading {
 export interface GatewayStatus {
   connected: boolean
   last_packet_at?: string
-  transport?: 'http' | 'serial'
+  transport?: 'http'
   timeout_ms: number
 }
 

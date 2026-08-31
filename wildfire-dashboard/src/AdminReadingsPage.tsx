@@ -117,6 +117,7 @@ export function AdminReadingsPage({ onDataChanged }: AdminReadingsPageProps) {
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [error, setError] = useState<string>()
+  const [notice, setNotice] = useState<string>()
   const [editing, setEditing] = useState<AdminReading>()
   const [draft, setDraft] = useState<EditDraft>()
   const requestIdRef = useRef(0)
@@ -228,6 +229,7 @@ export function AdminReadingsPage({ onDataChanged }: AdminReadingsPageProps) {
 
     setDeleting(true)
     setError(undefined)
+    setNotice(undefined)
     try {
       await adminJson<{ deleted: number }>('/readings/admin', {
         method: 'DELETE',
@@ -241,6 +243,38 @@ export function AdminReadingsPage({ onDataChanged }: AdminReadingsPageProps) {
       setDeleting(false)
     }
   }
+
+  const deleteAllForNode = async () => {
+    if (!nodeFilter || result.total === 0) return
+    const nodeId = nodeFilter
+    const confirmed = window.confirm(
+      `ลบข้อมูลวัดทั้งหมดของ ${nodeId} จำนวน ${result.total.toLocaleString('th-TH')} รายการอย่างถาวรหรือไม่\n\n` +
+      'ข้อมูลของ Node อื่นจะไม่ถูกลบ และการดำเนินการนี้ย้อนกลับไม่ได้',
+    )
+    if (!confirmed) return
+
+    setDeleting(true)
+    setError(undefined)
+    setNotice(undefined)
+    try {
+      const response = await adminJson<{ node_id: string; deleted: number }>(
+        `/readings/admin/node/${encodeURIComponent(nodeId)}`,
+        { method: 'DELETE' },
+      )
+      setSelectedIds(new Set())
+      setNotice(`ลบข้อมูลทั้งหมดของ ${response.node_id} แล้ว ${response.deleted.toLocaleString('th-TH')} รายการ`)
+      await loadReadings()
+      await onDataChanged?.()
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : `ลบข้อมูลทั้งหมดของ ${nodeId} ไม่สำเร็จ`)
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  const nodeOptions = nodeFilter && !result.node_ids.includes(nodeFilter)
+    ? [nodeFilter, ...result.node_ids]
+    : result.node_ids
 
   return (
     <div className="content admin-data-page" id="admin-data">
@@ -271,7 +305,7 @@ export function AdminReadingsPage({ onDataChanged }: AdminReadingsPageProps) {
                 value={nodeFilter}
               >
                 <option value="">ทุก Node</option>
-                {result.node_ids.map((nodeId) => <option key={nodeId} value={nodeId}>{nodeId}</option>)}
+                {nodeOptions.map((nodeId) => <option key={nodeId} value={nodeId}>{nodeId}</option>)}
               </select>
             </label>
             <label>
@@ -300,18 +334,31 @@ export function AdminReadingsPage({ onDataChanged }: AdminReadingsPageProps) {
               <RefreshCw className={loading ? 'spin' : ''} size={16} />
             </button>
           </div>
-          <button
-            className="bulk-delete-button"
-            disabled={selectedIds.size === 0 || deleting}
-            onClick={() => void deleteReadings([...selectedIds])}
-            type="button"
-          >
-            <Trash2 size={15} />
-            ลบที่เลือก {selectedIds.size > 0 ? `${selectedIds.size} รายการ` : ''}
-          </button>
+          <div className="admin-delete-actions">
+            <button
+              className="node-delete-all-button"
+              disabled={!nodeFilter || result.total === 0 || deleting || loading}
+              onClick={() => void deleteAllForNode()}
+              title={nodeFilter ? `ลบข้อมูลวัดทั้งหมดของ ${nodeFilter}` : 'เลือก Node ที่ต้องการลบข้อมูลทั้งหมดก่อน'}
+              type="button"
+            >
+              <Trash2 size={15} />
+              {nodeFilter ? `ลบทั้งหมดของ ${nodeFilter}` : 'เลือก Node เพื่อลบทั้งหมด'}
+            </button>
+            <button
+              className="bulk-delete-button"
+              disabled={selectedIds.size === 0 || deleting}
+              onClick={() => void deleteReadings([...selectedIds])}
+              type="button"
+            >
+              <Trash2 size={15} />
+              ลบที่เลือก {selectedIds.size > 0 ? `${selectedIds.size} รายการ` : ''}
+            </button>
+          </div>
         </header>
 
         {error && <div className="admin-data-error" role="alert">{error}</div>}
+        {notice && <div className="admin-data-notice" role="status">{notice}</div>}
 
         <div className={`admin-table-scroll ${loading ? 'loading' : ''}`}>
           <table className="admin-readings-table">

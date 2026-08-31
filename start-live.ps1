@@ -1,13 +1,11 @@
 param(
-  [switch]$BackendOnly,
-  [switch]$KeepSerialMonitor
+  [switch]$BackendOnly
 )
 
 $ErrorActionPreference = 'Stop'
 $RootDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $BackendDir = Join-Path $RootDir 'wildfire-backend'
 $DashboardDir = Join-Path $RootDir 'wildfire-dashboard'
-$BackendEnvPath = Join-Path $BackendDir '.env'
 $HealthUrl = 'http://localhost:4000/api/health'
 $DashboardUrl = 'http://localhost:5173'
 
@@ -46,27 +44,6 @@ Write-Host ''
 Write-Host 'ForestGuard live startup' -ForegroundColor Green
 Write-Host '------------------------'
 
-$serialPort = ''
-if (Test-Path -LiteralPath $BackendEnvPath) {
-  $serialLine = Get-Content -LiteralPath $BackendEnvPath |
-    Where-Object { $_ -match '^\s*SERIAL_PORT\s*=' } |
-    Select-Object -First 1
-
-  if ($serialLine) {
-    $serialPort = ($serialLine -replace '^\s*SERIAL_PORT\s*=\s*', '').Trim()
-  }
-}
-
-if ($serialPort -and -not $KeepSerialMonitor) {
-  $serialMonitors = Get-Process serial-monitor -ErrorAction SilentlyContinue
-  if ($serialMonitors) {
-    Write-Host "Closing Arduino Serial Monitor so backend can use $serialPort..."
-    $serialMonitors | Stop-Process -Force
-  }
-} elseif (-not $serialPort) {
-  Write-Host 'SERIAL_PORT is empty; backend will receive packets by HTTP /api/packets.'
-}
-
 $health = Test-ApiHealth
 if ($health) {
   Write-Host 'Backend is already running on http://localhost:4000'
@@ -87,14 +64,14 @@ if ($health) {
 if (-not $health) {
   Write-Host ''
   Write-Host 'Backend did not become ready.' -ForegroundColor Red
-  Write-Host 'Check that MongoDB is running and COM3 is not open in Arduino Serial Monitor.'
+  Write-Host 'Check that MongoDB is running and port 4000 is available.'
   exit 1
 }
 
 Write-Host ''
 Write-Host 'Backend ready.' -ForegroundColor Green
 Write-Host "Mongo state: $($health.mongo_state)"
-Write-Host "Serial: $($health.serial.path) open=$($health.serial.is_open) error=$($health.serial.open_error)"
+Write-Host "Gateway: connected=$($health.gateway.connected) transport=$($health.gateway.transport)"
 
 if ($BackendOnly) {
   exit 0

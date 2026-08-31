@@ -1,29 +1,24 @@
 import { lazy, Suspense, useEffect, useMemo, useState, type FormEvent } from 'react'
 import {
   ArrowLeft,
-  Bell,
   ChevronRight,
-  Clock3,
   Database,
   Droplets,
   Flame,
   History,
-  LayoutDashboard,
-  Map,
   MapPin,
-  Menu,
   RadioTower,
   RefreshCw,
+  RotateCcw,
   ShieldCheck,
   Thermometer,
   Trash2,
   TriangleAlert,
   Wind,
-  Wrench,
   X,
 } from 'lucide-react'
 import { AdminReadingsPage } from './AdminReadingsPage'
-import type { Alert, NodeState, Reading } from './types'
+import type { Alert, BaselineRecalibrationStatus, NodeState, Reading } from './types'
 import { useDashboard } from './useDashboard'
 import type { TimeRangeKey } from './timeRanges'
 import { formatReason, stateLabels, stateSeverity } from './nodeStates'
@@ -36,10 +31,7 @@ const TrendChart = lazy(() =>
   import('./TrendChart').then((module) => ({ default: module.TrendChart })),
 )
 
-type NavSection = 'overview' | 'map' | 'alerts' | 'trends'
-
 const ADMIN_HOSTNAME = (import.meta.env.VITE_ADMIN_HOSTNAME || 'admin.nattaphat.me').toLowerCase()
-const navSections: NavSection[] = ['overview', 'map', 'alerts', 'trends']
 const MANUAL_LOCATION_HISTORY_KEY = 'forestguard.manual-location-history.v1'
 const MANUAL_LOCATION_HISTORY_LIMIT = 3
 
@@ -81,11 +73,6 @@ function loadManualLocationHistory() {
   }
 }
 
-function getHashSection(): NavSection {
-  const hash = window.location.hash.replace('#', '') as NavSection
-  return navSections.includes(hash) ? hash : 'overview'
-}
-
 function formatTime(value?: string | Date) {
   if (!value) return '—'
   return new Intl.DateTimeFormat('th-TH', {
@@ -102,6 +89,14 @@ function timeAgo(value?: string) {
   const minutes = Math.floor(seconds / 60)
   if (minutes < 60) return `${minutes} นาทีที่แล้ว`
   return `${Math.floor(minutes / 60)} ชั่วโมงที่แล้ว`
+}
+
+function hasValidCoordinates(latitude?: number, longitude?: number) {
+  return typeof latitude === 'number' && Number.isFinite(latitude) &&
+    typeof longitude === 'number' && Number.isFinite(longitude) &&
+    latitude >= -90 && latitude <= 90 &&
+    longitude >= -180 && longitude <= 180 &&
+    (Math.abs(latitude) >= 0.000001 || Math.abs(longitude) >= 0.000001)
 }
 
 function Value({
@@ -277,94 +272,9 @@ function formatAlertSummary(alert: Alert) {
   return alert.message || 'ตรวจพบค่าสัญญาณผิดปกติ'
 }
 
-function buildAlertDiagnostics(alert: Alert) {
-  const reasons = alert.reasons ?? []
-  const reading = alert.last_reading
-  const evidence: string[] = []
-  const checks: string[] = []
-  const hasSmokeIssue =
-    reasons.includes('smoke_sensor_low_stuck') ||
-    reasons.includes('smoke_low_stable') ||
-    (typeof reading?.smoke_raw === 'number' && reading.smoke_raw <= 2)
-  const hasHighSmokeEvidence =
-    reasons.some((reason) => ['smoke_weak', 'smoke_strong', 'smoke_critical'].includes(reason)) ||
-    (typeof reading?.smoke_raw === 'number' && reading.smoke_raw >= 250)
-  const hasClimateIssue =
-    reasons.includes('sht31_missing') ||
-    (alert.level === 'SENSOR_FAULT' && (reading?.air_temp == null || reading?.humidity == null))
-  const hasHeatEvidence =
-    reasons.some((reason) =>
-      ['heat_weak', 'heat_strong', 'heat_critical', 'temperature_fast_rise'].includes(reason),
-    ) || reading?.evidence?.heat !== 'none'
-  const hasHumidityEvidence =
-    reasons.some((reason) =>
-      ['humidity_dry', 'humidity_very_dry', 'humidity_critical_drop', 'humidity_fast_drop'].includes(reason),
-    ) || reading?.evidence?.humidity !== 'none'
-
-  if (reading?.sensor_health && reading.sensor_health !== 'OK') {
-    evidence.push(`sensor_health = ${reading.sensor_health}`)
-  }
-
-  if (hasSmokeIssue) {
-    evidence.push(`ค่าควันล่าสุด ${formatMetric(reading?.smoke_raw, ' raw')}`)
-    evidence.push('ควันต่ำคงที่; ในห้องสะอาดอาจเป็นค่าปกติของวงจรนี้')
-    checks.push('ทดสอบ Sharp ด้วยควัน/ฝุ่นอ่อน ๆ; ถ้ายัง 0 ค่อยเช็ก VCC, GND, OUT, ADC, LED drive')
-  }
-
-  if (hasHighSmokeEvidence) {
-    evidence.push(`ค่าควันล่าสุด ${formatMetric(reading?.smoke_raw, ' raw')}`)
-    checks.push('ถ้าเพิ่งทดสอบด้วยธูป/ควัน ให้ถือเป็นสัญญาณควันจริง ไม่ใช่เซนเซอร์เสีย')
-  }
-
-  if (hasHeatEvidence) {
-    evidence.push(`อุณหภูมิล่าสุด ${formatMetric(reading?.air_temp, '°C')}`)
-    evidence.push(`สูงกว่า baseline ${formatMetric(reading?.air_baseline_delta, '°C')}`)
-  }
-
-  if (hasHumidityEvidence) {
-    evidence.push(`ความชื้นล่าสุด ${formatMetric(reading?.humidity, '%')}`)
-    evidence.push(`ความชื้นเปลี่ยนจาก baseline ${formatMetric(reading?.humidity_baseline_delta, '%')}`)
-  }
-
-  if (hasClimateIssue) {
-    evidence.push('อุณหภูมิ/ความชื้นไม่ส่งค่าล่าสุด')
-    checks.push('SHT31: VCC, GND, SDA, SCL และ address I2C')
-  }
-
-  if (reading?.rssi !== undefined) {
-    evidence.push(`LoRa RSSI ${reading.rssi} dBm`)
-  }
-
-  if (alert.level !== 'SENSOR_FAULT' && evidence.length === 0 && checks.length === 0) {
-    return undefined
-  }
-
-  if (checks.length === 0) {
-    checks.push('ดูสายเซนเซอร์และค่าที่ Node ส่งใน Serial Monitor')
-  }
-
-  return {
-    title:
-      hasSmokeIssue && hasClimateIssue
-        ? 'ปัญหาที่สงสัย: อุณหภูมิ/ความชื้นไม่ส่งค่า'
-        : hasHighSmokeEvidence && hasClimateIssue
-          ? 'ตรวจพบควันสูง แต่ข้อมูลประกอบไม่ครบ'
-        : hasHighSmokeEvidence && hasHeatEvidence
-          ? 'หลักฐานร่วม: ควัน + อุณหภูมิ'
-        : hasSmokeIssue
-          ? 'หมายเหตุ: ค่าควันต่ำคงที่'
-          : 'ปัญหาที่สงสัย: ชุดเซนเซอร์',
-    evidence: [...new Set(evidence)],
-    checks: [...new Set(checks)],
-    timestamp: reading?.timestamp,
-  }
-}
-
 function App() {
   const [selectedNodeId, setSelectedNodeId] = useState('NODE01')
-  const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [showAllAlerts, setShowAllAlerts] = useState(false)
-  const [activeSection, setActiveSection] = useState<NavSection>(getHashSection)
   const [chartRange, setChartRange] = useState<TimeRangeKey>('1h')
   const currentHostname = window.location.hostname.toLowerCase()
   const adminMode = currentHostname === ADMIN_HOSTNAME ||
@@ -376,6 +286,11 @@ function App() {
   const [deletingAlertId, setDeletingAlertId] = useState<string>()
   const [gpsRequestingNodeId, setGpsRequestingNodeId] = useState<string>()
   const [gpsRequestError, setGpsRequestError] = useState<{ nodeId: string; message: string }>()
+  const [mapFocusRequest, setMapFocusRequest] = useState<{ nodeId: string; requestId: number }>()
+  const [mapLocateError, setMapLocateError] = useState<{ nodeId: string; message: string }>()
+  const [baselineSubmittingNodeId, setBaselineSubmittingNodeId] = useState<string>()
+  const [baselineStatus, setBaselineStatus] = useState<BaselineRecalibrationStatus>()
+  const [baselineStatusError, setBaselineStatusError] = useState<string>()
   const [manualLocation, setManualLocation] = useState<{
     nodeId: string
     latitude: string
@@ -391,14 +306,13 @@ function App() {
     alerts,
     readings,
     recentReadings,
-    loading,
     backendUnavailable,
     health,
-    apiError,
-    lastUpdated,
     refresh,
     deleteAlert,
+    getBaselineRecalibrationStatus,
     reacquireGps,
+    recalibrateBaseline,
     saveManualLocation,
   } = useDashboard(selectedNodeId, chartRange)
 
@@ -408,6 +322,33 @@ function App() {
       setSelectedNodeId(nodes[0].node_id)
     }
   }, [nodes, selectedNodeId])
+
+  useEffect(() => {
+    if (!adminMode || !selectedNode?.node_id) {
+      setBaselineStatus(undefined)
+      setBaselineStatusError(undefined)
+      return
+    }
+
+    let active = true
+    const pollStatus = async () => {
+      try {
+        const status = await getBaselineRecalibrationStatus(selectedNode.node_id)
+        if (!active) return
+        setBaselineStatus(status)
+        setBaselineStatusError(undefined)
+      } catch {
+        if (active) setBaselineStatusError('ยังอ่านสถานะการเรียน baseline ไม่ได้')
+      }
+    }
+
+    void pollStatus()
+    const timer = window.setInterval(() => void pollStatus(), 2_000)
+    return () => {
+      active = false
+      window.clearInterval(timer)
+    }
+  }, [adminMode, getBaselineRecalibrationStatus, selectedNode?.node_id])
   const liveNodeIds = new Set(nodes.map((node) => node.node_id))
   const activeAlerts = alerts.filter((alert) => alert.active && liveNodeIds.has(alert.node_id))
   const onlineNodes = nodes.filter((node) => node.online)
@@ -451,6 +392,62 @@ function App() {
   const visibleAlerts = showAllAlerts ? alerts : alerts.slice(0, 5)
   const hiddenAlertCount = Math.max(0, alerts.length - visibleAlerts.length)
   const gpsRequesting = gpsRequestingNodeId === selectedNode?.node_id
+  const baselineSubmitting = baselineSubmittingNodeId === selectedNode?.node_id
+  const baselineServerState = selectedNode?.server_state ?? selectedNode?.state
+  const baselineCount = baselineStatus?.baseline_warmup_count ?? selectedNode?.baseline_warmup_count
+  const baselineTarget = baselineStatus?.baseline_warmup_target ?? selectedNode?.baseline_warmup_target ?? 12
+  const baselineHealth = String(selectedNode?.sensor_health || '').toUpperCase()
+  const baselineCountStillLearning = typeof baselineCount === 'number' &&
+    typeof baselineTarget === 'number' && baselineTarget > 0 && baselineCount < baselineTarget
+  const baselineLearning = Boolean(selectedNode && (
+    selectedNode.node_state === 'CALIBRATING' || baselineHealth === 'CAL' ||
+    baselineHealth === 'CALIBRATING' || baselineCountStillLearning ||
+    baselineStatus?.phase === 'calibrating'
+  ))
+  const baselineDisplayPhase = baselineLearning ? 'calibrating' : (baselineStatus?.phase ?? 'idle')
+  const baselineUnsafeState =
+    selectedNode?.node_state === 'CALIBRATING' || baselineServerState === 'CALIBRATING' ||
+    baselineServerState === 'WARNING' || baselineServerState === 'CRITICAL' ||
+    baselineServerState === 'SENSOR_FAULT' || selectedNode?.node_state === 'CRITICAL' ||
+    selectedNode?.node_state === 'SENSOR_FAULT'
+  const baselineUnsafeReading = Boolean(selectedNode && (
+    (typeof selectedNode.smoke_raw === 'number' && selectedNode.smoke_raw >= 1200) ||
+    (typeof selectedNode.air_temp === 'number' && selectedNode.air_temp >= 40) ||
+    (typeof selectedNode.humidity === 'number' && selectedNode.humidity <= 35)
+  ))
+  const baselineBlockedMessage = (() => {
+    if (!selectedNode) return 'ยังไม่มี Node ให้เลือก'
+    if (backendUnavailable) return 'ยังเชื่อมต่อ Backend ไม่ได้'
+    if (!selectedNode.online) return 'Node ออฟไลน์อยู่'
+    if (baselineLearning) return 'Node กำลังเรียน baseline อยู่แล้ว'
+    if (baselineUnsafeState) return 'สถานะปัจจุบันยังไม่ปลอดภัยสำหรับการเรียนค่าใหม่'
+    if (String(selectedNode.sensor_health || '').toUpperCase() !== 'OK') return 'เซนเซอร์ยังไม่พร้อม'
+    if (baselineUnsafeReading) return 'ค่าปัจจุบันผิดปกติ กรุณารอให้ปลอดภัยก่อน'
+    return ''
+  })()
+  const baselineProgressText = (() => {
+    if (baselineStatusError) return baselineStatusError
+    if (baselineLearning) {
+      return `กำลังเรียน baseline ${baselineCount ?? 0}/${baselineTarget} รอบ`
+    }
+    if (baselineStatus?.phase === 'pending') return 'รอ Gateway รับคำสั่ง'
+    if (baselineStatus?.phase === 'sent') return 'Gateway ส่งแล้ว · รอ Node ตอบรับ'
+    if (baselineStatus?.phase === 'accepted') return 'Node รับคำสั่งแล้ว · รอข้อมูล CALIBRATING'
+    if (baselineStatus?.phase === 'completed') return 'เรียน baseline รอบล่าสุดเสร็จแล้ว'
+    if (baselineStatus?.phase === 'rejected') {
+      const reason = baselineStatus.command?.result_reason
+      const reasonText: Record<string, string> = {
+        already_calibrating: 'Node กำลังเรียนค่าอยู่แล้ว',
+        measurement_unavailable: 'Node ยังไม่มีค่าปัจจุบันสำหรับตรวจสอบ',
+        sensor_fault: 'Node ปฏิเสธ เพราะเซนเซอร์มีปัญหา',
+        storage_error: 'Node ล้างค่าที่บันทึกไว้ไม่สำเร็จ',
+        unsafe_reading: 'Node ปฏิเสธ เพราะค่าปัจจุบันผิดปกติ',
+        unsafe_state: 'Node ปฏิเสธ เพราะสถานะยังไม่ปลอดภัย',
+      }
+      return reasonText[reason || ''] || 'Node ปฏิเสธคำสั่ง กรุณาตรวจสอบสถานะ'
+    }
+    return 'ใช้เมื่อติดตั้งใหม่ ย้ายจุด หรือเปลี่ยนเซนเซอร์'
+  })()
   const gpsStatus = (() => {
     if (!selectedNode) return { tone: 'muted', text: 'ยังไม่มีจุดตรวจ' }
     if (gpsRequesting) return { tone: 'searching', text: `${selectedNode.node_id} · กำลังส่งคำสั่ง` }
@@ -473,33 +470,33 @@ function App() {
       return { tone: 'error', text: `${selectedNode.node_id} · ยังหา GPS ไม่พบ` }
     }
     if (selectedNode.gps_fixed) {
-      const satelliteText = selectedNode.gps_satellites
-        ? ` · ${selectedNode.gps_satellites} ดาวเทียม`
-        : ''
-      return { tone: 'ready', text: `${selectedNode.node_id} · GPS พร้อม${satelliteText}` }
+      return { tone: 'ready', text: `${selectedNode.node_id} · GPS พร้อม` }
     }
     return { tone: 'muted', text: `${selectedNode.node_id} · ยังไม่มีพิกัด GPS` }
   })()
 
-  const selectNode = (nodeId: string) => {
-    setActiveSection('trends')
-    setSelectedNodeId(nodeId)
-    document.querySelector('#trends')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  }
-
   const selectMapNode = (nodeId: string) => {
     setSelectedNodeId(nodeId)
     setGpsRequestError(undefined)
+    setMapFocusRequest(undefined)
+    setMapLocateError(undefined)
   }
 
-  const closeMobileNav = () => {
-    setMobileNavOpen(false)
-  }
+  const locateSelectedNode = () => {
+    if (!selectedNode) return
+    if (!hasValidCoordinates(selectedNode.lat, selectedNode.lng)) {
+      setMapLocateError({
+        nodeId: selectedNode.node_id,
+        message: `${selectedNode.node_id} ยังไม่มีข้อมูลตำแหน่ง`,
+      })
+      return
+    }
 
-  const activateNav = (section: NavSection) => {
-    setActiveSection(section)
-    setAdminDataOpen(false)
-    closeMobileNav()
+    setMapLocateError(undefined)
+    setMapFocusRequest({ nodeId: selectedNode.node_id, requestId: Date.now() })
+    window.requestAnimationFrame(() => {
+      document.querySelector('#map')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    })
   }
 
   const removeAlert = (alertId: string) => {
@@ -524,6 +521,26 @@ function App() {
       })
     } finally {
       setGpsRequestingNodeId(undefined)
+    }
+  }
+
+  const requestSelectedNodeBaseline = async () => {
+    if (!selectedNode || baselineBlockedMessage) return
+    const confirmed = window.confirm(
+      `เรียน baseline ใหม่สำหรับ ${selectedNode.node_id} หรือไม่\n\n` +
+      'กรุณาตรวจสอบว่าไม่มีควันหรือความร้อนผิดปกติ บริเวณเซนเซอร์ควรอยู่ในสภาพปกติระหว่างการเรียนค่า',
+    )
+    if (!confirmed) return
+
+    setBaselineSubmittingNodeId(selectedNode.node_id)
+    setBaselineStatusError(undefined)
+    try {
+      const status = await recalibrateBaseline(selectedNode.node_id)
+      setBaselineStatus(status)
+    } catch (error) {
+      setBaselineStatusError(error instanceof Error ? error.message : 'ส่งคำสั่งไม่สำเร็จ')
+    } finally {
+      setBaselineSubmittingNodeId(undefined)
     }
   }
 
@@ -616,15 +633,12 @@ function App() {
     }
   }
 
-  const navClass = (section: NavSection) => (activeSection === section ? 'active' : undefined)
-
   useEffect(() => {
-    const syncNavWithHash = () => {
+    const syncAdminPageWithHash = () => {
       setAdminDataOpen(adminMode && window.location.hash === '#admin-data')
-      setActiveSection(getHashSection())
     }
-    window.addEventListener('hashchange', syncNavWithHash)
-    return () => window.removeEventListener('hashchange', syncNavWithHash)
+    window.addEventListener('hashchange', syncAdminPageWithHash)
+    return () => window.removeEventListener('hashchange', syncAdminPageWithHash)
   }, [adminMode])
 
   useEffect(() => {
@@ -648,59 +662,16 @@ function App() {
 
   return (
     <div className="app-shell">
-      <aside className={`sidebar ${mobileNavOpen ? 'open' : ''}`}>
-        <div className="brand">
-          <span className="brand-mark"><Flame size={22} /></span>
-          <div>
-            <strong>FOREST<span>GUARD</span></strong>
-            <small>LoRa early warning</small>
+      <main>
+        <header className="topbar">
+          <div className="brand">
+            <span className="brand-mark"><Flame size={22} /></span>
+            <div>
+              <strong>FOREST<span>GUARD</span></strong>
+              <small>LoRa early warning</small>
+            </div>
           </div>
-          <button
-            aria-label="ปิดเมนู"
-            className="nav-close"
-            onClick={() => setMobileNavOpen(false)}
-            type="button"
-          >
-            <X size={20} />
-          </button>
-        </div>
 
-        <nav>
-          <a
-            aria-current={activeSection === 'overview' ? 'page' : undefined}
-            className={navClass('overview')}
-            href="#overview"
-            onClick={() => activateNav('overview')}
-          >
-            <LayoutDashboard size={18} /> ภาพรวม
-          </a>
-          <a
-            aria-current={activeSection === 'map' ? 'page' : undefined}
-            className={navClass('map')}
-            href="#map"
-            onClick={() => activateNav('map')}
-          >
-            <Map size={18} /> แผนที่พื้นที่
-          </a>
-          <a
-            aria-current={activeSection === 'alerts' ? 'page' : undefined}
-            className={navClass('alerts')}
-            href="#alerts"
-            onClick={() => activateNav('alerts')}
-          >
-            <Bell size={18} /> การแจ้งเตือน <b>{activeAlerts.length}</b>
-          </a>
-          <a
-            aria-current={activeSection === 'trends' ? 'page' : undefined}
-            className={navClass('trends')}
-            href="#trends"
-            onClick={() => activateNav('trends')}
-          >
-            <History size={18} /> ข้อมูลย้อนหลัง
-          </a>
-        </nav>
-
-        <div className="sidebar-bottom">
           <div className={`gateway-card ${gatewayConnected ? '' : 'disconnected'}`}>
             <span className="gateway-icon"><RadioTower size={18} /></span>
             <div>
@@ -708,43 +679,7 @@ function App() {
               <small><i /> {gatewayConnected ? 'เชื่อมต่อระบบ' : 'ไม่ได้รับสัญญาณ'}</small>
             </div>
           </div>
-          <div className="project-note">
-            <span>โครงงานระบบต้นแบบ</span>
-            <strong>ตรวจจับสัญญาณไฟป่าระยะเริ่มต้น</strong>
-          </div>
-        </div>
-      </aside>
 
-      {mobileNavOpen && (
-        <button
-          aria-label="ปิดเมนู"
-          className="nav-backdrop"
-          onClick={() => setMobileNavOpen(false)}
-          type="button"
-        />
-      )}
-
-      <main>
-        <header className="topbar">
-          <button
-            aria-label="เปิดเมนู"
-            className="menu-button"
-            onClick={() => setMobileNavOpen(true)}
-            type="button"
-          >
-            <Menu size={21} />
-          </button>
-          <div
-            className="live-status"
-            title={apiError ? `API error: ${apiError}` : undefined}
-          >
-            <i className={backendUnavailable || !gatewayConnected ? 'demo' : ''} />
-            {backendUnavailable
-              ? 'เชื่อมต่อ Backend ไม่ได้'
-              : gatewayConnected
-                ? 'เชื่อมต่อข้อมูลสด'
-                : 'เชื่อมต่อ Backend · รอสัญญาณจาก Gateway'}
-          </div>
           <div className="topbar-actions">
             {adminMode && (
               <a
@@ -757,17 +692,6 @@ function App() {
                 <span>{adminDataOpen ? 'กลับหน้าภาพรวม' : 'จัดการข้อมูล'}</span>
               </a>
             )}
-            <span><Clock3 size={15} /> อัปเดต {formatTime(lastUpdated)}</span>
-            <button
-              aria-label="โหลดข้อมูลใหม่"
-              className="icon-button"
-              disabled={loading}
-              onClick={() => void refresh()}
-              title="โหลดข้อมูลใหม่"
-              type="button"
-            >
-              <RefreshCw className={loading ? 'spin' : ''} size={17} />
-            </button>
           </div>
         </header>
 
@@ -828,7 +752,7 @@ function App() {
           <section className="dashboard-grid">
             <article className="panel map-panel" id="map">
               <div className="panel-head">
-                <div><span className="panel-kicker">LIVE MAP</span><h2>แผนที่จุดตรวจวัด</h2></div>
+                <div><h2>แผนที่จุดตรวจวัด</h2></div>
                 <div className="map-head-actions">
                   <label className="map-node-picker">
                     <span>จุดตรวจ</span>
@@ -872,7 +796,12 @@ function App() {
                 </div>
               </div>
               <Suspense fallback={<div className="panel-loading">กำลังโหลดแผนที่…</div>}>
-                <MapPanel nodes={nodes} selectedNodeId={selectedNode?.node_id ?? ''} onSelect={selectMapNode} />
+                <MapPanel
+                  focusRequest={mapFocusRequest}
+                  nodes={nodes}
+                  selectedNodeId={selectedNode?.node_id ?? ''}
+                  onSelect={selectMapNode}
+                />
               </Suspense>
             </article>
 
@@ -883,7 +812,6 @@ function App() {
               >
                 <div className="node-detail-head">
                   <span>
-                    <small>เลือกดูรายละเอียด</small>
                     {nodes.length > 0 ? (
                       <select
                         aria-label="เลือก Node เพื่อดูรายละเอียด"
@@ -910,6 +838,38 @@ function App() {
                   <span>ความชื้น <strong><Value value={selectedLiveNode?.humidity} suffix="%" fractionDigits={1} /></strong></span>
                   <span>ควัน <strong><Value value={selectedSmoke} suffix=" raw" /></strong></span>
                 </div>
+                <div className="node-map-locator">
+                  <button
+                    aria-controls="map"
+                    aria-label={`ดูตำแหน่ง ${selectedNode?.node_id ?? 'Node'} บนแผนที่`}
+                    disabled={!selectedNode}
+                    onClick={locateSelectedNode}
+                    type="button"
+                  >
+                    <MapPin size={15} />
+                    <span>ดูตำแหน่งบนแผนที่</span>
+                  </button>
+                  {mapLocateError && mapLocateError.nodeId === selectedNode?.node_id && (
+                    <small role="alert">{mapLocateError.message}</small>
+                  )}
+                </div>
+                {adminMode && (
+                  <div className="baseline-maintenance">
+                    <button
+                      aria-label={`เรียน baseline ใหม่สำหรับ ${selectedNode?.node_id ?? 'Node'}`}
+                      disabled={Boolean(baselineBlockedMessage) || baselineSubmitting}
+                      onClick={() => void requestSelectedNodeBaseline()}
+                      title={baselineBlockedMessage || 'ล้าง baseline เดิมและให้ Node เรียนค่าจากสภาพแวดล้อมปัจจุบันใหม่'}
+                      type="button"
+                    >
+                      <RotateCcw className={baselineSubmitting ? 'spin' : ''} size={14} />
+                      <span>{baselineSubmitting ? 'กำลังส่งคำสั่ง' : 'เรียน Baseline ใหม่'}</span>
+                    </button>
+                    <small className={`baseline-phase phase-${baselineDisplayPhase}`}>
+                      {baselineProgressText}
+                    </small>
+                  </div>
+                )}
               </aside>
 
               <article className="panel alert-panel" id="alerts">
@@ -935,28 +895,26 @@ function App() {
                   </div>
                 ) : (
                   visibleAlerts.map((alert) => {
-                    const diagnostics = buildAlertDiagnostics(alert)
                     const isLiveAlert = alert.active && liveNodeIds.has(alert.node_id)
 
                     return (
                       <article className={`alert-row ${isLiveAlert ? '' : 'resolved'}`} key={alert._id}>
-                        <button className="alert-main" onClick={() => selectNode(alert.node_id)} type="button">
-                        <span className={`alert-level state-${alert.level.toLowerCase()}`}>
-                          <TriangleAlert size={17} />
-                        </span>
-                        <div>
-                          <strong>
-                            {stateLabels[alert.level]} · {alert.node_id}
-                            {!alert.active && <span className="resolved-badge">สิ้นสุดแล้ว</span>}
-                            {alert.active && !isLiveAlert && (
-                              <span className="resolved-badge">ไม่อยู่ในรายการสด</span>
-                            )}
-                          </strong>
-                          <span className="alert-summary">{formatAlertSummary(alert)}</span>
-                          <small>{timeAgo(alert.started_at)}</small>
+                        <div className="alert-main">
+                          <span className={`alert-level state-${alert.level.toLowerCase()}`}>
+                            <TriangleAlert size={17} />
+                          </span>
+                          <div>
+                            <strong>
+                              {stateLabels[alert.level]} · {alert.node_id}
+                              {!alert.active && <span className="resolved-badge">สิ้นสุดแล้ว</span>}
+                              {alert.active && !isLiveAlert && (
+                                <span className="resolved-badge">ไม่อยู่ในรายการสด</span>
+                              )}
+                            </strong>
+                            <span className="alert-summary">{formatAlertSummary(alert)}</span>
+                            <small>{timeAgo(alert.started_at)}</small>
+                          </div>
                         </div>
-                          <ChevronRight size={16} />
-                        </button>
                         {adminMode && (
                           <button
                             aria-label={`ลบเหตุการณ์ ${alert.node_id}`}
@@ -968,31 +926,6 @@ function App() {
                           >
                             <Trash2 size={14} />
                           </button>
-                        )}
-                        {diagnostics && (
-                          <details className="alert-details">
-                            <summary>
-                              <span>ดูรายละเอียดทางเทคนิค</span>
-                              <ChevronRight size={13} />
-                            </summary>
-                            <div className="alert-diagnostics">
-                              <div className="alert-diagnostics-head">
-                                <span><Wrench size={13} /></span>
-                                <strong>{diagnostics.title}</strong>
-                                {diagnostics.timestamp && <small>{formatTime(diagnostics.timestamp)}</small>}
-                              </div>
-                              <div className="diagnostic-columns">
-                                <div>
-                                  <span>ข้อมูลที่ระบบใช้</span>
-                                  {diagnostics.evidence.map((item) => <b key={item}>{item}</b>)}
-                                </div>
-                                <div>
-                                  <span>วิธีตรวจสอบเพิ่มเติม</span>
-                                  {diagnostics.checks.map((item) => <b key={item}>{item}</b>)}
-                                </div>
-                              </div>
-                            </div>
-                          </details>
                         )}
                       </article>
                     )
@@ -1025,10 +958,6 @@ function App() {
             </Suspense>
           </section>
 
-          <footer id="system">
-            <span>FORESTGUARD · WILDFIRE LORA MONITORING</span>
-            <span>Prototype dashboard · ไม่ใช่ระบบยืนยันเหตุเพลิงไหม้ 100%</span>
-          </footer>
         </div>
         )}
       </main>

@@ -140,6 +140,14 @@ function normalizeReadingIds(value) {
   return ids;
 }
 
+function normalizeNodeId(value) {
+  const nodeId = typeof value === 'string' ? value.trim() : '';
+  if (!/^[A-Za-z0-9_-]{1,32}$/.test(nodeId)) {
+    throw validationError('node_id is invalid');
+  }
+  return nodeId;
+}
+
 router.get('/admin', requireLocalAdmin, async (req, res, next) => {
   try {
     const page = parsePage(req.query.page);
@@ -192,6 +200,16 @@ router.delete('/admin', requireLocalAdmin, async (req, res, next) => {
     const ids = normalizeReadingIds(req.body?.ids);
     const result = await Reading.deleteMany({ _id: { $in: ids } });
     return res.json({ requested: ids.length, deleted: result.deletedCount });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.delete('/admin/node/:node_id', requireLocalAdmin, async (req, res, next) => {
+  try {
+    const nodeId = normalizeNodeId(req.params.node_id);
+    const result = await Reading.deleteMany({ node_id: nodeId });
+    return res.json({ node_id: nodeId, deleted: result.deletedCount });
   } catch (error) {
     return next(error);
   }
@@ -272,5 +290,6 @@ router.get('/:node_id', async (req, res, next) => {
 
 module.exports = router;
 module.exports.buildReadingUpdate = buildReadingUpdate;
+module.exports.normalizeNodeId = normalizeNodeId;
 module.exports.normalizeReadingIds = normalizeReadingIds;
 module.exports.serializeReading = serializeReading;

@@ -2,20 +2,14 @@
 
 Node.js API for the Wildfire LoRa project.
 
-The backend stores node status and sensor history in MongoDB and exposes API endpoints for the dashboard.
-
-There are two supported uplink modes:
-
-- Field mode: Gateway posts LoRa packets over Wi-Fi or cellular to `POST /api/packets`.
-- Prototype mode: Gateway prints LoRa packets over USB serial and this backend reads that serial port.
-
-For the real forest deployment, use field mode. USB serial is only a bench-test bridge.
+The backend receives packets from the Gateway over Wi-Fi/HTTP, stores node status
+and sensor history in MongoDB, and exposes API endpoints for the dashboard.
 
 ## Requirements
 
 - Node.js 20+
 - MongoDB running locally or in the cloud
-- Gateway with Wi-Fi/cellular access to this backend, or USB serial for bench testing only
+- Gateway with Wi-Fi access to this backend
 
 ## Install
 
@@ -30,8 +24,6 @@ Edit `.env`:
 ```bash
 PORT=4000
 MONGODB_URI=mongodb://127.0.0.1:27017/wildfire_lora
-SERIAL_PORT=
-SERIAL_BAUD=115200
 OFFLINE_TIMEOUT_MS=60000
 GATEWAY_OFFLINE_TIMEOUT_MS=30000
 GATEWAY_API_KEY=replace-with-a-long-random-key
@@ -42,8 +34,6 @@ TELEGRAM_CHAT_ID=
 TELEGRAM_DASHBOARD_URL=https://wildfire.nattaphat.me
 TELEGRAM_TIMEZONE=Asia/Bangkok
 ```
-
-Leave `SERIAL_PORT` empty for field mode. Set it only for prototype mode, for example `SERIAL_PORT=COM3` on Windows.
 
 `GATEWAY_API_KEY` must be the same value as `GATEWAY_API_KEY` in `gateway/secrets.h`. Keep both files private. `ADMIN_API_KEY` is only needed when GPS or alert-management actions must be called from a computer other than the backend computer.
 
@@ -83,13 +73,6 @@ Expected logs:
 ```text
 connected MongoDB: wildfire_lora
 API running: http://localhost:4000
-serial disabled: SERIAL_PORT is not set
-```
-
-or, in prototype mode:
-
-```text
-serial bridge started: COM3 @ 115200
 ```
 
 ## API
@@ -132,19 +115,3 @@ curl -X POST http://localhost:4000/api/packets ^
   -H "X-Gateway-Key: replace-with-your-gateway-key" ^
   -d "{\"t\":\"gps\",\"id\":\"NODE01\",\"q\":5,\"la\":13.123456,\"ln\":100.123456,\"sat\":7,\"hd\":1.2,\"gf\":1}"
 ```
-
-## Serial Line Handling
-
-The serial bridge accepts direct JSON lines:
-
-```json
-{"t":"s","id":"NODE01","q":12,"st":"NORMAL"}
-```
-
-It also accepts gateway debug lines that contain `payload=`:
-
-```text
-RAW LoRa bytes=173 payload={"t":"s","id":"NODE01","q":12,"st":"NORMAL"}
-```
-
-Non-JSON serial lines are ignored and will not crash the server.

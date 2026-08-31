@@ -14,10 +14,23 @@ const {
   severityOf,
   shouldNotifyLevel
 } = require('../src/services/alertService');
-const { isTrustedAdminRequest } = require('../src/middleware/security');
+const { corsOptions, isTrustedAdminRequest } = require('../src/middleware/security');
 const CommandModel = require('../src/models/Command');
-const { buildGpsReacquireUpdate, offlineTimeoutMs } = require('../src/routes/nodes');
-const { buildReadingUpdate, normalizeReadingIds } = require('../src/routes/readings');
+const {
+  buildBaselineProgressUpdate,
+  isBaselineCalibrationInProgress
+} = require('../src/services/commandQueue');
+const {
+  baselineRecalibrationBlock,
+  buildBaselineRecalibrationSnapshot,
+  buildGpsReacquireUpdate,
+  offlineTimeoutMs
+} = require('../src/routes/nodes');
+const {
+  buildReadingUpdate,
+  normalizeNodeId,
+  normalizeReadingIds
+} = require('../src/routes/readings');
 const {
   buildTelegramMessage,
   escapeHtml,
@@ -57,7 +70,7 @@ test('sensor validation rejects incomplete or impossible packets', () => {
 
 test('GPS validation requires a real coordinate when fixed', () => {
   assert.equal(validateGpsPacket({
-    t: 'gps', id: 'NODE01', q: 11, sid: 1234, gf: 1, la: 14.9, ln: 102.1, sat: 7, hd: 1.2
+    t: 'gps', id: 'NODE01', q: 11, sid: 1234, gf: 1, la: 14.9, ln: 102.1
   }), null);
   assert.match(validateGpsPacket({
     t: 'gps', id: 'NODE01', q: 11, sid: 1234, gf: 1, la: 200, ln: 102.1
@@ -73,8 +86,6 @@ test('GPS reacquire preserves a manual fallback but clears a stale GPS fix', () 
   assert.equal(Object.hasOwn(manualUpdate.$unset, 'lng'), false);
   assert.equal(Object.hasOwn(manualUpdate.$unset, 'location_source'), false);
   assert.deepEqual(gpsUpdate.$unset, {
-    gps_satellites: '',
-    gps_hdop: '',
     lat: '',
     lng: '',
     location_source: '',
@@ -82,9 +93,126 @@ test('GPS reacquire preserves a manual fallback but clears a stale GPS fix', () 
   });
 });
 
-test('GPS command model supports manual mode and reacquisition', () => {
+test('command model supports GPS controls and safe baseline recalibration', () => {
   const commands = CommandModel.schema.path('command').enumValues;
-  assert.deepEqual([...commands].sort(), ['gps_manual', 'gps_reacquire']);
+  assert.deepEqual([...commands].sort(), [
+    'baseline_recalibrate',
+    'gps_manual',
+    'gps_reacquire'
+  ]);
+});
+
+test('baseline recalibration is blocked for offline, unsafe, or faulty nodes', () => {
+  const safeNode = {
+    node_id: 'NODE01',
+    last_seen: new Date(),
+    report_interval_sec: 600,
+    node_state: 'NORMAL',
+    state: 'NORMAL',
+    server_state: 'NORMAL',
+    sensor_health: 'OK',
+    smoke_raw: 100,
+    air_temp: 30,
+    humidity: 60
+  };
+
+  assert.equal(baselineRecalibrationBlock(safeNode), null);
+  assert.equal(baselineRecalibrationBlock({
+    ...safeNode,
+    node_state: 'WARNING',
+    state: 'WATCH',
+    server_state: 'WATCH',
+    air_temp: 38,
+    humidity: 48
+  }), null);
+  assert.equal(baselineRecalibrationBlock({
+    ...safeNode,
+    node_state: 'WARNING',
+    state: 'WARNING',
+    server_state: 'WARNING'
+  }).code, 'unsafe_state');
+  assert.equal(baselineRecalibrationBlock({ ...safeNode, node_state: 'CRITICAL' }).code, 'unsafe_state');
+  assert.equal(baselineRecalibrationBlock({ ...safeNode, sensor_health: 'FAULT' }).code, 'sensor_not_ready');
+  assert.equal(baselineRecalibrationBlock({ ...safeNode, smoke_raw: 1200 }).code, 'unsafe_reading');
+  assert.equal(baselineRecalibrationBlock({ ...safeNode, last_seen: new Date(0) }).code, 'node_offline');
+});
+
+test('baseline recalibration snapshot exposes queue and calibration progress', () => {
+  const node = {
+    node_id: 'NODE01',
+    last_seen: new Date(),
+    report_interval_sec: 30,
+    node_state: 'CALIBRATING',
+    state: 'CALIBRATING',
+    server_state: 'CALIBRATING',
+    baseline_warmup_count: 4,
+    baseline_warmup_target: 12
+  };
+  const command = {
+    command_id: 'cmd_1',
+    status: 'acknowledged',
+    acknowledged_at: new Date(Date.now() - 1000),
+    baseline_started_at: new Date()
+  };
+  const snapshot = buildBaselineRecalibrationSnapshot(node, command);
+
+  assert.equal(snapshot.phase, 'calibrating');
+  assert.equal(snapshot.baseline_warmup_count, 4);
+  assert.equal(snapshot.baseline_warmup_target, 12);
+});
+
+test('baseline progress remains calibrating when WATCH still reports CAL and an incomplete count', () => {
+  const node = {
+    node_id: 'NODE01',
+    last_seen: new Date(),
+    report_interval_sec: 120,
+    node_state: 'WATCH',
+    state: 'NORMAL',
+    server_state: 'NORMAL',
+    sensor_health: 'CAL',
+    baseline_warmup_count: 9,
+    baseline_warmup_target: 12
+  };
+  const command = {
+    command_id: 'cmd_stale_completed',
+    status: 'acknowledged',
+    baseline_started_at: new Date(Date.now() - 60000),
+    completed_at: new Date(Date.now() - 30000)
+  };
+
+  assert.equal(isBaselineCalibrationInProgress(node), true);
+  assert.equal(buildBaselineRecalibrationSnapshot(node, command).phase, 'calibrating');
+  assert.equal(baselineRecalibrationBlock(node).code, 'already_calibrating');
+});
+
+test('baseline command completion follows sensor health instead of a temporary WATCH state', () => {
+  const startedAt = new Date('2026-08-31T02:30:00.000Z');
+  const completedAt = new Date('2026-08-31T02:40:00.000Z');
+  const command = { baseline_started_at: startedAt };
+
+  assert.deepEqual(buildBaselineProgressUpdate(command, {
+    node_state: 'WATCH',
+    sensor_health: 'CAL',
+    baseline_warmup_count: 9,
+    baseline_warmup_target: 12
+  }, completedAt), null);
+
+  assert.deepEqual(buildBaselineProgressUpdate(command, {
+    node_state: 'NORMAL',
+    sensor_health: 'OK',
+    baseline_warmup_count: null,
+    baseline_warmup_target: null
+  }, completedAt), { $set: { completed_at: completedAt } });
+
+  assert.deepEqual(buildBaselineProgressUpdate({
+    baseline_started_at: startedAt,
+    completed_at: new Date('2026-08-31T02:35:00.000Z')
+  }, {
+    node_state: 'WATCH',
+    sensor_health: 'CAL',
+    baseline_warmup_count: 9,
+    baseline_warmup_target: 12
+  }, completedAt), { $unset: { completed_at: 1 } });
 });
 
 test('admin reading edits only accept measured fields in sensor ranges', () => {
@@ -117,6 +245,14 @@ test('bulk reading deletion validates, deduplicates, and limits ids', () => {
   assert.throws(() => normalizeReadingIds(['not-an-object-id']), /invalid/);
   assert.throws(() => normalizeReadingIds(Array.from({ length: 501 }, (_, index) =>
     index.toString(16).padStart(24, '0'))), /more than 500/);
+});
+
+test('delete-all reading scope accepts one explicit safe node id only', () => {
+  assert.equal(normalizeNodeId(' NODE02 '), 'NODE02');
+  assert.equal(normalizeNodeId('field-node_03'), 'field-node_03');
+  assert.throws(() => normalizeNodeId(''), /node_id is invalid/);
+  assert.throws(() => normalizeNodeId('../NODE01'), /node_id is invalid/);
+  assert.throws(() => normalizeNodeId('NODE01,NODE02'), /node_id is invalid/);
 });
 
 test('packet identity ignores transport signal metadata', () => {
@@ -300,4 +436,20 @@ test('public tunnel traffic cannot use loopback to gain administrator access', (
   assert.equal(isTrustedAdminRequest(adminRequest, config), true);
   assert.equal(isTrustedAdminRequest(forgedLanRequest, config), false);
   assert.equal(isTrustedAdminRequest(localRequest, config), true);
+});
+
+test('production dashboard on localhost can call its same-machine API', async () => {
+  const previousOrigins = process.env.CORS_ORIGINS;
+  process.env.CORS_ORIGINS = 'https://wildfire.example.test';
+  const options = corsOptions();
+  const allowed = await new Promise((resolve, reject) => {
+    options.origin('http://localhost:4000', (error, result) => {
+      if (error) reject(error);
+      else resolve(result);
+    });
+  });
+
+  assert.equal(allowed, true);
+  if (previousOrigins === undefined) delete process.env.CORS_ORIGINS;
+  else process.env.CORS_ORIGINS = previousOrigins;
 });

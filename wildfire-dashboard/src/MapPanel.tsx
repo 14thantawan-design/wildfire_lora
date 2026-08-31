@@ -1,10 +1,11 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { Circle, MapContainer, TileLayer, Tooltip, useMap } from 'react-leaflet'
 import type { LatLngBoundsExpression } from 'leaflet'
 import type { NodeStatus } from './types'
-import { formatReason, stateColors, stateLabels } from './nodeStates'
+import { stateColors, stateLabels } from './nodeStates'
 
 interface MapPanelProps {
+  focusRequest?: { nodeId: string; requestId: number }
   nodes: NodeStatus[]
   selectedNodeId: string
   onSelect: (nodeId: string) => void
@@ -14,15 +15,6 @@ function formatSensorValue(value?: number | null, suffix = '') {
   if (value === undefined || value === null) return '—'
   const displayValue = Number.isInteger(value) ? value : value.toFixed(1)
   return `${displayValue}${suffix}`
-}
-
-function timeAgo(value?: string) {
-  if (!value) return 'ยังไม่มีข้อมูล'
-  const seconds = Math.max(0, Math.round((Date.now() - new Date(value).getTime()) / 1000))
-  if (seconds < 60) return `${seconds} วินาทีที่แล้ว`
-  const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${minutes} นาทีที่แล้ว`
-  return `${Math.floor(minutes / 60)} ชั่วโมงที่แล้ว`
 }
 
 function hasValidCoordinates(node: NodeStatus) {
@@ -35,6 +27,7 @@ function hasValidCoordinates(node: NodeStatus) {
 
 function FitNodes({ nodes }: { nodes: NodeStatus[] }) {
   const map = useMap()
+  const lastFittedBoundsKey = useRef('')
   const bounds = useMemo(
     () =>
       nodes
@@ -42,20 +35,46 @@ function FitNodes({ nodes }: { nodes: NodeStatus[] }) {
         .map((node) => [node.lat!, node.lng!] as [number, number]),
     [nodes],
   )
+  const boundsKey = bounds.map(([latitude, longitude]) => `${latitude}:${longitude}`).join('|')
 
   useEffect(() => {
+    if (!boundsKey || lastFittedBoundsKey.current === boundsKey) return
+    lastFittedBoundsKey.current = boundsKey
     if (bounds.length === 1) {
       map.setView(bounds[0], 13)
     } else if (bounds.length > 1) {
       map.fitBounds(bounds as LatLngBoundsExpression, { padding: [54, 54], maxZoom: 14 })
     }
-  }, [bounds, map])
+  }, [bounds, boundsKey, map])
 
   return null
 }
 
-export function MapPanel({ nodes, selectedNodeId, onSelect }: MapPanelProps) {
+function FocusNode({
+  latitude,
+  longitude,
+  requestId,
+}: {
+  latitude?: number
+  longitude?: number
+  requestId?: number
+}) {
+  const map = useMap()
+
+  useEffect(() => {
+    if (!requestId || latitude === undefined || longitude === undefined) return
+    map.flyTo([latitude, longitude], 14, {
+      animate: true,
+      duration: 0.8,
+    })
+  }, [latitude, longitude, map, requestId])
+
+  return null
+}
+
+export function MapPanel({ focusRequest, nodes, selectedNodeId, onSelect }: MapPanelProps) {
   const locatedNodes = nodes.filter(hasValidCoordinates)
+  const focusedNode = locatedNodes.find((node) => node.node_id === focusRequest?.nodeId)
   const center: [number, number] = locatedNodes.length
     ? [locatedNodes[0].lat!, locatedNodes[0].lng!]
     : [18.7883, 98.9853]
@@ -68,6 +87,11 @@ export function MapPanel({ nodes, selectedNodeId, onSelect }: MapPanelProps) {
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
         <FitNodes nodes={locatedNodes} />
+        <FocusNode
+          latitude={focusedNode?.lat}
+          longitude={focusedNode?.lng}
+          requestId={focusRequest?.requestId}
+        />
         {locatedNodes.map((node) => {
           const selected = node.node_id === selectedNodeId
           const color = node.online ? stateColors[node.state] : '#7f8782'
@@ -90,25 +114,18 @@ export function MapPanel({ nodes, selectedNodeId, onSelect }: MapPanelProps) {
                 mouseover: (event) => event.target.openTooltip(),
               }}
             >
-              <Tooltip className="sensor-tooltip" direction="top" offset={[0, -12]} opacity={1}>
+              <Tooltip
+                className="sensor-tooltip"
+                direction="top"
+                offset={[0, -12]}
+                opacity={1}
+              >
                 <div className="sensor-tooltip-head">
                   <strong>{node.node_id}</strong>
                   <span className={`tooltip-status state-${node.state.toLowerCase()}`}>
                     {stateLabels[node.state]}
                   </span>
                 </div>
-                <span className="sensor-tooltip-sub">
-                  {node.location_source === 'manual'
-                    ? 'พิกัดกำหนดเอง'
-                    : node.gps_fixed
-                      ? 'พิกัด GPS ล่าสุด'
-                      : 'กำลังรอพิกัด GPS'}
-                </span>
-                {node.server_reasons && node.server_reasons.length > 0 && (
-                  <span className="sensor-tooltip-reason">
-                    {node.server_reasons.slice(0, 2).map(formatReason).join(' · ')}
-                  </span>
-                )}
                 <div className="sensor-tooltip-values">
                   <div>
                     <span>อุณหภูมิ</span>
@@ -123,24 +140,12 @@ export function MapPanel({ nodes, selectedNodeId, onSelect }: MapPanelProps) {
                     <strong>{formatSensorValue(node.online ? node.smoke_raw : undefined)}</strong>
                   </div>
                 </div>
-                <div className="sensor-tooltip-foot">
-                  <span className={node.online ? 'online' : 'offline'}>
-                    {node.online ? 'ออนไลน์' : 'ออฟไลน์'}
-                  </span>
-                  <span>รอบ {node.last_seq ?? '—'}</span>
-                  <span>RSSI {node.rssi ?? '—'} dBm</span>
-                  <span>{timeAgo(node.last_seen)}</span>
-                </div>
               </Tooltip>
             </Circle>
           )
         })}
       </MapContainer>
 
-      <div className="map-overlay">
-        <span className="map-kicker">ตำแหน่งภาคสนาม</span>
-        <strong>{locatedNodes.length} จุดตรวจวัด</strong>
-      </div>
       <div className="map-legend">
         <span><i className="legend-dot normal" /> ปกติ</span>
         <span><i className="legend-dot calibrating" /> กำลังปรับค่า</span>

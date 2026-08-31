@@ -25,8 +25,6 @@ struct ParsedPacket {
   bool gpsFix;
   double latitude;
   double longitude;
-  uint8_t satellites;
-  float hdop;
   String gpsError;
   String state;
   int confidence;
@@ -57,8 +55,6 @@ struct NodeStatus {
   bool gpsFix;
   double latitude;
   double longitude;
-  uint8_t satellites;
-  float hdop;
   String gpsError;
   unsigned long gpsSeenMs;
   String packetType;
@@ -90,7 +86,8 @@ struct PendingCommand {
 
 enum CommandReportType : uint8_t {
   COMMAND_REPORT_SENT,
-  COMMAND_REPORT_ACK
+  COMMAND_REPORT_ACK,
+  COMMAND_REPORT_REJECT
 };
 
 #if WIFI_HTTP_ENABLED
@@ -105,6 +102,7 @@ struct CommandReportJob {
   CommandReportType type;
   char commandId[64];
   char nodeId[33];
+  char reason[32];
   uint8_t attempts;
 };
 #endif
@@ -262,7 +260,7 @@ bool postPacketToBackend(const String &payload, int rssi, float snr) {
   return false;
 }
 
-bool postCommandAck(const String &commandId) {
+bool postCommandAck(const String &commandId, bool accepted, const String &reason) {
   if (!ensureWiFiConnected()) return false;
 
   HTTPClient http;
@@ -273,7 +271,12 @@ bool postCommandAck(const String &commandId) {
 
   http.addHeader("Content-Type", "application/json");
   http.addHeader("X-Gateway-Key", GATEWAY_API_KEY);
-  int statusCode = http.POST("{}");
+  StaticJsonDocument<128> doc;
+  doc["accepted"] = accepted;
+  if (!accepted && reason.length() > 0) doc["reason"] = reason;
+  String body;
+  serializeJson(doc, body);
+  int statusCode = http.POST(body);
   http.end();
   return statusCode >= 200 && statusCode < 300;
 }
@@ -451,12 +454,16 @@ bool enqueuePacketForBackend(const String &payload, int rssi, float snr) {
 }
 
 void processCommandReport(CommandReportJob &job) {
-  bool posted = job.type == COMMAND_REPORT_ACK
-    ? postCommandAck(String(job.commandId))
-    : postCommandSent(String(job.commandId));
+  bool posted = job.type == COMMAND_REPORT_SENT
+    ? postCommandSent(String(job.commandId))
+    : postCommandAck(
+        String(job.commandId),
+        job.type == COMMAND_REPORT_ACK,
+        String(job.reason)
+      );
 
   if (posted) {
-    if (job.type == COMMAND_REPORT_ACK) {
+    if (job.type != COMMAND_REPORT_SENT) {
       clearPendingCommand(String(job.commandId), String(job.nodeId));
     }
     return;
@@ -523,13 +530,19 @@ bool startNetworkTask() {
 }
 #endif
 
-bool queueCommandReport(CommandReportType type, const String &commandId, const String &nodeId) {
+bool queueCommandReport(
+  CommandReportType type,
+  const String &commandId,
+  const String &nodeId,
+  const String &reason = ""
+) {
 #if WIFI_HTTP_ENABLED
   if (!commandReportQueue) return false;
   CommandReportJob job = {};
   job.type = type;
   strlcpy(job.commandId, commandId.c_str(), sizeof(job.commandId));
   strlcpy(job.nodeId, nodeId.c_str(), sizeof(job.nodeId));
+  strlcpy(job.reason, reason.c_str(), sizeof(job.reason));
   return xQueueSend(commandReportQueue, &job, 0) == pdTRUE;
 #else
   (void)type;
@@ -549,11 +562,21 @@ bool markPendingCommandSent(const String &commandId, const String &nodeId) {
 #endif
 }
 
-bool acknowledgePendingCommand(const String &commandId, const String &nodeId) {
+bool acknowledgePendingCommand(
+  const String &commandId,
+  const String &nodeId,
+  bool accepted,
+  const String &reason
+) {
 #if WIFI_HTTP_ENABLED
-  return queueCommandReport(COMMAND_REPORT_ACK, commandId, nodeId);
+  return queueCommandReport(
+    accepted ? COMMAND_REPORT_ACK : COMMAND_REPORT_REJECT,
+    commandId,
+    nodeId,
+    reason
+  );
 #else
-  Serial.print("CMD_ACK ");
+  Serial.print(accepted ? "CMD_ACK " : "CMD_REJECT ");
   Serial.println(commandId);
   return true;
 #endif
@@ -659,8 +682,6 @@ int getOrCreateNodeIndex(const String &nodeId) {
       nodes[i].gpsFix = false;
       nodes[i].latitude = 0.0;
       nodes[i].longitude = 0.0;
-      nodes[i].satellites = 0;
-      nodes[i].hdop = 0.0f;
       nodes[i].gpsError = "";
       nodes[i].gpsSeenMs = 0;
       nodes[i].state = "UNKNOWN";
@@ -746,8 +767,6 @@ bool parseJsonPacket(const String &payload, ParsedPacket &out) {
   out.gpsFix = getIntField(doc, "gf", "gps_fix", 0) == 1;
   out.latitude = getDoubleField(doc, "la", "lat", 0.0);
   out.longitude = getDoubleField(doc, "ln", "lng", 0.0);
-  out.satellites = (uint8_t)getIntField(doc, "sat", "satellites", 0);
-  out.hdop = getFloatField(doc, "hd", "hdop", 0.0f);
   out.gpsError = getStringField(doc, "er", "error", "");
   out.state = getStringField(doc, "st", "state", "UNKNOWN");
   out.confidence = getIntField(doc, "c", "confidence", 0);
@@ -794,8 +813,6 @@ void updateNodeStatus(int idx, const ParsedPacket &packet, int rssi, float snr) 
   if (packet.packetType == "gps") {
     nodes[idx].gpsSeenMs = millis();
     nodes[idx].gpsFix = packet.gpsFix && isGpsCoordinateValid(packet.latitude, packet.longitude);
-    nodes[idx].satellites = packet.satellites;
-    nodes[idx].hdop = packet.hdop;
     nodes[idx].gpsError = packet.gpsError;
 
     if (nodes[idx].gpsFix) {
@@ -894,10 +911,6 @@ void printLocationOrNA(const NodeStatus &n) {
   Serial.print(n.latitude, 6);
   Serial.print(", ");
   Serial.println(n.longitude, 6);
-  Serial.print("  GPS Sat/HDOP: ");
-  Serial.print(n.satellites);
-  Serial.print(" / ");
-  Serial.println(n.hdop);
   if (n.gpsSeenMs > 0) {
     Serial.print("  GPS Last Seen: ");
     Serial.print((millis() - n.gpsSeenMs) / 1000);
@@ -963,8 +976,6 @@ void printReceivedPacket(const ParsedPacket &packet, int rssi, float snr) {
     } else {
       Serial.print("GPS Error: "); Serial.println(packet.gpsError);
     }
-    Serial.print("Satellites: "); Serial.println(packet.satellites);
-    Serial.print("HDOP: "); Serial.println(packet.hdop);
     Serial.print("RSSI: "); Serial.println(rssi);
     Serial.print("SNR: "); Serial.println(snr);
     Serial.println("=====================================");
@@ -998,6 +1009,8 @@ bool handleCommandAckPacket(const String &payload) {
 
   String nodeId = String((const char *)(doc["id"] | ""));
   String commandId = String((const char *)(doc["cid"] | ""));
+  bool accepted = (doc["ok"] | 1) == 1;
+  String reason = String((const char *)(doc["r"] | ""));
   if (!hasPendingCommandForNode(commandId, nodeId)) {
     Serial.print("Unknown command ACK ignored: ");
     Serial.println(commandId);
@@ -1005,12 +1018,17 @@ bool handleCommandAckPacket(const String &payload) {
     return true;
   }
 
-  if (acknowledgePendingCommand(commandId, nodeId)) {
+  if (acknowledgePendingCommand(commandId, nodeId, accepted, reason)) {
     clearAndRememberAcknowledgedCommand(commandId, nodeId);
-    Serial.print("Node confirmed command: ");
+    Serial.print(accepted ? "Node confirmed command: " : "Node rejected command: ");
     Serial.print(commandId);
     Serial.print(" <- ");
-    Serial.println(nodeId);
+    Serial.print(nodeId);
+    if (!accepted && reason.length() > 0) {
+      Serial.print(" reason=");
+      Serial.print(reason);
+    }
+    Serial.println();
   } else {
     Serial.print("Command ACK queue full: ");
     Serial.println(commandId);
@@ -1118,8 +1136,6 @@ void setup() {
     nodes[i].gpsFix = false;
     nodes[i].latitude = 0.0;
     nodes[i].longitude = 0.0;
-    nodes[i].satellites = 0;
-    nodes[i].hdop = 0.0f;
     nodes[i].gpsError = "";
     nodes[i].gpsSeenMs = 0;
   }
@@ -1135,8 +1151,6 @@ void setup() {
   Serial.print("Backend URL: ");
   Serial.println(BACKEND_PACKETS_URL);
   if (!startNetworkTask()) Serial.println("Network task init FAILED");
-#else
-  Serial.println("Backend uplink: USB Serial prototype mode");
 #endif
 }
 
