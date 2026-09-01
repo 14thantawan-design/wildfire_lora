@@ -7,7 +7,7 @@
   SHT31 + Sharp sensor build
   - Primary sensors: SHT31 + Sharp GP2Y1014AU0F
   - Adds baseline warm-up, boot-abnormal guard, critical debounce,
-    smoke-required critical, Sharp health checks, and slow baseline drift handling.
+    smoke-required critical, and slow baseline drift handling.
 */
 
 // =========================
@@ -137,18 +137,6 @@
 // =========================
 // Sensor health checks
 // =========================
-// Some Sharp GP2Y1014 circuits can read near 0 in clean indoor air.
-// Treat low readings as a diagnostic note first; test with smoke/dust before marking it as a fault.
-#define SHARP_MIN_VALID_RAW 2
-#define SHARP_MAX_VALID_RAW 4092
-#define SHARP_BAD_STREAK_LIMIT 3
-#define SHARP_STUCK_EPS 1
-#define SHARP_STUCK_STREAK_LIMIT 40
-#define SHARP_LOW_FAULT_ENABLED 0
-// Dense real smoke can drive Sharp raw values very high, so keep high readings as fire evidence.
-#define SHARP_HIGH_FAULT_ENABLED 0
-#define SHARP_STUCK_FAULT_ENABLED 0
-
 #define SHT31_MIN_TEMP_C -20.0f
 #define SHT31_MAX_TEMP_C 85.0f
 #define SHT31_MIN_HUMIDITY 0.0f

@@ -72,7 +72,6 @@ function buildLastReading(reading) {
     air_temp: reading.air_temp,
     humidity: reading.humidity,
     smoke_raw: reading.smoke_raw,
-    smoke_delta: reading.smoke_delta,
     smoke_baseline_delta: reading.smoke_baseline_delta,
     air_baseline_delta: reading.air_baseline_delta,
     humidity_baseline_delta: reading.humidity_baseline_delta,

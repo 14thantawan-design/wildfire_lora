@@ -30,7 +30,6 @@ const readingSchema = new mongoose.Schema(
     air_temp: { type: Number },
     humidity: { type: Number },
     smoke_raw: { type: Number },
-    smoke_delta: { type: Number },
     smoke_baseline_delta: { type: Number },
     air_baseline_delta: { type: Number },
     humidity_baseline_delta: { type: Number },

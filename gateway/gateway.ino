@@ -31,16 +31,11 @@ struct ParsedPacket {
   float airTemp;
   float humidity;
   int smokeRaw;
-  int smokeDelta;
-  float airTempDelta;
-  float humidityDelta;
   int smokeBaselineDelta;
   float airTempBaselineDelta;
   float humidityBaselineDelta;
-  int groupCount;
   uint16_t baselineWarmupCount;
   String sensorHealth;
-  String eventId;
 };
 
 struct NodeStatus {
@@ -62,16 +57,11 @@ struct NodeStatus {
   float airTemp;
   float humidity;
   int smokeRaw;
-  int smokeDelta;
-  float airTempDelta;
-  float humidityDelta;
   int smokeBaselineDelta;
   float airTempBaselineDelta;
   float humidityBaselineDelta;
-  int groupCount;
   uint16_t baselineWarmupCount;
   String sensorHealth;
-  String eventId;
   int rssi;
   float snr;
 };
@@ -114,7 +104,6 @@ unsigned long lastSummaryPrintMs = 0;
 unsigned long lastCommandPollMs = 0;
 unsigned long lastLoRaInitAttemptMs = 0;
 bool loraReady = false;
-String serialCommandBuffer;
 
 #if WIFI_HTTP_ENABLED
 QueueHandle_t httpPacketQueue = nullptr;
@@ -376,37 +365,6 @@ bool queuePendingCommand(const String &commandId, const String &nodeId, const St
   unlockPendingCommands();
   Serial.println("Command queue full");
   return false;
-}
-
-bool queueWireCommand(const String &payload) {
-  StaticJsonDocument<MAX_JSON_SIZE> doc;
-  if (deserializeJson(doc, payload)) return false;
-  if (String((const char *)(doc["t"] | "")) != "cmd") return false;
-
-  return queuePendingCommand(
-    String((const char *)(doc["cid"] | "")),
-    String((const char *)(doc["id"] | "")),
-    String((const char *)(doc["cmd"] | ""))
-  );
-}
-
-void handleSerialCommands() {
-#if !WIFI_HTTP_ENABLED
-  while (Serial.available() > 0) {
-    char incoming = (char)Serial.read();
-    if (incoming == '\r') continue;
-
-    if (incoming == '\n') {
-      if (serialCommandBuffer.startsWith("CMD ")) {
-        queueWireCommand(serialCommandBuffer.substring(4));
-      }
-      serialCommandBuffer = "";
-      continue;
-    }
-
-    if (serialCommandBuffer.length() < MAX_JSON_SIZE + 8) serialCommandBuffer += incoming;
-  }
-#endif
 }
 
 #if WIFI_HTTP_ENABLED
@@ -678,7 +636,6 @@ int getOrCreateNodeIndex(const String &nodeId) {
       nodes[i].gpsSeenMs = 0;
       nodes[i].state = "UNKNOWN";
       nodes[i].confidence = 0;
-      nodes[i].groupCount = 0;
       nodes[i].baselineWarmupCount = 0;
       Serial.print("New node registered: ");
       Serial.println(nodeId);
@@ -766,18 +723,13 @@ bool parseJsonPacket(const String &payload, ParsedPacket &out) {
   out.humidity = getFloatField(doc, "h", "humidity", NAN);
 
   out.smokeRaw = getIntField(doc, "sm", "smoke_raw", -1);
-  out.smokeDelta = getIntField(doc, "sd", "smoke_delta", 0);
-  out.airTempDelta = getFloatField(doc, "ad", "air_temp_delta", 0.0f);
-  out.humidityDelta = getFloatField(doc, "hd", "humidity_delta", 0.0f);
 
   out.smokeBaselineDelta = getIntField(doc, "sr", "smoke_baseline_delta", 0);
   out.airTempBaselineDelta = getFloatField(doc, "ar", "air_temp_baseline_delta", 0.0f);
   out.humidityBaselineDelta = getFloatField(doc, "hr", "humidity_baseline_delta", 0.0f);
-  out.groupCount = getIntField(doc, "g", "groups", 0);
   out.baselineWarmupCount = getIntField(doc, "bc", "baseline_count", 0);
 
   out.sensorHealth = getStringField(doc, "sh", "sensor_health", "UNKNOWN");
-  out.eventId = getStringField(doc, "eid", "event_id", "");
 
   if (out.nodeId.length() == 0) {
     Serial.println("ERROR: packet missing node_id/id");
@@ -820,16 +772,11 @@ void updateNodeStatus(int idx, const ParsedPacket &packet, int rssi, float snr) 
   nodes[idx].airTemp = packet.airTemp;
   nodes[idx].humidity = packet.humidity;
   nodes[idx].smokeRaw = packet.smokeRaw;
-  nodes[idx].smokeDelta = packet.smokeDelta;
-  nodes[idx].airTempDelta = packet.airTempDelta;
-  nodes[idx].humidityDelta = packet.humidityDelta;
   nodes[idx].smokeBaselineDelta = packet.smokeBaselineDelta;
   nodes[idx].airTempBaselineDelta = packet.airTempBaselineDelta;
   nodes[idx].humidityBaselineDelta = packet.humidityBaselineDelta;
-  nodes[idx].groupCount = packet.groupCount;
   nodes[idx].baselineWarmupCount = packet.baselineWarmupCount;
   nodes[idx].sensorHealth = packet.sensorHealth;
-  nodes[idx].eventId = packet.eventId;
 }
 
 String calculateAreaStatus() {
@@ -914,22 +861,17 @@ void printNodeStatus(const NodeStatus &n) {
   Serial.println(n.offline ? " = OFFLINE" : "");
   Serial.print("  State: "); Serial.println(n.offline ? "OFFLINE" : n.state);
   Serial.print("  Confidence: "); Serial.println(n.confidence);
-  Serial.print("  Groups: "); Serial.println(n.groupCount);
   Serial.print("  Last Seq: "); Serial.println(n.lastSeq);
   Serial.print("  Last Seen: "); Serial.print((millis() - n.lastSeenMs) / 1000); Serial.println(" sec ago");
   printLocationOrNA(n);
   printFloatOrNA("  Air Temp: ", n.airTemp);
   printFloatOrNA("  Humidity: ", n.humidity);
   Serial.print("  Smoke Raw: "); Serial.println(n.smokeRaw);
-  Serial.print("  Smoke Delta: "); Serial.println(n.smokeDelta);
-  Serial.print("  Air Delta: "); Serial.println(n.airTempDelta);
-  Serial.print("  Humidity Delta: "); Serial.println(n.humidityDelta);
   Serial.print("  Smoke From Baseline: "); Serial.println(n.smokeBaselineDelta);
   Serial.print("  Air From Baseline: "); Serial.println(n.airTempBaselineDelta);
   Serial.print("  Humidity From Baseline: "); Serial.println(n.humidityBaselineDelta);
   Serial.print("  Baseline Warmup Count: "); Serial.println(n.baselineWarmupCount);
   Serial.print("  Sensor Health: "); Serial.println(n.sensorHealth);
-  Serial.print("  Event ID: "); Serial.println(n.eventId);
   Serial.print("  RSSI: "); Serial.println(n.rssi);
   Serial.print("  SNR: "); Serial.println(n.snr);
 }
@@ -975,19 +917,14 @@ void printReceivedPacket(const ParsedPacket &packet, int rssi, float snr) {
 
   Serial.print("State: "); Serial.println(packet.state);
   Serial.print("Confidence: "); Serial.println(packet.confidence);
-  Serial.print("Groups: "); Serial.println(packet.groupCount);
   printFloatOrNA("Air Temp: ", packet.airTemp);
   printFloatOrNA("Humidity: ", packet.humidity);
   Serial.print("Smoke Raw: "); Serial.println(packet.smokeRaw);
-  Serial.print("Smoke Delta: "); Serial.println(packet.smokeDelta);
-  Serial.print("Air Delta: "); Serial.println(packet.airTempDelta);
-  Serial.print("Humidity Delta: "); Serial.println(packet.humidityDelta);
   Serial.print("Smoke From Baseline: "); Serial.println(packet.smokeBaselineDelta);
   Serial.print("Air From Baseline: "); Serial.println(packet.airTempBaselineDelta);
   Serial.print("Humidity From Baseline: "); Serial.println(packet.humidityBaselineDelta);
   Serial.print("Baseline Warmup Count: "); Serial.println(packet.baselineWarmupCount);
   Serial.print("Sensor Health: "); Serial.println(packet.sensorHealth);
-  Serial.print("Event ID: "); Serial.println(packet.eventId);
   Serial.print("RSSI: "); Serial.println(rssi);
   Serial.print("SNR: "); Serial.println(snr);
   Serial.println("=====================================");
@@ -1149,7 +1086,6 @@ void loop() {
 #if WIFI_HTTP_ENABLED
   serviceWifiProvisioning();
 #endif
-  handleSerialCommands();
   unsigned long now = millis();
   if (!loraReady && now - lastLoRaInitAttemptMs >= LORA_INIT_RETRY_MS) initLoRa();
   if (loraReady) handleIncomingLoRa();

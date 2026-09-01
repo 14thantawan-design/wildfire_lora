@@ -91,9 +91,6 @@ function validateSensorPacket(packet) {
   const ranges = [
     ['at', -80, 100],
     ['h', 0, 100],
-    ['sd', -4095, 4095],
-    ['ad', -100, 100],
-    ['hd', -100, 100],
     ['sr', -4095, 4095],
     ['ar', -100, 100],
     ['hr', -100, 100],
@@ -228,7 +225,6 @@ async function handleSensorPacket(packet, meta = {}) {
   const airTemp = packetNumber(packet, 'at');
   const humidity = packetNumber(packet, 'h');
   const smokeRaw = packetNumber(packet, 'sm');
-  const smokeDelta = packetNumber(packet, 'sd');
   const smokeBaselineDelta = packetNumber(packet, 'sr');
   const airBaselineDelta = packetNumber(packet, 'ar');
   const humidityBaselineDelta = packetNumber(packet, 'hr');
@@ -258,7 +254,6 @@ async function handleSensorPacket(packet, meta = {}) {
     air_temp: airTemp,
     humidity,
     smoke_raw: smokeRaw,
-    smoke_delta: smokeDelta,
     smoke_baseline_delta: smokeBaselineDelta,
     air_baseline_delta: airBaselineDelta,
     humidity_baseline_delta: humidityBaselineDelta,

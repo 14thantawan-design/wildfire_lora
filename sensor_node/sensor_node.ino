@@ -123,8 +123,6 @@ RTC_DATA_ATTR unsigned long previousReadMs = 0;
 // Used in DEPLOY_MODE because millis() resets after deep sleep while RTC memory persists.
 RTC_DATA_ATTR float expectedNextElapsedMinutes = 0.0f;
 
-RTC_DATA_ATTR bool criticalEventActive = false;
-RTC_DATA_ATTR uint32_t eventCounter = 0;
 RTC_DATA_ATTR int latchedStatusValue = NORMAL;
 RTC_DATA_ATTR uint8_t releaseCounter = 0;
 RTC_DATA_ATTR uint8_t criticalCandidateCounter = 0;
@@ -141,13 +139,6 @@ RTC_DATA_ATTR float baselineAirTemp = 0.0f;
 RTC_DATA_ATTR float baselineHumidity = 0.0f;
 RTC_DATA_ATTR int baselineSmokeRaw = 0;
 RTC_DATA_ATTR uint16_t baselineNvsCyclesSinceSave = 0;
-
-// Sensor health state.
-RTC_DATA_ATTR uint8_t sharpLowStreak = 0;
-RTC_DATA_ATTR uint8_t sharpHighStreak = 0;
-RTC_DATA_ATTR uint8_t sharpStuckStreak = 0;
-
-String currentEventId = "";
 
 // =========================
 // Utility
@@ -318,40 +309,6 @@ SensorData readSensors() {
   data.sharpOk = (smoke >= 0 && smoke <= 4095);
 
   return data;
-}
-
-void updateDerivedSensorHealth(SensorData &data) {
-  if (data.smokeRaw <= SHARP_MIN_VALID_RAW) sharpLowStreak++;
-  else sharpLowStreak = 0;
-
-  if (data.smokeRaw >= SHARP_MAX_VALID_RAW) sharpHighStreak++;
-  else sharpHighStreak = 0;
-
-  if (hasPreviousData && previousData.smokeRaw >= 0 && data.smokeRaw >= 0 &&
-      abs(data.smokeRaw - previousData.smokeRaw) <= SHARP_STUCK_EPS) {
-    if (sharpStuckStreak < 255) sharpStuckStreak++;
-  } else {
-    sharpStuckStreak = 0;
-  }
-
-  bool sharpFault = false;
-
-#if SHARP_LOW_FAULT_ENABLED
-  // Field mode: repeated near-zero values indicate Sharp wiring, ADC, or LED-drive trouble.
-  if (sharpLowStreak >= SHARP_BAD_STREAK_LIMIT) sharpFault = true;
-#endif
-
-#if SHARP_HIGH_FAULT_ENABLED
-  // A value near full-scale for several cycles is more likely wiring/ADC saturation.
-  if (sharpHighStreak >= SHARP_BAD_STREAK_LIMIT) sharpFault = true;
-#endif
-
-#if SHARP_STUCK_FAULT_ENABLED
-  // Disabled by default because clean air may stay stable for a long time.
-  if (sharpStuckStreak >= SHARP_STUCK_STREAK_LIMIT) sharpFault = true;
-#endif
-
-  if (sharpFault) data.sharpOk = false;
 }
 
 bool hasSensorFault(const SensorData &data) {
@@ -784,11 +741,6 @@ void updateBaselineAfterDecision(const SensorData &data, const DeltaData &delta,
   }
 }
 
-String makeEventId() {
-  eventCounter++;
-  return String(NODE_ID) + "-E" + String(eventCounter);
-}
-
 void addFloatOrNull(JsonDocument &doc, const char *key, float value) {
   if (isnan(value)) doc[key] = nullptr;
   else doc[key] = value;
@@ -814,7 +766,7 @@ uint32_t plannedReportIntervalSeconds(FireStatus status) {
 #endif
 }
 
-String buildJsonPacket(const SensorData &data, const DeltaData &delta, const EvidenceFlags &e, FireStatus status, int confidence) {
+String buildJsonPacket(const SensorData &data, const DeltaData &delta, FireStatus status, int confidence) {
   StaticJsonDocument<MAX_JSON_SIZE> doc;
   seq++;
 
@@ -829,24 +781,17 @@ String buildJsonPacket(const SensorData &data, const DeltaData &delta, const Evi
   addFloatOrNull(doc, "h", data.humidity);
   doc["sm"] = data.smokeRaw;
 
-  // Previous-step deltas and baseline deltas.
-  doc["sd"] = delta.smokeDelta;
-  doc["ad"] = delta.airTempDelta;
-  doc["hd"] = delta.humidityDelta;
+  // Baseline deltas are used by the backend risk engine.
   doc["sr"] = delta.smokeBaselineDelta;
   doc["ar"] = delta.airTempBaselineDelta;
   doc["hr"] = delta.humidityBaselineDelta;
 
-  // Group evidence helps Gateway/debug understand why a status happened.
-  doc["g"] = e.groupCount;
   doc["sh"] = sensorHealthString(data);
 
   if (!baselineInitialized) {
     doc["bc"] = baselineWarmupCount;
     doc["bt"] = BASELINE_WARMUP_CYCLES;
   }
-  if (currentEventId.length() > 0) doc["eid"] = currentEventId;
-
   String payload;
   serializeJson(doc, payload);
 
@@ -1407,8 +1352,6 @@ void printSensorDebug(const SensorData &data, const DeltaData &delta, const Evid
   Serial.print("Weak Watch Candidate Counter: "); Serial.println(weakWatchCandidateCounter);
   Serial.print("Latched Status: "); Serial.println(statusToString((FireStatus)latchedStatusValue));
   Serial.print("Release Counter: "); Serial.println(releaseCounter);
-  Serial.print("Sharp low/high/stuck streak: ");
-  Serial.print(sharpLowStreak); Serial.print("/"); Serial.print(sharpHighStreak); Serial.print("/"); Serial.println(sharpStuckStreak);
   Serial.print("Sensor Health: "); Serial.println(sensorHealthString(data));
   Serial.println("=================================");
 #endif
@@ -1483,27 +1426,14 @@ void serviceGpsUntilNextMeasurementOrSleep(FireStatus status) {
 }
 #endif
 
-void handleCriticalSending(const SensorData &current, const DeltaData &delta, const EvidenceFlags &e, FireStatus status, int confidence) {
-  if (status == CRITICAL) {
-    if (!criticalEventActive) {
-      criticalEventActive = true;
-      currentEventId = makeEventId();
-    }
-  } else {
-    if (criticalEventActive) {
-      criticalEventActive = false;
-      currentEventId = "";
-    }
-  }
-
-  String payload = buildJsonPacket(current, delta, e, status, confidence);
+void sendMeasurement(const SensorData &current, const DeltaData &delta, FireStatus status, int confidence) {
+  String payload = buildJsonPacket(current, delta, status, confidence);
   sendSensorPacketWithAck(payload);
 }
 
 void runOneMeasurementCycle() {
   unsigned long nowMs = millis();
   SensorData current = readSensors();
-  updateDerivedSensorHealth(current);
 
   updateBaselineWarmup(current);
   DeltaData delta = calculateDelta(current, previousData, hasPreviousData, nowMs);
@@ -1516,7 +1446,7 @@ void runOneMeasurementCycle() {
   commandSafetyReady = true;
 
   printSensorDebug(current, delta, evidence, status, confidence);
-  handleCriticalSending(current, delta, evidence, status, confidence);
+  sendMeasurement(current, delta, status, confidence);
   if (baselineRecalibrationAcceptedThisCycle) {
     status = CALIBRATING;
     baselineRecalibrationAcceptedThisCycle = false;
@@ -1564,8 +1494,6 @@ void resetRuntimeStateForTestMode() {
   hasPreviousData = false;
   previousReadMs = 0;
   expectedNextElapsedMinutes = 0.0f;
-  criticalEventActive = false;
-  eventCounter = 0;
   latchedStatusValue = NORMAL;
   releaseCounter = 0;
   criticalCandidateCounter = 0;
@@ -1580,10 +1508,6 @@ void resetRuntimeStateForTestMode() {
   baselineHumidity = 0.0f;
   baselineSmokeRaw = 0;
   baselineNvsCyclesSinceSave = 0;
-  sharpLowStreak = 0;
-  sharpHighStreak = 0;
-  sharpStuckStreak = 0;
-  currentEventId = "";
 #endif
 }
 

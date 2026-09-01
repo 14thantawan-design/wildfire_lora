@@ -101,7 +101,6 @@ export interface Reading {
   air_temp?: number | null
   humidity?: number | null
   smoke_raw?: number | null
-  smoke_delta?: number | null
   smoke_baseline_delta?: number | null
   air_baseline_delta?: number | null
   humidity_baseline_delta?: number | null
@@ -150,7 +149,6 @@ export interface Alert {
     air_temp?: number | null
     humidity?: number | null
     smoke_raw?: number | null
-    smoke_delta?: number | null
     smoke_baseline_delta?: number | null
     air_baseline_delta?: number | null
     humidity_baseline_delta?: number | null

@@ -238,13 +238,9 @@ String buildTestPacket() {
   doc["at"] = SIMULATED_AIR_TEMP_C;
   doc["h"] = SIMULATED_HUMIDITY_PERCENT;
   doc["sm"] = SIMULATED_SMOKE_RAW;
-  doc["sd"] = 0;
-  doc["ad"] = 0;
-  doc["hd"] = 0;
   doc["sr"] = 0;
   doc["ar"] = 0;
   doc["hr"] = 0;
-  doc["g"] = 0;
   doc["sh"] = "OK";
 
   String payload;
