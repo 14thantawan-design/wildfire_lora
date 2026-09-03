@@ -38,18 +38,18 @@
 #define LORA_RST   14
 #define LORA_DIO0  26
 
-#define LORA_SPREADING_FACTOR 7
+#define LORA_SPREADING_FACTOR 12
 #define LORA_SIGNAL_BANDWIDTH 125E3
 #define LORA_CODING_RATE_DENOMINATOR 5
 #define LORA_SYNC_WORD 0x34
-#define LORA_TX_POWER_DBM 17
+#define LORA_TX_POWER_DBM 20
 #define LORA_INIT_RETRY_MS 10000UL
 
 #define RANDOM_TX_DELAY_MIN_MS 0
 #define RANDOM_TX_DELAY_MAX_MS 5000
 
 // Listen briefly after each uplink so the gateway can deliver queued commands.
-#define COMMAND_RX_WINDOW_MS 1800UL
+#define COMMAND_RX_WINDOW_MS 6000UL
 #define COMMAND_MAX_JSON_SIZE 192
 
 // =========================

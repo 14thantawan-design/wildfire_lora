@@ -214,7 +214,11 @@ bool initLoRa() {
   LoRa.sleep();
 
   loraReady = true;
-  Serial.println("LoRa init OK");
+  Serial.print("LoRa init OK SF=");
+  Serial.print(LORA_SPREADING_FACTOR);
+  Serial.print(" TX=");
+  Serial.print(LORA_TX_POWER_DBM);
+  Serial.println(" dBm");
   showStartup("LoRa ready");
   return true;
 }

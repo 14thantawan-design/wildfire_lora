@@ -265,7 +265,10 @@ bool initLoRa() {
   LoRa.setTxPower(LORA_TX_POWER_DBM);
   LoRa.enableCrc();
 
-  debugPrintln("LoRa init OK");
+  debugPrintln(
+    String("LoRa init OK SF=") + LORA_SPREADING_FACTOR +
+    " TX=" + LORA_TX_POWER_DBM + " dBm"
+  );
   loraReady = true;
   return true;
 }

@@ -17,17 +17,17 @@
 #define LORA_SS 18
 #define LORA_RST 14
 #define LORA_DIO0 26
-#define LORA_SPREADING_FACTOR 7
+#define LORA_SPREADING_FACTOR 12
 #define LORA_SIGNAL_BANDWIDTH 125E3
 #define LORA_CODING_RATE_DENOMINATOR 5
 #define LORA_SYNC_WORD 0x34
-#define LORA_TX_POWER_DBM 17
+#define LORA_TX_POWER_DBM 20
 #define LORA_INIT_RETRY_MS 10000UL
 
 // A valid test packet is attempted at most three times. Every attempt uses a
 // fresh random delay to reduce collisions with the deployed sensor nodes.
 #define ACK_MAX_ATTEMPTS 3
-#define ACK_RX_WINDOW_MS 1800UL
+#define ACK_RX_WINDOW_MS 6000UL
 #define RANDOM_TX_DELAY_MIN_MS 0UL
 #define RANDOM_TX_DELAY_MAX_MS 5000UL
 #define TEST_CYCLE_PAUSE_MS 5000UL
