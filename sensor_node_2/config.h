@@ -1,226 +1,338 @@
+// ไฟล์ตั้งค่า: #define ตั้งชื่อแทนค่า ก่อนคอมไพล์; เปลี่ยนแล้วต้องคอมไพล์/อัปโหลดใหม่
+// #pragma once กันอ่านไฟล์นี้ซ้ำในหน่วยคอมไพล์เดียวกัน; #if TEST_MODE เลือกค่าตามโหมด
+// เกณฑ์ควันเป็น ADC ดิบ ไม่ใช่ ppm หรือ PM2.5; ผลต่างความชื้นเป็นจุด %RH เช่น 60 → 55 ลด 5 จุด
+// ค่าที่ใช้ใน .ino ถ้าลบโดยไม่แทนค่า/แก้ตัวเรียกมักทำให้คอมไพล์ไม่ผ่าน; ผลของการปิดแต่ละหน้าที่อธิบายใน .ino
 #pragma once
 
 /*
-  Wildfire Early Warning Sensor Node 2 - Configuration
-  Board target: TTGO / LILYGO LoRa32 ESP32 + SX127x
+  การตั้งค่าโหนดเซนเซอร์ตัวที่ 2 สำหรับแจ้งเตือนไฟป่าระยะเริ่มต้น
+  บอร์ดที่ใช้: TTGO / LILYGO LoRa32 ESP32 ร่วมกับ SX127x
 
-  SHT31 + Sharp sensor build
-  - Primary sensors: SHT31 + Sharp GP2Y1014AU0F
-  - Adds baseline warm-up, boot-abnormal guard, critical debounce,
-    smoke-required critical, and slow baseline drift handling.
+  ชุดเซนเซอร์ SHT31 ร่วมกับ Sharp
+  - เซนเซอร์หลัก: SHT31 และ Sharp GP2Y1014AU0F
+  - มีการสะสมค่าฐาน การป้องกันเรียนค่าผิดปกติตอนเปิดเครื่อง และการยืนยันสถานะวิกฤตหลายรอบ
+    รวมทั้งบังคับมีควันร่วมก่อนวิกฤต และปรับค่าฐานตามการเปลี่ยนแปลงอย่างช้า ๆ
 */
 
 // =========================
-// Mode
+// โหมดการทำงาน
 // =========================
-#define TEST_MODE 0   // 1 = bench test/debug, 0 = field/deep-sleep mode
+// 1 ทดสอบโดยตื่นวนอ่าน; 0 ใช้งานจริงที่เลือกหลับตามสถานะ และโหลดข้อมูลฐานจาก NVS ได้
+#define TEST_MODE 0   // 1 = ทดสอบและตรวจหาปัญหา, 0 = ใช้งานภาคสนามโดยหลับลึกตามสถานะ
 
 // =========================
-// Node identity
+// รหัสประจำโหนด
 // =========================
-#define NODE_ID "NODE02"     // Dedicated identity for the second sensor node
-#define MAX_JSON_SIZE 384     // compact JSON should remain < 255 LoRa bytes
+// ชื่อประจำโหนด ต้องไม่ซ้ำกัน มิฉะนั้น เกตเวย์/เว็บอาจรวมข้อมูลคนละตัวเป็นตัวเดียว
+#define NODE_ID "NODE02"     // รหัสเฉพาะของโหนดเซนเซอร์ตัวที่สอง
+// ความจุเอกสาร JSON ในหน่วยความจำ ไม่ใช่เพดานความยาวข้อความส่งวิทยุ
+#define MAX_JSON_SIZE 384     // ข้อความ JSON แบบย่อควรมีความยาวน้อยกว่า 255 ไบต์สำหรับส่งผ่าน LoRa
 
 // =========================
-// Optional GPS
+// ตัวเลือกการใช้จีพีเอส
 // =========================
-#define USE_GPS 1             // GPS TX -> GPS_RX_PIN; GPS fix is sent as a separate LoRa packet
+// 1 คอมไพล์ส่วน GPS; 0 ตัดส่วน GPS ออก แต่ส่วนเซนเซอร์/LoRa ยังทำงาน
+#define USE_GPS 1             // ต่อ TX ของจีพีเอสไป GPS_RX_PIN; ส่งพิกัดเป็นแพ็กเก็ต LoRa แยกจากข้อมูลวัด
 
 // =========================
-// LoRa config
+// การตั้งค่าวิทยุ LoRa
 // =========================
-#define LORA_FREQUENCY 433E6  // must match Gateway and your 433 MHz module/antenna
+// ความถี่วิทยุหน่วย Hz; 433E6 คือ 433 MHz ต้องตรงกับ เกตเวย์ และฮาร์ดแวร์ที่ใช้
+#define LORA_FREQUENCY 433E6  // ต้องตรงกับเกตเวย์และโมดูล/เสาอากาศ 433 เมกะเฮิรตซ์ที่ใช้
 
+// ขา สัญญาณนาฬิกาของ SPI ให้ชิป LoRa จับจังหวะข้อมูล
 #define LORA_SCK   5
+// ขา SPI รับข้อมูลจากชิป LoRa เข้า ESP32
 #define LORA_MISO  19
+// ขา SPI ส่งข้อมูลจาก ESP32 ไปชิป LoRa
 #define LORA_MOSI  27
+// ขาเลือกชิป LoRa บนบัส SPI; ตั้งผิดอาจเริ่มวิทยุไม่ได้
 #define LORA_SS    18
+// ขารีเซ็ตชิป LoRa
 #define LORA_RST   14
+// ขาสัญญาณสถานะจาก LoRa ที่ส่งให้ไลบรารี
 #define LORA_DIO0  26
 
+// ค่า SF ของ LoRa; ใช้ร่วมกับ bandwidth กำหนดรูปแบบสัญญาณและเวลาส่ง ต้องสอดคล้องกับตัวรับ
 #define LORA_SPREADING_FACTOR 12
+// ความกว้างแถบสัญญาณหน่วย Hz; 125E3 คือ 125 kHz ต้องตรงกับตัวรับ
 #define LORA_SIGNAL_BANDWIDTH 125E3
+// ตัวส่วนอัตรารหัสแก้ข้อผิดพลาด; 5 หมายถึง 4/5
 #define LORA_CODING_RATE_DENOMINATOR 5
+// ค่าซิงก์สำหรับแยกการรับชุดสัญญาณ ต้องตรงกับ เกตเวย์; ไม่ใช่รหัสผ่าน
 #define LORA_SYNC_WORD 0x34
+// กำลังส่งที่ขอจากวิทยุหน่วย dBm มีผลต่อพลังงานที่ใช้และการส่ง
 #define LORA_TX_POWER_DBM 20
+// ระยะรอก่อนลองเริ่ม LoRa ใหม่หลังล้มเหลว หน่วย ms
 #define LORA_INIT_RETRY_MS 10000UL
 
+// เวลาหน่วงสุ่มต่ำสุดก่อนส่ง เพื่อลดการส่งชนกันของหลายโหนด
 #define RANDOM_TX_DELAY_MIN_MS 0
+// เวลาหน่วงสุ่มสูงสุดก่อนส่ง หน่วย ms; การสุ่มช่วยลดแต่ไม่รับประกันว่าไม่ชน
 #define RANDOM_TX_DELAY_MAX_MS 5000
 
-// Listen briefly after each uplink so the gateway can deliver queued commands.
+// เปิดรับช่วงสั้นหลังส่งข้อมูลแต่ละครั้ง เพื่อให้เกตเวย์ส่งคำสั่งที่รออยู่มายังโหนดได้
+// เปิดรับ ACK/คำสั่งหลังส่งนานเท่านี้ ms; สั้นไปอาจพลาดคำตอบ ยาวขึ้นใช้เวลาตื่นมากขึ้น
 #define COMMAND_RX_WINDOW_MS 6000UL
+// ความจุเอกสาร JSON สำหรับรับคำสั่ง/ACK และสร้างผลตอบคำสั่ง
 #define COMMAND_MAX_JSON_SIZE 192
 
 // =========================
-// Sensor pins
+// ขาที่เชื่อมต่อเซนเซอร์
 // =========================
+// ขาข้อมูล I2C ของ SHT31 ต้องตรงกับสาย SDA
 #define I2C_SDA_PIN 21
+// ขาสัญญาณนาฬิกา I2C ของ SHT31 ต้องตรงกับสาย SCL
 #define I2C_SCL_PIN 22
+// ที่อยู่อุปกรณ์ SHT31 ที่ลองก่อน
 #define SHT31_I2C_ADDRESS_PRIMARY 0x44
+// ที่อยู่อุปกรณ์ สำรองที่ลองเมื่อค่าแรกเชื่อมไม่สำเร็จ
 #define SHT31_I2C_ADDRESS_SECONDARY 0x45
+// ขาควบคุม LED ภายใน Sharp: โค้ดใช้ LOW เปิด HIGH ปิด ต้องตรงกับวงจร
 #define SHARP_LED_PIN 25
+// ขา ADC อ่านแรงดันสัญญาณ Sharp เป็นเลขดิบ 0–4095
 #define SHARP_ANALOG_PIN 36
 
-#define SENSOR_POWER_PIN 4    // TTGO IO4 -> Sharp F5305S SIG+ (HIGH = power ON)
+// ขาสั่งวงจรสวิตช์ไฟเซนเซอร์ HIGH เปิด; ถ้า -1 โค้ดไม่ควบคุมไฟ จึงไม่ตัดไฟผ่านขานี้ตอนหลับ
+#define SENSOR_POWER_PIN 4    // ต่อ IO4 ของ TTGO ไป SIG+ ของ F5305S ที่ควบคุม Sharp (HIGH = เปิดไฟเลี้ยง)
+// รอไฟเซนเซอร์นิ่งหลังเปิดก่อนวัด หน่วย ms; ไม่มีเวลารออาจอ่านช่วงอุปกรณ์ยังไม่พร้อม
 #define SENSOR_POWER_STABILIZE_MS 1000UL
 
 // =========================
-// One-shot GPS install location
+// ค้นพิกัดจุดติดตั้งด้วยจีพีเอสแล้วบันทึกไว้ใช้
 // =========================
-// Ublox NEO-6M one-way mode: GPS TX -> ESP32 GPIO34. GPS RX must be left unconnected.
-// GPIO34 is input-only, so it is OK for GPS TX into ESP32 but cannot transmit.
-// This TTGO/ESP32-PICO-D4 maps embedded flash onto GPIO16/GPIO17, so never use GPIO17 for GPS TX.
-// GPS_POWER_PIN must drive a MOSFET/load-switch/EN pin, not GPS VCC directly.
-// If GPS VCC is wired directly to 5V/3V3 with no power switch, set GPS_POWER_PIN to -1.
-// If the GPS module is not connected yet and no NVS location exists, GPS runs
-// in the background while normal fire detection continues.
+// Ublox NEO-6M รับข้อมูลทางเดียว: ต่อ TX ของจีพีเอสไป GPIO34 ของ ESP32 และปล่อย RX ของจีพีเอสว่างไว้
+// GPIO34 รับสัญญาณเข้าได้อย่างเดียว จึงใช้รับจาก TX ของจีพีเอสได้ แต่ส่งข้อมูลออกไม่ได้
+// TTGO/ESP32-PICO-D4 ตัวนี้ใช้ GPIO16/GPIO17 กับแฟลชภายใน จึงห้ามใช้ GPIO17 เป็นขาส่งข้อมูลให้จีพีเอส
+// GPS_POWER_PIN ต้องควบคุมมอสเฟต สวิตช์ไฟเลี้ยง หรือขา EN ไม่ใช่จ่ายไฟเข้าขา VCC ของจีพีเอสโดยตรง
+// ถ้าขา VCC ของจีพีเอสต่อไฟ 5 หรือ 3.3 โวลต์โดยตรงโดยไม่มีสวิตช์ ให้ตั้ง GPS_POWER_PIN เป็น -1
+// หากยังไม่ได้ต่อโมดูลจีพีเอสและไม่มีพิกัดใน NVS งานค้นพิกัดจะทำเป็นช่วง ๆ
+// ระหว่างที่การตรวจจับไฟยังทำงานต่อไปตามปกติ
+// ขารับ UART ของ ESP32 ต่อกับ TX ของ GPS; GPIO34 รับเข้าอย่างเดียว
 #define GPS_RX_PIN 34
+// -1 ไม่ใช้ขาส่ง UART จาก ESP32 ไป GPS; โหมดนี้รับทางเดียว
 #define GPS_TX_PIN -1
+// อัตราส่งข้อมูล UART ต้องตรงกับโมดูล GPS จึงแปลข้อความได้
 #define GPS_BAUD 9600
-#define GPS_POWER_PIN 13   // TTGO IO13 -> GPS F5305S SIG+ (HIGH = power ON)
+// ขาคุมสวิตช์ไฟ GPS ไม่ใช่ขาจ่าย VCC; -1 หมายถึงไม่สั่งตัด/ต่อไฟผ่าน GPIO
+#define GPS_POWER_PIN 13   // ต่อ IO13 ของ TTGO ไป SIG+ ของ F5305S ที่ควบคุมจีพีเอส (HIGH = เปิดไฟเลี้ยง)
 #if TEST_MODE
-  #define GPS_FIX_TIMEOUT_MS 300000UL       // 5 minutes for cold-start bench/field testing
-  #define GPS_RETRY_INTERVAL_MS 60000UL     // retry soon while you are finding a good GPS spot
+  // ค้น GPS ได้ไม่เกินเวลานี้ต่อครั้งแล้วหยุด/รายงานล้มเหลว; ค่าต่างกันระหว่างทดสอบกับใช้งานจริง
+  #define GPS_FIX_TIMEOUT_MS 300000UL       // ให้เวลา 5 นาทีสำหรับค้นจากเริ่มต้นใหม่ระหว่างทดสอบ
+  // เวลารอก่อนลอง GPS ใหม่เมื่อครั้งก่อนล้มเหลว; ไม่ใช่รอบอ่านเซนเซอร์
+  #define GPS_RETRY_INTERVAL_MS 60000UL     // ลองใหม่เร็วขึ้นระหว่างหาจุดที่รับสัญญาณจีพีเอสได้ดี
 #else
-  #define GPS_FIX_TIMEOUT_MS 600000UL       // 10 minutes for outdoor cold starts
-  #define GPS_RETRY_INTERVAL_MS 3600000UL   // retry hourly until an install location is saved
+  // ค้น GPS ได้ไม่เกินเวลานี้ต่อครั้งแล้วหยุด/รายงานล้มเหลว; ค่าต่างกันระหว่างทดสอบกับใช้งานจริง
+  #define GPS_FIX_TIMEOUT_MS 600000UL       // ให้เวลา 10 นาทีสำหรับค้นจากเริ่มต้นใหม่กลางแจ้ง
+  // เวลารอก่อนลอง GPS ใหม่เมื่อครั้งก่อนล้มเหลว; ไม่ใช่รอบอ่านเซนเซอร์
+  #define GPS_RETRY_INTERVAL_MS 3600000UL   // ลองใหม่ทุกชั่วโมงจนกว่าจะบันทึกพิกัดจุดติดตั้งได้
 #endif
+// จำนวนดาวเทียมขั้นต่ำที่โค้ดยอมรับ พิกัดที่ค้นได้
 #define GPS_MIN_SATELLITES 4
+// HDOP สูงสุดที่ยอมรับ ใช้กรองรูปทรงการจัดวางดาวเทียม; ไม่ใช่ความคลาดเคลื่อนเป็นเมตร
 #define GPS_MAX_HDOP 5.0f
+// อายุข้อมูลพิกัดสูงสุดที่รับ หน่วย ms เพื่อไม่ใช้ พิกัดที่ค้นได้ เก่า
 #define GPS_MAX_LOCATION_AGE_MS 3000UL
+// 1 จำพิกัด/โหมด กำหนดพิกัดเอง ในแฟลชข้ามไฟดับ; 0 ต้องอาศัยสถานะใน RAM
 #define GPS_SAVE_TO_NVS 1
+// 1 ไม่โหลดพิกัดและโหมด กำหนดพิกัดเอง เดิมเมื่อเริ่มเครื่อง จึงอาจต้องค้นซ้ำหลังตื่น; ปกติใช้ 0
 #define GPS_FORCE_RECALIBRATE 0
+// จำนวนครั้งส่งพิกัดชุดเดิมซ้ำเพื่อเพิ่มโอกาสถึง เกตเวย์
 #define GPS_PACKET_REPEAT_COUNT 3
 
 // =========================
-// Timing
+// ช่วงเวลาการทำงาน
 // =========================
 #if TEST_MODE
+  // เวลารอหลังรอบปกติใน TEST_MODE; ไม่ใช่ช่วงวัดจริงทั้งหมด เพราะยังมีเวลาอ่าน/ส่ง/รับ ACK
   #define LOOP_INTERVAL_MS 5000UL
 #else
+  // เวลาหลับหลังรอบ NORMAL หน่วยวินาที
   #define NORMAL_SLEEP_SEC 600UL
+  // เวลาหลับหลังรอบเฝ้าระวัง หน่วยวินาที เพื่อกลับมาวัดถี่กว่าปกติ
   #define WATCH_SLEEP_SEC 120UL
+  // ช่วงรอของ WARNING หน่วยวินาที; อาจตื่นรอแทนหลับตาม KEEP_AWAKE_DURING_WARNING
   #define WARNING_SLEEP_SEC 60UL
+  // เวลาหลับระหว่างสะสมฐานเริ่มต้น หน่วยวินาที
   #define CALIBRATING_SLEEP_SEC 30UL
+  // เวลาหลับก่อนกลับมาตรวจใหม่เมื่อเซนเซอร์ผิดปกติ หน่วยวินาที
   #define SENSOR_FAULT_SLEEP_SEC 300UL
 #endif
 
+// เวลาตื่นรอหลังรอบ CRITICAL หน่วย ms เพื่อวัดซ้ำเร็ว; ยังมีเวลาทำงานของรอบเพิ่มด้วย
 #define CRITICAL_CONTINUE_INTERVAL_MS 20000UL
+// 1 ให้ WARNING ตื่นรอพร้อมบริการ GPS; 0 อนุญาตทางหลับตามสถานะ
 #define KEEP_AWAKE_DURING_WARNING 1
+// 1 ต้องได้รับ rx_ack ตรงชุดจึงถือว่าส่งข้อมูลวัดสำเร็จ; 0 ดูเพียงผลส่งของวิทยุ
 #define SENSOR_REQUIRE_GATEWAY_ACK 1
+// จำนวนส่งข้อมูลชุดเดียวสูงสุดรวมครั้งแรก เมื่อบังคับ ACK
 #define SENSOR_ACK_MAX_ATTEMPTS 3
 
 // =========================
-// Baseline warm-up and calibration
+// การสะสมข้อมูลและเรียนรู้ค่าฐานเริ่มต้น
 // =========================
 #if TEST_MODE
-  #define BASELINE_WARMUP_CYCLES 5       // 5 cycles x 5 sec = about 25 sec
+  // จำนวนรอบที่ค่าผ่านเกณฑ์ก่อนเฉลี่ยเป็นฐาน; เวลาเรียนจริงรวมเวลาส่ง/รอ และรอบผิดปกติไม่นับเป็นรอบดี
+  #define BASELINE_WARMUP_CYCLES 5       // 5 รอบ รอรอบละ 5 วินาที รวมเวลารอประมาณ 25 วินาที ยังไม่รวมเวลาวัดและสื่อสาร
 #else
-  #define BASELINE_WARMUP_CYCLES 12      // safer for field startup
+  // จำนวนรอบที่ค่าผ่านเกณฑ์ก่อนเฉลี่ยเป็นฐาน; เวลาเรียนจริงรวมเวลาส่ง/รอ และรอบผิดปกติไม่นับเป็นรอบดี
+  #define BASELINE_WARMUP_CYCLES 12      // สะสมหลายรอบขึ้นสำหรับเริ่มใช้งานภาคสนาม
 #endif
 
-// If power-up readings look abnormal, do not learn them as "normal" baseline.
+// ถ้าค่าที่อ่านตอนเปิดเครื่องผิดปกติ อย่านำมาเรียนเป็นค่าฐานปกติ
+// จำนวนรอบผิดปกติช่วงเริ่มเครื่องก่อนใช้กฎ WATCH/WARNING; ตัวนับนี้สะสม ไม่ได้รีเซ็ตทุกครั้งที่แทรกด้วยรอบดี
 #define BOOT_ABNORMAL_REQUIRED_CYCLES 2
+// สัดส่วนผลต่างที่ใช้ขยับฐานใน NORMAL; 0.05 คือ 5% ต่อรอบ ปรับเร็วเกินไปอาจตามความผิดปกติทัน
 #define BASELINE_EMA_ALPHA 0.05f
+// สัดส่วนปรับฐานอุณหภูมิ/ความชื้นช้า ๆ ใน WATCH ที่ไม่มีหลักฐานควันตามเงื่อนไข
 #define BASELINE_WATCH_NO_SMOKE_ALPHA 0.01f
 
-// Keep a known-good baseline across a complete power loss. Normal deep sleep
-// already preserves RTC memory; NVS is only a fallback for a cold boot.
+// เก็บค่าฐานที่ผ่านการตรวจไว้ข้ามการตัดไฟ ส่วนการหลับลึกตามปกติ
+// เก็บข้อมูลใน RTC ได้อยู่แล้ว จึงใช้ NVS เป็นทางสำรองเมื่อเริ่มเครื่องหลังข้อมูล RTC หาย
+// 1 เก็บฐานลงแฟลชเพื่อกู้หลังไฟดับ; การหลับลึก ปกติใช้ RTC จำฐานได้อยู่แล้ว
 #define BASELINE_SAVE_TO_NVS 1
+// เลขรุ่นข้อมูลฐาน; ถ้าไม่ตรงกับข้อมูลที่บันทึกจะไม่โหลดฐานเก่า
 #define BASELINE_STORAGE_VERSION 1
+// 1 ล้างฐาน NVS ในเส้นทางโหลดเมื่อฐาน RTC ยังไม่พร้อม; ใช้บังคับเรียนใหม่ ปกติเป็น 0
 #define BASELINE_FORCE_RECALIBRATE 0
-// Persist slow baseline drift at most about once per day in NORMAL mode
-// (144 cycles x 10 minutes), which avoids unnecessary flash wear.
+// บันทึกค่าฐานที่ค่อย ๆ เปลี่ยนประมาณวันละครั้งเมื่ออยู่สถานะปกติ
+// (144 รอบ รอบละประมาณ 10 นาที) เพื่อลดการเขียนแฟลชโดยไม่จำเป็น
+// จำนวนรอบ NORMAL ที่ปรับฐานก่อนบันทึกแฟลชอีกครั้ง ช่วยลดการเขียนถี่; ไม่ใช่ตัวจับเวลา 24 ชั่วโมงตรง ๆ
 #define BASELINE_NVS_SAVE_INTERVAL_CYCLES 144
 
 // =========================
-// Sensor health checks
+// การตรวจความสมเหตุสมผลของค่าเซนเซอร์
 // =========================
+// อุณหภูมิต่ำสุดที่โค้ดยอมรับเป็นค่าที่สมเหตุสมผล หน่วย °C
 #define SHT31_MIN_TEMP_C -20.0f
+// อุณหภูมิสูงสุดที่โค้ดยอมรับ หน่วย °C; เกินช่วงจะเป็น เซนเซอร์ผิดปกติ ไม่ใช่ค่าร้อนปกติ
 #define SHT31_MAX_TEMP_C 85.0f
+// ความชื้นต่ำสุดที่ยอมรับ หน่วย %RH
 #define SHT31_MIN_HUMIDITY 0.0f
+// ความชื้นสูงสุดที่ยอมรับ หน่วย %RH
 #define SHT31_MAX_HUMIDITY 100.0f
 
 // =========================
-// Fire logic thresholds - tune after measuring your real sensor values
+// เกณฑ์ประเมินไฟ: ควรปรับจากข้อมูลที่วัดด้วยเซนเซอร์จริงของระบบ
 // =========================
-// Previous-step delta is normalized into rate per minute so TEST_MODE and DEPLOY_MODE behave similarly.
+// แปลงผลต่างจากรอบก่อนเป็นอัตราต่อนาที เพื่อให้โหมดทดสอบและภาคสนามเปรียบเทียบด้วยหน่วยเดียวกัน
+// เกณฑ์ควันเพิ่มระดับเฝ้าระวัง หน่วย ADC ต่อนาที ใช้ร่วมกับผลต่างขั้นต่ำ; เป็นหลักฐานหนึ่งส่วน ไม่ได้กำหนดสถานะสุดท้ายโดยลำพัง
 #define SMOKE_RATE_WATCH_PER_MIN 300
+// เกณฑ์ควันเพิ่มระดับเตือน หน่วย ADC ต่อนาที ใช้ร่วมกับผลต่างขั้นต่ำ; เป็นหลักฐานหนึ่งส่วน ไม่ได้กำหนดสถานะสุดท้ายโดยลำพัง
 #define SMOKE_RATE_WARNING_PER_MIN 800
+// เกณฑ์ควันเพิ่มระดับแรง หน่วย ADC ต่อนาที ใช้ร่วมกับผลต่างขั้นต่ำ; เป็นหลักฐานหนึ่งส่วน ไม่ได้กำหนดสถานะสุดท้ายโดยลำพัง
 #define SMOKE_RATE_CRITICAL_PER_MIN 1500
 
+// เกณฑ์อุณหภูมิเพิ่มระดับเฝ้าระวัง หน่วย °C ต่อนาที ใช้ร่วมกับผลต่างขั้นต่ำ; เป็นหลักฐานหนึ่งส่วน ไม่ได้กำหนดสถานะสุดท้ายโดยลำพัง
 #define AIR_TEMP_RATE_WATCH_PER_MIN 0.30f
+// เกณฑ์อุณหภูมิเพิ่มระดับเตือน หน่วย °C ต่อนาที ใช้ร่วมกับผลต่างขั้นต่ำ; เป็นหลักฐานหนึ่งส่วน ไม่ได้กำหนดสถานะสุดท้ายโดยลำพัง
 #define AIR_TEMP_RATE_WARNING_PER_MIN 0.70f
+// เกณฑ์อุณหภูมิเพิ่มระดับแรง หน่วย °C ต่อนาที ใช้ร่วมกับผลต่างขั้นต่ำ; เป็นหลักฐานหนึ่งส่วน ไม่ได้กำหนดสถานะสุดท้ายโดยลำพัง
 #define AIR_TEMP_RATE_CRITICAL_PER_MIN 1.20f
 
+// เกณฑ์ความชื้นลดระดับเฝ้าระวัง หน่วยจุด %RH ต่อนาที ใช้ร่วมกับผลต่างขั้นต่ำ; เป็นหลักฐานหนึ่งส่วน ไม่ได้กำหนดสถานะสุดท้ายโดยลำพัง
 #define HUMIDITY_DROP_RATE_WATCH_PER_MIN 1.0f
+// เกณฑ์ความชื้นลดระดับเตือน หน่วยจุด %RH ต่อนาที ใช้ร่วมกับผลต่างขั้นต่ำ; เป็นหลักฐานหนึ่งส่วน ไม่ได้กำหนดสถานะสุดท้ายโดยลำพัง
 #define HUMIDITY_DROP_RATE_WARNING_PER_MIN 2.0f
+// เกณฑ์ความชื้นลดระดับแรง หน่วยจุด %RH ต่อนาที ใช้ร่วมกับผลต่างขั้นต่ำ; เป็นหลักฐานหนึ่งส่วน ไม่ได้กำหนดสถานะสุดท้ายโดยลำพัง
 #define HUMIDITY_DROP_RATE_CRITICAL_PER_MIN 4.0f
 
-// Ignore tiny previous-step movement before converting it into a per-minute rate.
-// This is important in TEST_MODE, where a small 5-second sensor wobble can look large after normalization.
+// ข้ามการเปลี่ยนเล็กน้อยจากรอบก่อน ก่อนใช้เป็นหลักฐานจากอัตราต่อนาที
+// สำคัญในโหมดทดสอบ เพราะค่าที่สั่นเล็กน้อยใน 5 วินาทีอาจดูมากเมื่อแปลงเป็นอัตราต่อนาที
+// ควันต้องเพิ่มจากครั้งก่อนอย่างน้อยเท่านี้ ADC จึงใช้หลักฐาน อัตราการเปลี่ยนแปลง; กันค่ากระดิกเล็กถูกขยายเมื่อวัดถี่
 #define SMOKE_RATE_MIN_DELTA_RAW 40
+// อุณหภูมิต้องเพิ่มจากครั้งก่อนขั้นต่ำเท่านี้ °C จึงใช้หลักฐาน อัตราการเปลี่ยนแปลง
 #define AIR_TEMP_RATE_MIN_DELTA_C 0.20f
+// ความชื้นต้องลดจากครั้งก่อนขั้นต่ำเท่านี้จุด %RH จึงใช้หลักฐาน อัตราการเปลี่ยนแปลง
 #define HUMIDITY_DROP_RATE_MIN_DELTA 0.60f
 
-// Sustained baseline difference catches values that remain high after the first jump.
+// ผลต่างจากค่าฐานช่วยตรวจจับค่าที่สูงค้างหลังเพิ่มขึ้นครั้งแรก
+// เกณฑ์ควันสูงกว่าฐานระดับเฝ้าระวัง หน่วย ADC; ช่วยจับควันที่สูงค้างแม้ อัตราการเปลี่ยนแปลง ลดลงแล้ว; เป็นหลักฐานหนึ่งส่วน ไม่ได้กำหนดสถานะสุดท้ายโดยลำพัง
 #define SMOKE_BASELINE_WATCH 150
+// เกณฑ์ควันสูงกว่าฐานระดับเตือน หน่วย ADC; ช่วยจับควันที่สูงค้างแม้ อัตราการเปลี่ยนแปลง ลดลงแล้ว; เป็นหลักฐานหนึ่งส่วน ไม่ได้กำหนดสถานะสุดท้ายโดยลำพัง
 #define SMOKE_BASELINE_WARNING 450
+// เกณฑ์ควันสูงกว่าฐานระดับแรง หน่วย ADC; ช่วยจับควันที่สูงค้างแม้ อัตราการเปลี่ยนแปลง ลดลงแล้ว; เป็นหลักฐานหนึ่งส่วน ไม่ได้กำหนดสถานะสุดท้ายโดยลำพัง
 #define SMOKE_BASELINE_CRITICAL 900
 
+// ค่าควันจริงขั้นต่ำประกอบเกณฑ์ผลต่างจากฐานระดับ WATCH
 #define SMOKE_RAW_WATCH_MIN 250
+// ควัน ADC จริงตั้งแต่ค่านี้เป็นหลักฐานกลุ่มเตือนและไม่ใช้เรียนฐานเริ่มต้น
 #define SMOKE_RAW_WARNING 1200
+// ควัน ADC จริงตั้งแต่ค่านี้เป็นหลักฐานควันแรง; ยังต้องผ่านกฎรวมก่อนสถานะ CRITICAL
 #define SMOKE_RAW_CRITICAL 1800
 
+// เกณฑ์อุณหภูมิสูงกว่าฐานระดับเฝ้าระวัง หน่วย °C; เป็นหลักฐานหนึ่งส่วน ไม่ได้กำหนดสถานะสุดท้ายโดยลำพัง
 #define AIR_TEMP_BASELINE_WATCH 2.0f
+// เกณฑ์อุณหภูมิสูงกว่าฐานระดับเตือน หน่วย °C; เป็นหลักฐานหนึ่งส่วน ไม่ได้กำหนดสถานะสุดท้ายโดยลำพัง
 #define AIR_TEMP_BASELINE_WARNING 4.0f
+// เกณฑ์อุณหภูมิสูงกว่าฐานระดับแรง หน่วย °C; เป็นหลักฐานหนึ่งส่วน ไม่ได้กำหนดสถานะสุดท้ายโดยลำพัง
 #define AIR_TEMP_BASELINE_CRITICAL 6.0f
 
+// เกณฑ์อุณหภูมิจริงระดับเตือน หน่วย °C โดยไม่ต้องเทียบฐาน; เป็นหลักฐานหนึ่งส่วน ไม่ได้กำหนดสถานะสุดท้ายโดยลำพัง
 #define AIR_TEMP_ABSOLUTE_WARNING 40.0f
+// เกณฑ์อุณหภูมิจริงระดับแรง หน่วย °C โดยไม่ต้องเทียบฐาน; เป็นหลักฐานหนึ่งส่วน ไม่ได้กำหนดสถานะสุดท้ายโดยลำพัง
 #define AIR_TEMP_ABSOLUTE_CRITICAL 50.0f
 
+// ความชื้นไม่เกินค่านี้ให้คะแนนความแห้งเพิ่ม หน่วย %RH
 #define HUMIDITY_LOW 45.0f
+// ความชื้นต่ำมาก ให้คะแนน/หลักฐาน และกันใช้เรียนฐานเริ่มต้น; ไม่ใช่หลักฐานไฟโดยลำพัง
 #define HUMIDITY_VERY_LOW 35.0f
+// ความชื้นตั้งแต่ค่านี้เข้าเงื่อนไขคล้ายหมอกเพื่อลดคะแนนเมื่อควันยังไม่แรง; ไม่ได้ยืนยันว่ามีหมอก
 #define HUMIDITY_HIGH_FOG_LIKE 90.0f
 
+// เกณฑ์ความชื้นลดจากฐานระดับเฝ้าระวัง หน่วยจุด %RH; เป็นหลักฐานหนึ่งส่วน ไม่ได้กำหนดสถานะสุดท้ายโดยลำพัง
 #define HUMIDITY_BASELINE_DROP_WATCH 5.0f
+// เกณฑ์ความชื้นลดจากฐานระดับเตือน หน่วยจุด %RH; เป็นหลักฐานหนึ่งส่วน ไม่ได้กำหนดสถานะสุดท้ายโดยลำพัง
 #define HUMIDITY_BASELINE_DROP_WARNING 10.0f
+// เกณฑ์ความชื้นลดจากฐานระดับแรง หน่วยจุด %RH; เป็นหลักฐานหนึ่งส่วน ไม่ได้กำหนดสถานะสุดท้ายโดยลำพัง
 #define HUMIDITY_BASELINE_DROP_CRITICAL 15.0f
 
 // =========================
-// State logic safety rules
+// กฎยืนยันและค้างสถานะเพื่อช่วยลดการแจ้งเตือนผิด
 // =========================
+// คะแนนขั้นต่ำของกฎ WARNING โดยยังต้องมีหลักฐานร่วมตามโค้ด
 #define WARNING_CONFIDENCE 55
+// คะแนนขั้นต่ำของกฎ CRITICAL โดยยังต้องผ่านจำนวนกลุ่มและการยืนยันหลายรอบ
 #define CRITICAL_CONFIDENCE 70
 
-// Critical must be confirmed by consecutive cycles to avoid one-sample spikes.
+// ต้องยืนยันสถานะวิกฤตหลายรอบต่อเนื่อง เพื่อไม่ให้ค่ากระโดดเพียงรอบเดียวทำให้ขึ้นวิกฤตทันที
+// จำนวนรอบ CRITICAL ต่อเนื่องก่อนยกระดับใหม่; ถ้า 1 จะไม่รอยืนยันหลายรอบ
 #define CRITICAL_CONFIRM_CYCLES 2
 
-// Weak heat+humidity WATCH without smoke must persist before entering WATCH.
+// ความร้อนร่วมกับความชื้นระดับอ่อนที่ไม่มีควันต้องเข้าเงื่อนไขต่อเนื่องก่อนเปลี่ยนเป็นเฝ้าระวัง
+// จำนวนรอบ WATCH อ่อนจากอากาศก่อนยกระดับจากสถานะต่ำกว่า WATCH
 #define WATCH_ENV_CONFIRM_CYCLES 2
 
-// Require smoke/particle evidence for CRITICAL to reduce heat-only false alarms.
+// บังคับมีหลักฐานควันหรืออนุภาคร่วมก่อนวิกฤต เพื่อลดการเตือนผิดจากความร้อนอย่างเดียว
+// 1 บังคับมี smokeGroup ร่วมก่อน CRITICAL; ลดการขึ้นวิกฤตจากร้อน/แห้งอย่างเดียว
 #define REQUIRE_SMOKE_FOR_CRITICAL 1
 
-// Hold WARNING/CRITICAL for a few clean cycles before downgrading.
+// ค้างสถานะเตือนหรือวิกฤตจนผ่านเงื่อนไขลดระดับหลายรอบก่อนลดสถานะ
+// จำนวนรอบที่ผ่านเงื่อนไขลดระดับก่อนปล่อยสถานะเดิม; ช่วยไม่ให้สถานะสลับเร็ว
 #define STATUS_RELEASE_CYCLES 3
+// คะแนนต้องต่ำกว่าค่านี้จึงนับรอบลดจาก WARNING เมื่อสถานะดิบต่ำลง
 #define WARNING_RELEASE_CONFIDENCE 25
+// คะแนนต้องต่ำกว่าค่านี้จึงนับรอบลดจาก CRITICAL เมื่อสถานะดิบต่ำลง
 #define CRITICAL_RELEASE_CONFIDENCE 45
 
-// Fog/dew condition can reduce weak smoke confidence, but should not suppress strong smoke.
+// สภาพคล้ายหมอกหรือน้ำค้างลดคะแนนได้เมื่อหลักฐานควันยังไม่แรง แต่ไม่ลดเมื่อควันถึงระดับแรง
+// คะแนนที่หักในเงื่อนไขความชื้นสูงเมื่อไม่มี smokeCritical
 #define FOG_PENALTY_SCORE 20
 
-// Keep LoRa payload below a safe size for SX127x packet mode.
+// กำหนดเพดานความยาวข้อความส่ง LoRa ให้เหมาะกับแพ็กเก็ตของ SX127x
+// เพดานข้อความที่ใช้ตรวจใน buildJsonPacket; โค้ด ทางสำรอง ปัจจุบันยังไม่รับประกันว่าจะย่อได้จริง
 #define MAX_SAFE_PAYLOAD_BYTES 240
 
 // =========================
-// Debug
+// การแสดงข้อมูลเพื่อตรวจหาปัญหา
 // =========================
 #if TEST_MODE
+  // 1 เปิดข้อความวิเคราะห์ใน หน้าต่างแสดงข้อมูลอนุกรม (Serial Monitor); 0 ตัดข้อความเหล่านี้ตอนคอมไพล์
   #define SERIAL_DEBUG 1
 #else
+  // 1 เปิดข้อความวิเคราะห์ใน หน้าต่างแสดงข้อมูลอนุกรม (Serial Monitor); 0 ตัดข้อความเหล่านี้ตอนคอมไพล์
   #define SERIAL_DEBUG 0
 #endif
 
+// ความเร็ว หน้าต่างแสดงข้อมูลอนุกรม (Serial Monitor) ต้องตั้งให้ตรงเพื่ออ่านข้อความ การตรวจหาปัญหา
 #define SERIAL_BAUD 115200

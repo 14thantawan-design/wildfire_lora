@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { getTimeRange, type TimeRangeKey } from './timeRanges'
+import { selectLiveOverview } from './liveOverview'
 import type {
   Alert,
   ApiHealth,
@@ -79,9 +80,9 @@ export function useDashboard(selectedNodeId: string, timeRange: TimeRangeKey) {
         getJson<Alert[]>('/alerts/active', controller.signal),
         getJson<ApiHealth>('/health', controller.signal),
       ])
-      const effectiveNodeId = nodeData.some((node) => node.node_id === selectedNodeId)
-        ? selectedNodeId
-        : nodeData[0]?.node_id
+      // History remains available through the readings API and Admin page.
+      // Only currently online nodes participate in the live overview.
+      const { liveNodes, effectiveNodeId } = selectLiveOverview(nodeData, selectedNodeId)
       const bucketQuery = selectedRange.bucketMs ? `&bucket_ms=${selectedRange.bucketMs}` : ''
       const [readingData, recentReadingData] = effectiveNodeId
         ? await Promise.all([
@@ -99,7 +100,7 @@ export function useDashboard(selectedNodeId: string, timeRange: TimeRangeKey) {
       if (requestId !== requestIdRef.current) return
       const alertsById = new Map(alertHistory.map((alert) => [alert._id, alert]))
       activeAlerts.forEach((alert) => alertsById.set(alert._id, alert))
-      setNodes(nodeData)
+      setNodes(liveNodes)
       setAlerts(
         [...alertsById.values()].sort(
           (first, second) => new Date(second.started_at).getTime() - new Date(first.started_at).getTime(),

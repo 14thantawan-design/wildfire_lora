@@ -77,7 +77,7 @@
 // Downlink commands are held until the target node sends its next LoRa packet.
 #define MAX_PENDING_COMMANDS 10
 #define COMMAND_POLL_INTERVAL_MS 2000UL
-#define COMMAND_REPEAT_COUNT 3
+#define COMMAND_REPEAT_COUNT 1  // Retry on the node's next uplink instead of blocking its ACK with back-to-back downlinks.
 #define COMMAND_REPEAT_DELAY_MS 80UL
 #define COMMAND_HTTP_JSON_SIZE 2048
 #define SENSOR_UPLINK_ACK_ENABLED 1

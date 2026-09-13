@@ -21,7 +21,8 @@ import { AdminReadingsPage } from './AdminReadingsPage'
 import type { Alert, BaselineRecalibrationStatus, NodeState, Reading } from './types'
 import { useDashboard } from './useDashboard'
 import type { TimeRangeKey } from './timeRanges'
-import { formatReason, stateLabels, stateSeverity } from './nodeStates'
+import { formatReason, stateLabels } from './nodeStates'
+import { assessLiveSafety } from './liveOverview'
 import './App.css'
 
 const MapPanel = lazy(() =>
@@ -349,9 +350,8 @@ function App() {
       window.clearInterval(timer)
     }
   }, [adminMode, getBaselineRecalibrationStatus, selectedNode?.node_id])
-  const liveNodeIds = new Set(nodes.map((node) => node.node_id))
-  const activeAlerts = alerts.filter((alert) => alert.active && liveNodeIds.has(alert.node_id))
   const onlineNodes = nodes.filter((node) => node.online)
+  const liveNodeIds = new Set(onlineNodes.map((node) => node.node_id))
   const gatewayConnected = !backendUnavailable && Boolean(health?.gateway.connected)
   const selectedLiveNode = gatewayConnected && selectedNode?.online ? selectedNode : undefined
   const selectedSmoke =
@@ -378,16 +378,7 @@ function App() {
     if (count === 0) return `${selectedNode.node_id} · ยังไม่มีข้อมูลย้อนหลัง`
     return `${selectedNode.node_id} · ${count}/10 ข้อมูล · ${timeAgo(latestAverageTimestamp)}`
   }
-  const highestNodeState = nodes.reduce<NodeState>(
-    (highest, node) => (stateSeverity[node.state] > stateSeverity[highest] ? node.state : highest),
-    'UNKNOWN',
-  )
-  const highestState = activeAlerts.reduce<NodeState>(
-    (highest, alert) => (stateSeverity[alert.level] > stateSeverity[highest] ? alert.level : highest),
-    highestNodeState,
-  )
-  const canAssessSafety = !backendUnavailable && Boolean(health?.ok) &&
-    Boolean(health?.gateway.connected) && nodes.length > 0 && onlineNodes.length === nodes.length
+  const { highestState, canAssessSafety } = assessLiveSafety(nodes, alerts, health, backendUnavailable)
   const safetyBanner = safetyBannerFor(canAssessSafety, highestState)
   const visibleAlerts = showAllAlerts ? alerts : alerts.slice(0, 5)
   const hiddenAlertCount = Math.max(0, alerts.length - visibleAlerts.length)
@@ -729,8 +720,8 @@ function App() {
           <section className="stat-grid">
             <article>
               <span className="stat-icon green"><RadioTower size={19} /></span>
-              <div><span>โหนดออนไลน์</span><strong>{onlineNodes.length}<small> / {nodes.length} จุด</small></strong></div>
-              <em>{nodes.length ? Math.round((onlineNodes.length / nodes.length) * 100) : 0}% พร้อมใช้งาน</em>
+              <div><span>โหนดออนไลน์</span><strong>{onlineNodes.length}<small> จุด</small></strong></div>
+              <em>แสดงเฉพาะโหนดที่ส่งข้อมูลอยู่</em>
             </article>
             <article>
               <span className="stat-icon red"><Thermometer size={19} /></span>

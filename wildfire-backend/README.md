@@ -28,14 +28,16 @@ OFFLINE_TIMEOUT_MS=60000
 GATEWAY_OFFLINE_TIMEOUT_MS=30000
 GATEWAY_API_KEY=replace-with-a-long-random-key
 CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
-ADMIN_API_KEY=
+ADMIN_HOSTNAME=admin.example.com
+CF_ACCESS_TEAM_DOMAIN=https://your-team-name.cloudflareaccess.com
+CF_ACCESS_AUD=replace-with-the-application-audience-tag
 TELEGRAM_BOT_TOKEN=
 TELEGRAM_CHAT_ID=
 TELEGRAM_DASHBOARD_URL=https://wildfire.nattaphat.me
 TELEGRAM_TIMEZONE=Asia/Bangkok
 ```
 
-`GATEWAY_API_KEY` must be the same value as `GATEWAY_API_KEY` in `gateway/secrets.h`. Keep both files private. `ADMIN_API_KEY` is only needed when GPS or alert-management actions must be called from a computer other than the backend computer.
+`GATEWAY_API_KEY` must be the same value as `GATEWAY_API_KEY` in `gateway/secrets.h`. Keep both files private. Administrative routes accept local development requests or a valid Cloudflare Access JWT for `ADMIN_HOSTNAME`. Set the team domain and the application's Audience (AUD) tag above, and manage administrator email addresses only in the Cloudflare Access policy.
 
 ## Telegram Channel Notifications
 
@@ -96,7 +98,7 @@ turns off GPS and persists manual-location mode. `gps_reacquire` clears that mod
 and starts the physical GPS again. GPS acquisition never shortens the sensor's
 normal measurement/report interval.
 
-The live Node list is heartbeat-driven. A Node appears automatically while it is sending recent packets and drops out of the live dashboard after its report-aware offline timeout. The default timeout is 2.5 report intervals plus 30 seconds, so one missed report is tolerated. When it sends again, it returns automatically without configuration changes or deleting history.
+The Node list keeps known Nodes visible and marks each one online or offline from its heartbeat. The default timeout is 2.5 report intervals plus 30 seconds, so one missed report is tolerated. When a Node sends again, it returns online automatically without configuration changes or deleting history.
 
 ## Test Without Gateway
 

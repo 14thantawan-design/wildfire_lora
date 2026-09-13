@@ -372,6 +372,24 @@ bool queuePendingCommand(const String &commandId, const String &nodeId, const St
   return false;
 }
 
+bool serverStillHasCommand(JsonArray serverCommands, const String &commandId) {
+  for (JsonObject command : serverCommands) {
+    if (String((const char *)(command["command_id"] | "")) == commandId) return true;
+  }
+  return false;
+}
+
+void reconcilePendingCommands(JsonArray serverCommands) {
+  lockPendingCommands();
+  for (int i = 0; i < MAX_PENDING_COMMANDS; i++) {
+    if (!pendingCommands[i].used) continue;
+    if (!serverStillHasCommand(serverCommands, pendingCommands[i].commandId)) {
+      pendingCommands[i].used = false;
+    }
+  }
+  unlockPendingCommands();
+}
+
 #if WIFI_HTTP_ENABLED
 void pollBackendCommands() {
   if (!ensureWiFiConnected()) return;
@@ -390,7 +408,11 @@ void pollBackendCommands() {
   StaticJsonDocument<COMMAND_HTTP_JSON_SIZE> doc;
   if (deserializeJson(doc, response)) return;
 
-  for (JsonObject command : doc.as<JsonArray>()) {
+  JsonArray serverCommands = doc.as<JsonArray>();
+  if (serverCommands.isNull()) return;
+  reconcilePendingCommands(serverCommands);
+
+  for (JsonObject command : serverCommands) {
     queuePendingCommand(
       String((const char *)(command["command_id"] | "")),
       String((const char *)(command["node_id"] | "")),

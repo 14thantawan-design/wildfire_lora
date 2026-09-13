@@ -35,48 +35,103 @@ function requestHostname(req) {
   return host.replace(/:\d+$/, '').toLowerCase();
 }
 
-function adminConfigFromEnvironment() {
+function normalizeTeamDomain(value) {
+  const rawValue = String(value || '').trim();
+  if (!rawValue) return '';
+
+  try {
+    const url = new URL(rawValue.includes('://') ? rawValue : `https://${rawValue}`);
+    if (
+      url.protocol !== 'https:' ||
+      !url.hostname.endsWith('.cloudflareaccess.com') ||
+      url.username ||
+      url.password ||
+      (url.pathname && url.pathname !== '/') ||
+      url.search ||
+      url.hash
+    ) {
+      return '';
+    }
+    return url.origin;
+  } catch {
+    return '';
+  }
+}
+
+function adminConfigFromEnvironment(environment = process.env) {
   return {
-    hostname: String(process.env.ADMIN_HOSTNAME || 'admin.nattaphat.me').trim().toLowerCase(),
-    emails: new Set(
-      String(process.env.ADMIN_EMAILS || '')
-        .split(',')
-        .map((email) => email.trim().toLowerCase())
-        .filter(Boolean)
-    )
+    hostname: String(environment.ADMIN_HOSTNAME || 'admin.nattaphat.me').trim().toLowerCase(),
+    teamDomain: normalizeTeamDomain(environment.CF_ACCESS_TEAM_DOMAIN),
+    audience: String(environment.CF_ACCESS_AUD || '').trim()
   };
 }
 
-function isTrustedAdminRequest(req, config = adminConfigFromEnvironment()) {
+const accessVerifierCache = new Map();
+
+async function cloudflareAccessVerifier(config) {
+  const cacheKey = `${config.teamDomain}|${config.audience}`;
+  if (!accessVerifierCache.has(cacheKey)) {
+    accessVerifierCache.set(cacheKey, import('jose').then(({ createRemoteJWKSet, jwtVerify }) => {
+      const certsUrl = new URL('/cdn-cgi/access/certs', `${config.teamDomain}/`);
+      const keySet = createRemoteJWKSet(certsUrl, { timeoutDuration: 5000 });
+      return async (token) => {
+        const result = await jwtVerify(token, keySet, {
+          algorithms: ['RS256'],
+          issuer: config.teamDomain,
+          audience: config.audience
+        });
+        return result.payload;
+      };
+    }));
+  }
+
+  return accessVerifierCache.get(cacheKey);
+}
+
+async function verifyCloudflareAccessToken(token, config) {
+  const verify = await cloudflareAccessVerifier(config);
+  return verify(token);
+}
+
+async function isTrustedAdminRequest(
+  req,
+  config = adminConfigFromEnvironment(),
+  verifyToken = verifyCloudflareAccessToken
+) {
   const fromCloudflare = Boolean(req.get('cf-connecting-ip'));
   if (isLoopbackAddress(req.socket?.remoteAddress) && !fromCloudflare) {
     return true;
   }
 
   const accessToken = req.get('cf-access-jwt-assertion');
-  const accessEmail = String(req.get('cf-access-authenticated-user-email') || '')
-    .trim()
-    .toLowerCase();
-
-  return Boolean(
+  const hasRequiredRequestContext = Boolean(
     fromCloudflare &&
     isLoopbackAddress(req.socket?.remoteAddress) &&
     accessToken &&
     config.hostname &&
     requestHostname(req) === config.hostname &&
-    config.emails.size > 0 &&
-    config.emails.has(accessEmail)
+    config.teamDomain &&
+    config.audience
   );
+  if (!hasRequiredRequestContext) return false;
+
+  try {
+    req.accessIdentity = await verifyToken(accessToken, config);
+    return Boolean(req.accessIdentity);
+  } catch {
+    return false;
+  }
 }
 
 function requireLocalAdmin(req, res, next) {
-  if (isTrustedAdminRequest(req)) return next();
-
-  const expected = process.env.ADMIN_API_KEY;
-  if (expected && safeEqual(req.get('x-admin-key'), expected)) return next();
-  return res.status(403).json({
-    error: 'admin authentication is required for this action'
-  });
+  isTrustedAdminRequest(req)
+    .then((trusted) => {
+      if (trusted) return next();
+      return res.status(403).json({
+        error: 'admin authentication is required for this action'
+      });
+    })
+    .catch(next);
 }
 
 function corsOptions() {
@@ -104,9 +159,12 @@ function corsOptions() {
 }
 
 module.exports = {
+  adminConfigFromEnvironment,
   corsOptions,
   isTrustedAdminRequest,
+  normalizeTeamDomain,
   requestHostname,
   requireGatewayKey,
-  requireLocalAdmin
+  requireLocalAdmin,
+  verifyCloudflareAccessToken
 };

@@ -2,6 +2,7 @@ const express = require('express');
 const NodeModel = require('../models/Node');
 const {
   enqueueCommand,
+  enqueueLatestGpsCommand,
   getLatestCommandForNode,
   isBaselineCalibrationInProgress
 } = require('../services/commandQueue');
@@ -37,6 +38,10 @@ function withOnlineStatus(node) {
     obj.location_source = 'gps';
   }
   return obj;
+}
+
+function buildNodeStatusList(nodes) {
+  return nodes.map(withOnlineStatus);
 }
 
 function isValidCoordinate(latitude, longitude) {
@@ -96,6 +101,7 @@ function buildBaselineRecalibrationSnapshot(node, command) {
   let phase = 'idle';
 
   if (baselineInProgress) phase = 'calibrating';
+  else if (command?.completed_at && ['sent', 'acknowledged'].includes(command.status)) phase = 'completed';
   else if (command?.status === 'pending') phase = 'pending';
   else if (command?.status === 'sent') phase = 'sent';
   else if (command?.status === 'rejected') phase = 'rejected';
@@ -123,8 +129,7 @@ function buildBaselineRecalibrationSnapshot(node, command) {
 router.get('/', async (req, res, next) => {
   try {
     const nodes = await NodeModel.find().sort({ node_id: 1 });
-    const liveNodes = nodes.map(withOnlineStatus).filter((node) => node.online);
-    return res.json(liveNodes);
+    return res.json(buildNodeStatusList(nodes));
   } catch (error) {
     return next(error);
   }
@@ -185,7 +190,7 @@ router.post('/:node_id/gps/reacquire', requireLocalAdmin, async (req, res, next)
       return res.status(404).json({ error: 'node not found' });
     }
 
-    const { command, duplicate } = await enqueueCommand(node.node_id, 'gps_reacquire');
+    const { command, duplicate } = await enqueueLatestGpsCommand(node.node_id, 'gps_reacquire');
     await NodeModel.updateOne(
       { _id: node._id }, buildGpsReacquireUpdate(node)
     );
@@ -229,7 +234,7 @@ router.post('/:node_id/location/manual', requireLocalAdmin, async (req, res, nex
 
     // Manual coordinates are authoritative. Tell the physical Node to stop its
     // automatic GPS search as soon as its next uplink opens a command window.
-    await enqueueCommand(node.node_id, 'gps_manual');
+    await enqueueLatestGpsCommand(node.node_id, 'gps_manual');
 
     return res.json(withOnlineStatus(node));
   } catch (error) {
@@ -241,5 +246,6 @@ module.exports = router;
 module.exports.buildGpsReacquireUpdate = buildGpsReacquireUpdate;
 module.exports.baselineRecalibrationBlock = baselineRecalibrationBlock;
 module.exports.buildBaselineRecalibrationSnapshot = buildBaselineRecalibrationSnapshot;
+module.exports.buildNodeStatusList = buildNodeStatusList;
 module.exports.offlineTimeoutMs = offlineTimeoutMs;
 module.exports.withOnlineStatus = withOnlineStatus;

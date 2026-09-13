@@ -31,6 +31,7 @@ async function enqueueCommand(nodeId, commandName) {
     node_id: nodeId,
     command: commandName,
     status: { $in: ['pending', 'sent'] },
+    completed_at: null,
     expires_at: { $gt: now }
   }).sort({ created_at: -1 });
 
@@ -48,9 +49,43 @@ async function enqueueCommand(nodeId, commandName) {
   return { command: serialized, duplicate: false };
 }
 
+function oppositeGpsCommand(commandName) {
+  if (commandName === 'gps_manual') return 'gps_reacquire';
+  if (commandName === 'gps_reacquire') return 'gps_manual';
+  return null;
+}
+
+async function enqueueLatestGpsCommand(nodeId, commandName) {
+  const supersededCommand = oppositeGpsCommand(commandName);
+  if (!supersededCommand) {
+    throw new Error('unsupported GPS command');
+  }
+
+  const now = new Date();
+  await Command.updateMany(
+    {
+      node_id: nodeId,
+      command: supersededCommand,
+      status: { $in: ['pending', 'sent'] },
+      completed_at: null,
+      expires_at: { $gt: now }
+    },
+    {
+      $set: {
+        status: 'rejected',
+        acknowledged_at: now,
+        result_reason: `superseded_by_${commandName}`
+      }
+    }
+  );
+
+  return enqueueCommand(nodeId, commandName);
+}
+
 async function listPendingCommands() {
   const commands = await Command.find({
     status: { $in: ['pending', 'sent'] },
+    completed_at: null,
     expires_at: { $gt: new Date() }
   }).sort({ created_at: 1 });
   return commands.map(serializeCommand);
@@ -61,6 +96,7 @@ async function markCommandSent(commandId) {
     {
       command_id: commandId,
       status: { $in: ['pending', 'sent'] },
+      completed_at: null,
       expires_at: { $gt: new Date() }
     },
     {
@@ -75,7 +111,7 @@ async function markCommandSent(commandId) {
 async function completeCommand(commandId, accepted = true, reason = '') {
   const status = accepted ? 'acknowledged' : 'rejected';
   const command = await Command.findOneAndUpdate(
-    { command_id: commandId, status: { $in: ['pending', 'sent'] } },
+    { command_id: commandId, status: { $in: ['pending', 'sent'] }, completed_at: null },
     {
       $set: {
         status,
@@ -120,8 +156,14 @@ function buildBaselineProgressUpdate(command, telemetry = {}, timestamp = new Da
     // Repair commands that older logic marked completed when a calibrating node
     // temporarily reported WATCH/WARNING before its warm-up count was finished.
     if (command.completed_at) unset.completed_at = 1;
-  } else if (sensorHealth === 'OK' && command.baseline_started_at && !command.completed_at) {
-    set.completed_at = timestamp;
+  } else if (sensorHealth === 'OK' && command.baseline_started_at) {
+    if (!command.completed_at) set.completed_at = timestamp;
+    // CAL followed by OK confirms completion even when the separate radio ACK
+    // was lost. Close the delivery queue without inventing an ACK timestamp.
+    if (command.status === 'sent') {
+      set.status = 'acknowledged';
+      set.result_reason = 'baseline_completion_observed';
+    }
   }
 
   const update = {};
@@ -141,8 +183,8 @@ async function recordBaselineRecalibrationProgress(nodeId, telemetry, timestamp 
   const update = buildBaselineProgressUpdate(command, telemetry, timestamp);
   if (!update) return serializeCommand(command);
 
-  const updated = await Command.findByIdAndUpdate(
-    command._id,
+  const updated = await Command.findOneAndUpdate(
+    { _id: command._id, status: command.status, updated_at: command.updated_at },
     update,
     { new: true }
   );
@@ -153,9 +195,11 @@ module.exports = {
   buildBaselineProgressUpdate,
   completeCommand,
   enqueueCommand,
+  enqueueLatestGpsCommand,
   getLatestCommandForNode,
   isBaselineCalibrationInProgress,
   listPendingCommands,
   markCommandSent,
+  oppositeGpsCommand,
   recordBaselineRecalibrationProgress
 };

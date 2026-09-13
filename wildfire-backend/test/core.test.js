@@ -14,16 +14,23 @@ const {
   severityOf,
   shouldNotifyLevel
 } = require('../src/services/alertService');
-const { corsOptions, isTrustedAdminRequest } = require('../src/middleware/security');
+const {
+  adminConfigFromEnvironment,
+  corsOptions,
+  isTrustedAdminRequest,
+  normalizeTeamDomain
+} = require('../src/middleware/security');
 const CommandModel = require('../src/models/Command');
 const {
   buildBaselineProgressUpdate,
-  isBaselineCalibrationInProgress
+  isBaselineCalibrationInProgress,
+  oppositeGpsCommand
 } = require('../src/services/commandQueue');
 const {
   baselineRecalibrationBlock,
   buildBaselineRecalibrationSnapshot,
   buildGpsReacquireUpdate,
+  buildNodeStatusList,
   offlineTimeoutMs
 } = require('../src/routes/nodes');
 const {
@@ -100,6 +107,12 @@ test('command model supports GPS controls and safe baseline recalibration', () =
     'gps_manual',
     'gps_reacquire'
   ]);
+});
+
+test('a new GPS command supersedes only the opposite GPS command', () => {
+  assert.equal(oppositeGpsCommand('gps_manual'), 'gps_reacquire');
+  assert.equal(oppositeGpsCommand('gps_reacquire'), 'gps_manual');
+  assert.equal(oppositeGpsCommand('baseline_recalibrate'), null);
 });
 
 test('baseline recalibration is blocked for offline, unsafe, or faulty nodes', () => {
@@ -292,6 +305,28 @@ test('adaptive offline timeout tolerates one missed field report', () => {
   else process.env.OFFLINE_TIMEOUT_MS = previousMinimum;
 });
 
+test('node listing keeps offline nodes so the dashboard can show their last data', () => {
+  const statuses = buildNodeStatusList([
+    {
+      node_id: 'NODE01',
+      last_seen: new Date(),
+      report_interval_sec: 600,
+      state: 'NORMAL'
+    },
+    {
+      node_id: 'NODE02',
+      last_seen: new Date(0),
+      report_interval_sec: 600,
+      state: 'NORMAL'
+    }
+  ]);
+
+  assert.equal(statuses.length, 2);
+  assert.equal(statuses[0].online, true);
+  assert.equal(statuses[1].online, false);
+  assert.equal(statuses[1].server_state, 'OFFLINE');
+});
+
 test('duplicate readings cannot satisfy the normal clean streak', () => {
   const duplicateRows = [1, 2, 3].map(() => ({
     server_state: 'NORMAL', session_id: 99, seq: 20
@@ -398,10 +433,16 @@ function mockRequest({ remoteAddress, headers = {} }) {
   };
 }
 
-test('public tunnel traffic cannot use loopback to gain administrator access', () => {
+test('Cloudflare Access JWT is required for tunnel administrator access', async () => {
   const config = {
     hostname: 'admin.nattaphat.me',
-    emails: new Set(['owner@example.com'])
+    teamDomain: 'https://forestguard.cloudflareaccess.com',
+    audience: 'forestguard-admin-audience'
+  };
+  const verifyToken = async (token, actualConfig) => {
+    assert.equal(actualConfig, config);
+    if (token !== 'valid-token') throw new Error('invalid signature');
+    return { email: 'owner@example.com' };
   };
   const publicRequest = mockRequest({
     remoteAddress: '127.0.0.1',
@@ -417,8 +458,16 @@ test('public tunnel traffic cannot use loopback to gain administrator access', (
     headers: {
       host: 'admin.nattaphat.me',
       'cf-connecting-ip': '203.0.113.10',
-      'cf-access-jwt-assertion': 'validated-by-cloudflared',
-      'cf-access-authenticated-user-email': 'owner@example.com'
+      'cf-access-jwt-assertion': 'valid-token',
+      'cf-access-authenticated-user-email': 'spoofed@example.com'
+    }
+  });
+  const invalidTokenRequest = mockRequest({
+    remoteAddress: '127.0.0.1',
+    headers: {
+      host: 'admin.nattaphat.me',
+      'cf-connecting-ip': '203.0.113.10',
+      'cf-access-jwt-assertion': 'forged'
     }
   });
   const forgedLanRequest = mockRequest({
@@ -432,10 +481,29 @@ test('public tunnel traffic cannot use loopback to gain administrator access', (
   });
   const localRequest = mockRequest({ remoteAddress: '::1' });
 
-  assert.equal(isTrustedAdminRequest(publicRequest, config), false);
-  assert.equal(isTrustedAdminRequest(adminRequest, config), true);
-  assert.equal(isTrustedAdminRequest(forgedLanRequest, config), false);
-  assert.equal(isTrustedAdminRequest(localRequest, config), true);
+  assert.equal(await isTrustedAdminRequest(publicRequest, config, verifyToken), false);
+  assert.equal(await isTrustedAdminRequest(adminRequest, config, verifyToken), true);
+  assert.deepEqual(adminRequest.accessIdentity, { email: 'owner@example.com' });
+  assert.equal(await isTrustedAdminRequest(invalidTokenRequest, config, verifyToken), false);
+  assert.equal(await isTrustedAdminRequest(forgedLanRequest, config, verifyToken), false);
+  assert.equal(await isTrustedAdminRequest(localRequest, config, verifyToken), true);
+});
+
+test('Cloudflare Access configuration has no duplicate administrator email list', () => {
+  const config = adminConfigFromEnvironment({
+    ADMIN_HOSTNAME: 'ADMIN.NATTAPHAT.ME',
+    ADMIN_EMAILS: 'legacy@example.com',
+    CF_ACCESS_TEAM_DOMAIN: 'sweet-leaf-5bae.cloudflareaccess.com/',
+    CF_ACCESS_AUD: 'forestguard-admin-audience'
+  });
+
+  assert.deepEqual(config, {
+    hostname: 'admin.nattaphat.me',
+    teamDomain: 'https://sweet-leaf-5bae.cloudflareaccess.com',
+    audience: 'forestguard-admin-audience'
+  });
+  assert.equal(normalizeTeamDomain('https://example.com'), '');
+  assert.equal(normalizeTeamDomain('http://sweet-leaf-5bae.cloudflareaccess.com'), '');
 });
 
 test('production dashboard on localhost can call its same-machine API', async () => {
