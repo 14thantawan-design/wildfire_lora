@@ -112,6 +112,8 @@ float adapt(int state, int smoke) {
   assert.equal(sample(30, 85, 100, 0, 15), 2000, 'Humidity increase is not a drop')
   api.reset(1)
   assert.equal(sample(30, 70, 100, 0, 0, 0, 1.2, -4), 4080, 'Existing rate evidence still participates')
+  api.reset(1)
+  assert.equal(sample(30, 70, 100, 0, -5, 0, 0.2), 2020, 'Temperature WATCH rate starts at 0.20 C/min')
   api.reset(0)
   assert.equal(sample(), 1000, 'Startup is CALIBRATING')
   assert.equal(sample(50, 35, 1800), 1060, 'Startup score cap is retained')
