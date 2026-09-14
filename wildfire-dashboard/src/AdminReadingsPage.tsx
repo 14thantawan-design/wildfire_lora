@@ -98,7 +98,7 @@ function nullableNumber(value: string) {
 }
 
 function effectiveState(reading: AdminReading): NodeState {
-  return reading.server_state ?? reading.state ?? 'UNKNOWN'
+  return reading.state ?? 'UNKNOWN'
 }
 
 export function AdminReadingsPage({ onDataChanged }: AdminReadingsPageProps) {

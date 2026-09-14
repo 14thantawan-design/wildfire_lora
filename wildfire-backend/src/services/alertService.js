@@ -1,6 +1,7 @@
 const Alert = require('../models/Alert');
 const Reading = require('../models/Reading');
 const { notifyTelegram } = require('./telegramService');
+const { normalizeNodeRisk } = require('./nodeRisk');
 
 const ALERT_LEVELS = ['WATCH', 'WARNING', 'CRITICAL', 'SENSOR_FAULT'];
 const SEVERITY = {
@@ -50,7 +51,7 @@ function mergeReasons(...reasonLists) {
 
 function buildMessage(nodeId, level, riskScore, reasons = []) {
   const reasonText = reasons.length ? `: ${reasons.slice(0, 4).join(', ')}` : '';
-  return `${nodeId} entered ${level} state with server risk ${riskScore || 0}${reasonText}`;
+  return `${nodeId} event reached ${level} with peak risk ${riskScore ?? 0}${reasonText}`;
 }
 
 function buildLastReading(reading) {
@@ -60,12 +61,10 @@ function buildLastReading(reading) {
     reading_id: reading._id,
     seq: reading.seq,
     timestamp: reading.timestamp,
-    state: reading.server_state || reading.state,
-    server_state: reading.server_state,
-    server_risk_score: reading.server_risk_score,
-    server_reasons: reading.server_reasons || [],
-    fire_danger_level: reading.fire_danger_level,
-    evidence: reading.evidence,
+    state: reading.state,
+    risk_score: reading.risk_score,
+    risk_source: reading.risk_source,
+    risk_model_version: reading.risk_model_version,
     node_state: reading.node_state,
     confidence: reading.confidence,
     node_confidence: reading.node_confidence,
@@ -100,14 +99,14 @@ function hasDistinctNormalStreak(recent, count = 3) {
   }
 
   return distinct.length >= count &&
-    distinct.every((reading) => (reading.server_state || reading.state) === 'NORMAL');
+    distinct.every((reading) => normalizeNodeRisk(reading).state === 'NORMAL');
 }
 
 async function hasCleanNormalStreak(nodeId, count = 3) {
   const recent = await Reading.find({ node_id: nodeId })
     .sort({ timestamp: -1 })
     .limit(count * 8)
-    .select('server_state state packet_id packet_hash session_id seq raw_packet')
+    .select('node_state risk_source state packet_id packet_hash session_id seq raw_packet')
     .lean();
 
   return hasDistinctNormalStreak(recent, count);
@@ -115,9 +114,8 @@ async function hasCleanNormalStreak(nodeId, count = 3) {
 
 function isFirmwareConfirmedNormal(reading) {
   if (!reading) return false;
-  const serverState = reading.server_state || reading.state;
-  const nodeState = reading.node_state || reading.raw_packet?.st;
-  return serverState === 'NORMAL' && nodeState === 'NORMAL';
+  const normalized = normalizeNodeRisk(reading);
+  return normalized.risk_source === 'node' && normalized.state === 'NORMAL';
 }
 
 async function processAlertForReading(reading) {
@@ -125,18 +123,18 @@ async function processAlertForReading(reading) {
     return { action: 'ignored' };
   }
 
+  reading = normalizeNodeRisk(reading);
+
   const now = reading.timestamp || new Date();
   const nodeId = reading.node_id;
-  const state = reading.server_state || reading.state;
+  const state = reading.state;
   const confidence = reading.confidence || 0;
-  const riskScore = reading.server_risk_score || 0;
-  const reasons = reading.server_reasons || [];
+  const riskScore = reading.risk_score ?? 0;
+  const reasons = ['node_reported'];
 
   if (state === 'NORMAL') {
-    // The field firmware already holds WATCH/WARNING/CRITICAL until three clean
-    // measurement cycles have passed. When both engines agree on NORMAL, avoid
-    // waiting for three more 10-minute field reports. Legacy packets without a
-    // node_state still use the database streak as a safe fallback.
+    // Firmware already confirms recovery. Do not impose another confirmation
+    // delay on node reports; only old records without provenance need a fallback.
     const clean = isFirmwareConfirmedNormal(reading) || await hasCleanNormalStreak(nodeId, 3);
     if (!clean) {
       return { action: 'clean_streak_pending' };

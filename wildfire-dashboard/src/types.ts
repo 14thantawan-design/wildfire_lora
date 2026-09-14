@@ -14,10 +14,9 @@ export interface NodeStatus {
   confidence?: number
   node_state?: NodeState
   node_confidence?: number
-  server_state?: NodeState | 'OFFLINE'
-  server_risk_score?: number
-  server_reasons?: string[]
-  fire_danger_level?: 'LOW' | 'MODERATE' | 'HIGH' | 'VERY_HIGH'
+  risk_score?: number | null
+  risk_source?: 'node' | 'legacy'
+  risk_model_version?: number | null
   air_temp?: number | null
   humidity?: number | null
   smoke_raw?: number | null
@@ -94,10 +93,9 @@ export interface Reading {
   confidence?: number
   node_state?: NodeState
   node_confidence?: number
-  server_state?: NodeState
-  server_risk_score?: number
-  server_reasons?: string[]
-  fire_danger_level?: 'LOW' | 'MODERATE' | 'HIGH' | 'VERY_HIGH'
+  risk_score?: number | null
+  risk_source?: 'node' | 'legacy'
+  risk_model_version?: number | null
   air_temp?: number | null
   humidity?: number | null
   smoke_raw?: number | null
@@ -138,11 +136,9 @@ export interface Alert {
     seq?: number
     timestamp?: string
     state?: NodeState
-    server_state?: NodeState
-    server_risk_score?: number
-    server_reasons?: string[]
-    fire_danger_level?: 'LOW' | 'MODERATE' | 'HIGH' | 'VERY_HIGH'
-    evidence?: Record<string, string>
+    risk_score?: number | null
+    risk_source?: 'node' | 'legacy'
+    risk_model_version?: number | null
     node_state?: NodeState
     confidence?: number
     node_confidence?: number

@@ -12,6 +12,7 @@ const LEVEL_DETAILS = {
 };
 
 const REASON_LABELS = {
+  node_reported: 'ใช้คะแนนและสถานะที่โหนดประเมินส่งมา',
   baseline_calibrating: 'กำลังเรียนค่าเริ่มต้นของเซนเซอร์',
   smoke_sensor_low_stuck: 'ค่าควัน 0 ต่อเนื่อง',
   smoke_low_stable: 'ค่าควันต่ำคงที่',
@@ -107,10 +108,10 @@ function readingFrom(alert, reading) {
 function buildTelegramMessage(event, alert, reading, options = {}) {
   const config = { ...telegramConfig(), ...options };
   const current = readingFrom(alert, reading);
-  const level = event === 'resolved' ? 'NORMAL' : alert?.level || current.server_state || current.state;
+  const level = event === 'resolved' ? 'NORMAL' : alert?.level || current.state || current.node_state || current.server_state;
   const detail = LEVEL_DETAILS[level] || { icon: '🔔', label: level || 'ไม่ทราบสถานะ' };
   const nodeId = escapeHtml(alert?.node_id || current.node_id || 'ไม่ทราบจุดตรวจ');
-  const riskScore = finiteNumber(current.server_risk_score ?? alert?.max_risk_score) ?? 0;
+  const riskScore = finiteNumber(current.risk_score ?? current.node_confidence ?? current.confidence ?? current.server_risk_score ?? alert?.max_risk_score);
   const timestamp = event === 'resolved'
     ? alert?.ended_at || current.timestamp
     : current.timestamp || alert?.started_at;
@@ -130,14 +131,14 @@ function buildTelegramMessage(event, alert, reading, options = {}) {
   }
 
   const heading = event === 'escalated' ? 'แจ้งเตือนยกระดับ' : 'แจ้งเตือนจากระบบ Wildfire LoRa';
-  const reasons = reasonLines(current.server_reasons || alert?.reasons || []);
+  const reasons = reasonLines(current.risk_source === 'node' ? ['node_reported'] : current.server_reasons || alert?.reasons || []);
 
   return [
     `${detail.icon} <b>${heading}: ${escapeHtml(detail.label)}</b>`,
     '',
     `<b>จุดตรวจ:</b> ${nodeId}`,
     `<b>ระดับระบบ:</b> ${escapeHtml(level)} (${escapeHtml(detail.label)})`,
-    `<b>คะแนนความเสี่ยง:</b> ${riskScore}/100`,
+    `<b>คะแนนความเสี่ยง:</b> ${riskScore === undefined ? 'ไม่มีข้อมูล' : `${riskScore}/100`}`,
     '',
     '<b>สาเหตุ:</b>',
     ...reasons,

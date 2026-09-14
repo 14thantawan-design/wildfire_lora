@@ -31,6 +31,7 @@ export const stateColors: Record<NodeState, string> = {
 }
 
 const reasonLabels: Record<string, string> = {
+  node_reported: 'ใช้คะแนนและสถานะที่โหนดประเมินส่งมา',
   baseline_calibrating: 'กำลังเรียนค่าเริ่มต้นของเซนเซอร์',
   smoke_sensor_low_stuck: 'ค่าควัน 0 ต่อเนื่อง',
   smoke_low_stable: 'ค่าควันต่ำคงที่',

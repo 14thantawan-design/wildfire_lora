@@ -171,14 +171,14 @@ function safetyBannerFor(canAssess: boolean, state: NodeState) {
     return {
       tone: 'danger',
       heading: 'สถานการณ์ระดับวิกฤต',
-      message: 'พบสัญญาณไฟป่าระดับอันตราย',
+      message: 'โหนดประเมินความเสี่ยงการเกิดไฟป่าอยู่ในระดับวิกฤต',
     }
   }
 
   return {
     tone: 'safe',
     heading: 'สถานการณ์จากจุดตรวจออนไลน์',
-    message: 'ยังไม่พบสัญญาณไฟป่าระดับอันตราย',
+    message: 'ค่าที่โหนดตรวจวัดยังอยู่ในเกณฑ์ความเสี่ยงระดับปกติ',
   }
 }
 
@@ -378,13 +378,13 @@ function App() {
     if (count === 0) return `${selectedNode.node_id} · ยังไม่มีข้อมูลย้อนหลัง`
     return `${selectedNode.node_id} · ${count}/10 ข้อมูล · ${timeAgo(latestAverageTimestamp)}`
   }
-  const { highestState, canAssessSafety } = assessLiveSafety(nodes, alerts, health, backendUnavailable)
+  const { highestState, canAssessSafety } = assessLiveSafety(nodes, health, backendUnavailable)
   const safetyBanner = safetyBannerFor(canAssessSafety, highestState)
   const visibleAlerts = showAllAlerts ? alerts : alerts.slice(0, 5)
   const hiddenAlertCount = Math.max(0, alerts.length - visibleAlerts.length)
   const gpsRequesting = gpsRequestingNodeId === selectedNode?.node_id
   const baselineSubmitting = baselineSubmittingNodeId === selectedNode?.node_id
-  const baselineServerState = selectedNode?.server_state ?? selectedNode?.state
+  const baselineNodeState = selectedNode?.state
   const baselineCount = baselineStatus?.baseline_warmup_count ?? selectedNode?.baseline_warmup_count
   const baselineTarget = baselineStatus?.baseline_warmup_target ?? selectedNode?.baseline_warmup_target ?? 12
   const baselineHealth = String(selectedNode?.sensor_health || '').toUpperCase()
@@ -397,10 +397,9 @@ function App() {
   ))
   const baselineDisplayPhase = baselineLearning ? 'calibrating' : (baselineStatus?.phase ?? 'idle')
   const baselineUnsafeState =
-    selectedNode?.node_state === 'CALIBRATING' || baselineServerState === 'CALIBRATING' ||
-    baselineServerState === 'WARNING' || baselineServerState === 'CRITICAL' ||
-    baselineServerState === 'SENSOR_FAULT' || selectedNode?.node_state === 'CRITICAL' ||
-    selectedNode?.node_state === 'SENSOR_FAULT'
+    baselineNodeState === 'CALIBRATING' ||
+    baselineNodeState === 'WARNING' || baselineNodeState === 'CRITICAL' ||
+    baselineNodeState === 'SENSOR_FAULT'
   const baselineUnsafeReading = Boolean(selectedNode && (
     (typeof selectedNode.smoke_raw === 'number' && selectedNode.smoke_raw >= 1200) ||
     (typeof selectedNode.air_temp === 'number' && selectedNode.air_temp >= 40) ||
@@ -828,6 +827,7 @@ function App() {
                   <span>อุณหภูมิ <strong><Value value={selectedLiveNode?.air_temp} suffix="°C" fractionDigits={1} /></strong></span>
                   <span>ความชื้น <strong><Value value={selectedLiveNode?.humidity} suffix="%" fractionDigits={1} /></strong></span>
                   <span>ควัน <strong><Value value={selectedSmoke} suffix=" raw" /></strong></span>
+                  <span>คะแนนความเสี่ยงจากโหนด <strong><Value value={selectedLiveNode?.risk_score} suffix="/100" /></strong></span>
                 </div>
                 <div className="node-map-locator">
                   <button

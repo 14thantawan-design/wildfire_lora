@@ -14,13 +14,17 @@ const readingSchema = new mongoose.Schema(
     confidence: { type: Number },
     node_state: { type: String, index: true },
     node_confidence: { type: Number },
+    risk_score: { type: Number, min: 0, max: 100 },
+    risk_source: { type: String, enum: ['node'] },
+    risk_model_version: { type: Number },
+    // Legacy fields are read-only compatibility for existing stored records.
     server_state: {
       type: String,
       enum: ['CALIBRATING', 'NORMAL', 'WATCH', 'WARNING', 'CRITICAL', 'SENSOR_FAULT', 'OFFLINE'],
       index: true
     },
     server_risk_score: { type: Number },
-    server_reasons: { type: [String], default: [] },
+    server_reasons: { type: [String], default: undefined },
     fire_danger_level: {
       type: String,
       enum: ['LOW', 'MODERATE', 'HIGH', 'VERY_HIGH'],

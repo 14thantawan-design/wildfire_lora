@@ -17,31 +17,30 @@ test('one online node among three is the only map/selector node and reading targ
 })
 
 test('offline historical nodes and their old alerts do not block live assessment', () => {
-  const alerts = [{ node_id: 'NODE01', active: true, level: 'CRITICAL' }]
-  assert.deepEqual(assessLiveSafety(nodes, alerts, health, false), {
+  assert.deepEqual(assessLiveSafety(nodes, health, false), {
     highestState: 'NORMAL', canAssessSafety: true,
   })
 })
 
-test('live warning and critical alerts remain visible', () => {
-  assert.equal(assessLiveSafety(nodes, [
-    { node_id: 'NODE02', active: true, level: 'CRITICAL' },
+test('live warning and critical decisions come only from nodes', () => {
+  assert.equal(assessLiveSafety([
+    { node_id: 'NODE02', online: true, state: 'CRITICAL', risk_score: 80, smoke_raw: 0 },
   ], health, false).highestState, 'CRITICAL')
   assert.equal(assessLiveSafety([
     { node_id: 'NODE02', online: true, state: 'WARNING' },
-  ], [], health, false).highestState, 'WARNING')
+  ], health, false).highestState, 'WARNING')
 })
 
 test('losing all nodes clears selection and cannot produce an all-clear', () => {
   const offline = nodes.map((node) => ({ ...node, online: false }))
   assert.deepEqual(selectLiveOverview(offline, 'NODE02'), { liveNodes: [], effectiveNodeId: undefined })
-  assert.equal(assessLiveSafety(offline, [], health, false).canAssessSafety, false)
+  assert.equal(assessLiveSafety(offline, health, false).canAssessSafety, false)
   assert.equal(selectLiveOverview(nodes, 'NODE02').effectiveNodeId, 'NODE02')
 })
 
 test('gateway loss or backend failure still prevents assessment', () => {
-  assert.equal(assessLiveSafety(nodes, [], { ok: true, gateway: { connected: false } }, false).canAssessSafety, false)
-  assert.equal(assessLiveSafety(nodes, [], health, true).canAssessSafety, false)
-  assert.equal(assessLiveSafety(nodes, [], { ...health, ok: false }, false).canAssessSafety, false)
-  assert.equal(assessLiveSafety(nodes, [], undefined, false).canAssessSafety, false)
+  assert.equal(assessLiveSafety(nodes, { ok: true, gateway: { connected: false } }, false).canAssessSafety, false)
+  assert.equal(assessLiveSafety(nodes, health, true).canAssessSafety, false)
+  assert.equal(assessLiveSafety(nodes, { ...health, ok: false }, false).canAssessSafety, false)
+  assert.equal(assessLiveSafety(nodes, undefined, false).canAssessSafety, false)
 })

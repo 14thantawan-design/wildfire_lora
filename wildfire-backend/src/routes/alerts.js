@@ -1,9 +1,16 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const Alert = require('../models/Alert');
+const { normalizeNodeRisk } = require('../services/nodeRisk');
 const { requireLocalAdmin } = require('../middleware/security');
 
 const router = express.Router();
+
+function serializeAlert(alert) {
+  const obj = alert.toObject ? alert.toObject() : { ...alert };
+  if (obj.last_reading) obj.last_reading = normalizeNodeRisk(obj.last_reading);
+  return obj;
+}
 
 function parseLimit(value, fallback = 100) {
   const parsed = Number(value || fallback);
@@ -14,7 +21,7 @@ function parseLimit(value, fallback = 100) {
 router.get('/active', async (req, res, next) => {
   try {
     const alerts = await Alert.find({ active: true }).sort({ started_at: -1 });
-    res.json(alerts);
+    res.json(alerts.map(serializeAlert));
   } catch (error) {
     next(error);
   }
@@ -28,7 +35,7 @@ router.get('/', async (req, res, next) => {
     if (req.query.active === 'false') query.active = false;
 
     const alerts = await Alert.find(query).sort({ started_at: -1 }).limit(limit);
-    res.json(alerts);
+    res.json(alerts.map(serializeAlert));
   } catch (error) {
     next(error);
   }
@@ -52,3 +59,4 @@ router.delete('/:id', requireLocalAdmin, async (req, res, next) => {
 });
 
 module.exports = router;
+module.exports.serializeAlert = serializeAlert;

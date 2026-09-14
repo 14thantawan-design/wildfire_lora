@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { evaluateRisk } = require('../src/services/riskEngine');
+const { riskFromPacket } = require('../src/services/nodeRisk');
 const {
   buildPacketIdentity,
   isOutOfOrderPacket,
@@ -60,12 +60,12 @@ function validSensorPacket(overrides = {}) {
   };
 }
 
-test('humidity drop uses the firmware current-minus-baseline sign', () => {
-  const drop = evaluateRisk(validSensorPacket({ sm: 1200, hr: -15 }));
-  const rise = evaluateRisk(validSensorPacket({ sm: 1200, hr: 15 }));
-
-  assert.equal(drop.evidence.humidity, 'critical_drop');
-  assert.equal(rise.evidence.humidity, 'none');
+test('backend preserves a node decision regardless of sensor values', () => {
+  for (const values of [{ sm: 0, at: 50, h: 20 }, { sm: 1800, at: 30, h: 95 }]) {
+    assert.deepEqual(riskFromPacket(validSensorPacket({ ...values, st: 'CRITICAL', c: 80, rv: 2 })), {
+      state: 'CRITICAL', risk_score: 80, risk_source: 'node', risk_model_version: 2
+    });
+  }
 });
 
 test('sensor validation rejects incomplete or impossible packets', () => {
@@ -137,7 +137,7 @@ test('baseline recalibration is blocked for offline, unsafe, or faulty nodes', (
     server_state: 'WATCH',
     air_temp: 38,
     humidity: 48
-  }), null);
+  }).code, 'unsafe_state');
   assert.equal(baselineRecalibrationBlock({
     ...safeNode,
     node_state: 'WARNING',
@@ -324,7 +324,8 @@ test('node listing keeps offline nodes so the dashboard can show their last data
   assert.equal(statuses.length, 2);
   assert.equal(statuses[0].online, true);
   assert.equal(statuses[1].online, false);
-  assert.equal(statuses[1].server_state, 'OFFLINE');
+  assert.equal(statuses[1].state, 'NORMAL');
+  assert.equal(Object.hasOwn(statuses[1], 'server_state'), false);
 });
 
 test('duplicate readings cannot satisfy the normal clean streak', () => {
@@ -348,7 +349,7 @@ test('firmware-confirmed NORMAL avoids a second three-report recovery delay', ()
   }), false);
   assert.equal(isFirmwareConfirmedNormal({
     server_state: 'WARNING', node_state: 'NORMAL'
-  }), false);
+  }), true);
   assert.equal(isFirmwareConfirmedNormal({
     server_state: 'NORMAL', raw_packet: { st: 'NORMAL' }
   }), true);

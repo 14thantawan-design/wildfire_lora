@@ -2,7 +2,7 @@ const crypto = require('crypto');
 const NodeModel = require('../models/Node');
 const Reading = require('../models/Reading');
 const { processAlertForReading } = require('./alertService');
-const { evaluateRisk } = require('./riskEngine');
+const { riskFromPacket } = require('./nodeRisk');
 const { recordBaselineRecalibrationProgress } = require('./commandQueue');
 
 const NODE_ID_PATTERN = /^[A-Za-z0-9_-]{1,32}$/;
@@ -86,6 +86,9 @@ function validateSensorPacket(packet) {
   if (!SENSOR_STATES.has(state)) return 'sensor packet has invalid state';
   if (!SENSOR_HEALTH_VALUES.has(health)) return 'sensor packet has invalid health';
   if (!isFiniteNumber(packet.c) || packet.c < 0 || packet.c > 100) return 'sensor packet has invalid confidence';
+  if (packet.rv !== undefined && (!Number.isInteger(packet.rv) || packet.rv < 1 || packet.rv > 255)) {
+    return 'sensor packet has invalid risk model version';
+  }
   if (!isFiniteNumber(packet.sm) || packet.sm < 0 || packet.sm > 4095) return 'sensor packet has invalid smoke value';
 
   const ranges = [
@@ -215,12 +218,7 @@ async function handleSensorPacket(packet, meta = {}) {
 
   const rssi = extractRssi(packet, meta);
   const snr = extractSnr(packet, meta);
-  const recentReadings = await Reading.find({ node_id: nodeId })
-    .sort({ timestamp: -1 })
-    .limit(10)
-    .lean();
-  const history = recentReadings.reverse();
-  const risk = evaluateRisk(packet, history, { timestamp: now });
+  const risk = riskFromPacket(packet);
   const nodeConfidence = toNumber(packet.c);
   const airTemp = packetNumber(packet, 'at');
   const humidity = packetNumber(packet, 'h');
@@ -242,15 +240,10 @@ async function handleSensorPacket(packet, meta = {}) {
     report_interval_sec: toNumber(packet.ri),
     seq: toNumber(packet.q),
     timestamp: now,
-    state: risk.server_state,
+    ...risk,
     confidence: nodeConfidence,
     node_state: nodeState,
     node_confidence: nodeConfidence,
-    server_state: risk.server_state,
-    server_risk_score: risk.server_risk_score,
-    server_reasons: risk.server_reasons,
-    fire_danger_level: risk.fire_danger_level,
-    evidence: risk.evidence,
     air_temp: airTemp,
     humidity,
     smoke_raw: smokeRaw,
@@ -280,15 +273,10 @@ async function handleSensorPacket(packet, meta = {}) {
   }
 
   const nodeSet = {
-    state: risk.server_state,
+    ...risk,
     confidence: nodeConfidence,
     node_state: nodeState,
     node_confidence: nodeConfidence,
-    server_state: risk.server_state,
-    server_risk_score: risk.server_risk_score,
-    server_reasons: risk.server_reasons,
-    fire_danger_level: risk.fire_danger_level,
-    evidence: risk.evidence,
     air_temp: airTemp,
     humidity,
     smoke_raw: smokeRaw,

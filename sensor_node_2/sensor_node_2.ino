@@ -627,7 +627,7 @@ EvidenceFlags getEvidenceFlags(const SensorData &data, const DeltaData &delta) {
                     humidityDropFromBaseline >= HUMIDITY_BASELINE_DROP_WATCH;
   e.humidityGroup = humidityRateWarning ||
                     humidityDropFromBaseline >= HUMIDITY_BASELINE_DROP_WARNING ||
-                    (!isnan(data.humidity) && data.humidity <= HUMIDITY_VERY_LOW);
+                    (!isnan(data.humidity) && data.humidity <= HUMIDITY_LOW);
   e.humidityCritical = humidityRateCritical ||
                        humidityDropFromBaseline >= HUMIDITY_BASELINE_DROP_CRITICAL ||
                        (!isnan(data.humidity) && data.humidity <= HUMIDITY_VERY_LOW);
@@ -644,27 +644,17 @@ int calculateConfidence(const SensorData &data, const DeltaData &delta, const Ev
   int score = 0;
 
   // แต่ละกลุ่มเลือกคะแนนขั้นสูงสุดเพียงขั้นเดียวด้วย if/else if จึงไม่บวก Watch+Group+Critical ซ้อนกัน
-  if (e.smokeCritical) score += 45;
-  else if (e.smokeGroup) score += 32;
-  else if (e.smokeWatch) score += 15;
+  if (e.smokeCritical) score += 20;
+  else if (e.smokeGroup) score += 10;
+  else if (e.smokeWatch) score += 5;
 
-  if (e.heatCritical) score += 30;
+  if (e.heatCritical) score += 40;
   else if (e.heatGroup) score += 25;
   else if (e.heatWatch) score += 10;
 
-  if (e.humidityCritical) score += 25;
-  else if (e.humidityGroup) score += 18;
-  else if (e.humidityWatch) score += 8;
-
-  if (!isnan(data.humidity)) {
-    if (data.humidity <= HUMIDITY_VERY_LOW) score += 15;
-    else if (data.humidity <= HUMIDITY_LOW) score += 10;
-
-    // เมื่อสภาพคล้ายหมอกหรือน้ำค้าง ให้ลดคะแนนเฉพาะกรณีหลักฐานควันยังไม่ถึงระดับแรง
-    if (data.humidity >= HUMIDITY_HIGH_FOG_LIKE && !e.smokeCritical) {
-      score -= FOG_PENALTY_SCORE;
-    }
-  }
+  if (e.humidityCritical) score += 40;
+  else if (e.humidityGroup) score += 25;
+  else if (e.humidityWatch) score += 10;
 
   if (hasSensorFault(data)) score -= 40;
   // ฐานยังไม่พร้อมจำกัดคะแนนไม่เกิน 60 เสมอ; สถานะช่วงนี้ใช้กฎเริ่มเครื่องใน evaluateFireStatusRaw
@@ -675,7 +665,7 @@ int calculateConfidence(const SensorData &data, const DeltaData &delta, const Ev
   return score;
 }
 
-// evaluateFireStatusRaw: ตัดสินสถานะเบื้องต้นจากสุขภาพเซนเซอร์ ความพร้อมของ ค่าฐาน คะแนน และจำนวนกลุ่มหลักฐาน; ยังไม่ผ่านการยืนยันหลายรอบหรือการค้างสถานะ
+// evaluateFireStatusRaw: ตัดสินจากสุขภาพเซนเซอร์ ความพร้อมค่าฐาน และคะแนน; ยังไม่ผ่านการยืนยันหรือค้างสถานะ
 FireStatus evaluateFireStatusRaw(const SensorData &data, const EvidenceFlags &e, int confidence) {
   if (hasSensorFault(data)) return SENSOR_FAULT;
 
@@ -687,24 +677,11 @@ FireStatus evaluateFireStatusRaw(const SensorData &data, const EvidenceFlags &e,
     return CALIBRATING;
   }
 
-  bool criticalSupported = (e.groupCount >= 2);
-#if REQUIRE_SMOKE_FOR_CRITICAL
-  criticalSupported = criticalSupported && e.smokeGroup;
-#else
-  criticalSupported = criticalSupported && (e.smokeGroup || (e.heatCritical && e.humidityCritical));
-#endif
-
-  if (confidence >= CRITICAL_CONFIDENCE && criticalSupported) return CRITICAL;
-
-  // เมื่อไม่มีควัน ความร้อนร่วมกับความแห้งถือเป็นความเสี่ยงหรือการเตือน ยังไม่ยืนยันว่าเกิดไฟ
-  if (confidence >= WARNING_CONFIDENCE && (e.groupCount >= 2 || e.smokeCritical)) return WARNING;
-
-  // หลีกเลี่ยงการเฝ้าระวังจากสัญญาณสิ่งแวดล้อมอ่อนเพียงอย่างเดียว ความชื้นต่ำหรือ
-  // อุณหภูมิที่ค่อย ๆ เปลี่ยนเพียงอย่างเดียวบอกสภาพอากาศเสี่ยง แต่ยังไม่พอเป็นหลักฐานการติดไฟ
-  bool environmentalWatch = e.heatGroup || e.humidityGroup || (e.heatWatch && e.humidityWatch);
-  bool scoreBackedWatch = confidence >= 30 && (e.smokeWatch || environmentalWatch || e.groupCount >= 1);
-
-  if (e.smokeWatch || environmentalWatch || scoreBackedWatch) return WATCH;
+  // ดัชนีความเสี่ยง ไม่ใช่เปอร์เซ็นต์โอกาสเกิดไฟ; ควันไม่ใช่เงื่อนไขบังคับ
+  // ใช้คะแนนตัดระดับ แล้วให้ debounce/latch ยืนยันการเปลี่ยนสถานะ
+  if (confidence >= CRITICAL_CONFIDENCE) return CRITICAL;
+  if (confidence >= WARNING_CONFIDENCE) return WARNING;
+  if (confidence >= WATCH_CONFIDENCE) return WATCH;
   return NORMAL;
 }
 
@@ -873,11 +850,12 @@ String buildJsonPacket(const SensorData &data, const DeltaData &delta, FireStatu
   doc["ri"] = plannedReportIntervalSeconds(status);
   doc["st"] = statusToString(status);
   doc["c"] = confidence;
+  doc["rv"] = RISK_MODEL_VERSION;
   addFloatOrNull(doc, "at", data.airTemp);
   addFloatOrNull(doc, "h", data.humidity);
   doc["sm"] = data.smokeRaw;
 
-  // ระบบประเมินความเสี่ยงฝั่งเซิร์ฟเวอร์ใช้ผลต่างจากค่าฐานเหล่านี้
+  // ส่งผลต่างไว้ตรวจสอบย้อนหลัง; เซิร์ฟเวอร์ใช้ st/c จากโหนดโดยไม่คำนวณซ้ำ
   // sr/ar/hr = ผลต่างควัน/อุณหภูมิ/ความชื้นจากฐาน; sh = สุขภาพ; bc/bt = จำนวนรอบสะสม/เป้าหมายเมื่อยังเรียนฐาน
   doc["sr"] = delta.smokeBaselineDelta;
   doc["ar"] = delta.airTempBaselineDelta;
@@ -892,8 +870,7 @@ String buildJsonPacket(const SensorData &data, const DeltaData &delta, FireStatu
   String payload;
   serializeJson(doc, payload);
 
-  // ทางสำรองเมื่อข้อมูลที่เพิ่มในอนาคตทำให้ข้อความยาวเกินไป; ดูข้อจำกัดในคำอธิบายถัดไป
-  // ข้อจำกัดปัจจุบัน: ชุด mini ด้านล่างยังใส่ฟิลด์เกือบเหมือนเดิม จึงไม่ได้รับประกันว่าจะย่อจนผ่านเพดาน และไม่มีการตรวจความยาวซ้ำ
+  // เมื่อข้อความยาวเกินเพดาน ตัดผลต่างประกอบออก แต่คงผลประเมินจากโหนดครบ
   if (payload.length() > MAX_SAFE_PAYLOAD_BYTES) {
     StaticJsonDocument<MAX_JSON_SIZE> mini;
     mini["t"] = (status == CRITICAL) ? "c" : "s";
@@ -903,17 +880,17 @@ String buildJsonPacket(const SensorData &data, const DeltaData &delta, FireStatu
     mini["ri"] = plannedReportIntervalSeconds(status);
     mini["st"] = statusToString(status);
     mini["c"] = confidence;
+    mini["rv"] = RISK_MODEL_VERSION;
     mini["at"] = data.airTemp;
     mini["h"] = data.humidity;
     mini["sm"] = data.smokeRaw;
-    mini["sr"] = delta.smokeBaselineDelta;
-    mini["ar"] = delta.airTempBaselineDelta;
-    mini["hr"] = delta.humidityBaselineDelta;
+    // ย่อโดยตัดเฉพาะผลต่างประกอบ; เก็บสถานะ คะแนน รุ่นสูตร และสุขภาพเสมอ
     mini["sh"] = sensorHealthString(data);
     if (!baselineInitialized) {
       mini["bc"] = baselineWarmupCount;
       mini["bt"] = BASELINE_WARMUP_CYCLES;
     }
+    payload = ""; // serializeJson เติมท้าย String จึงต้องล้างฉบับเต็มก่อน
     serializeJson(mini, payload);
   }
 

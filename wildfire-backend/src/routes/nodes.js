@@ -1,5 +1,6 @@
 const express = require('express');
 const NodeModel = require('../models/Node');
+const { normalizeNodeRisk } = require('../services/nodeRisk');
 const {
   enqueueCommand,
   enqueueLatestGpsCommand,
@@ -25,15 +26,12 @@ function offlineTimeoutMs(node) {
 }
 
 function withOnlineStatus(node) {
-  const obj = node.toObject ? node.toObject() : { ...node };
+  const obj = normalizeNodeRisk(node);
   const lastSeen = obj.last_seen ? new Date(obj.last_seen).getTime() : 0;
   obj.online = lastSeen > 0 && Date.now() - lastSeen <= offlineTimeoutMs(obj);
   obj.node_state = obj.node_state || obj.state || 'UNKNOWN';
   obj.node_confidence = obj.node_confidence ?? obj.confidence ?? 0;
-  obj.server_state = obj.online ? obj.server_state || obj.state || 'NORMAL' : 'OFFLINE';
-  obj.server_risk_score = obj.server_risk_score ?? 0;
-  obj.server_reasons = obj.server_reasons || [];
-  obj.fire_danger_level = obj.fire_danger_level || 'LOW';
+  // Connectivity is independent of the last risk decision made by the node.
   if (!obj.location_source && obj.gps_fixed && obj.lat !== undefined && obj.lng !== undefined) {
     obj.location_source = 'gps';
   }
@@ -74,14 +72,11 @@ function baselineRecalibrationBlock(node) {
     return { code: 'node_offline', message: 'Node ออฟไลน์อยู่ จึงยังสั่งเรียน baseline ใหม่ไม่ได้' };
   }
 
-  const nodeState = String(liveNode.node_state || '').toUpperCase();
-  const serverState = String(liveNode.server_state || liveNode.state || '').toUpperCase();
-  if (isBaselineCalibrationInProgress(liveNode) || serverState === 'CALIBRATING') {
+  const nodeState = String(liveNode.state || '').toUpperCase();
+  if (isBaselineCalibrationInProgress(liveNode) || nodeState === 'CALIBRATING') {
     return { code: 'already_calibrating', message: 'Node กำลังเรียน baseline อยู่แล้ว' };
   }
-  const serverUnsafe = ['WARNING', 'CRITICAL', 'SENSOR_FAULT'].includes(serverState);
-  const nodeUnsafe = ['CRITICAL', 'SENSOR_FAULT'].includes(nodeState);
-  if (serverUnsafe || nodeUnsafe) {
+  if (['WARNING', 'CRITICAL', 'SENSOR_FAULT'].includes(nodeState)) {
     return { code: 'unsafe_state', message: 'สถานะของ Node ยังไม่ปลอดภัยสำหรับการเรียน baseline ใหม่' };
   }
   if (String(liveNode.sensor_health || '').toUpperCase() !== 'OK') {

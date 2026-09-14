@@ -1,6 +1,7 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const Reading = require('../models/Reading');
+const { normalizeNodeRisk } = require('../services/nodeRisk');
 const { requireLocalAdmin } = require('../middleware/security');
 
 const router = express.Router();
@@ -33,25 +34,7 @@ function parseBucketMs(value) {
 }
 
 function serializeReading(reading) {
-  const obj = reading.toObject ? reading.toObject() : { ...reading };
-  const rawPacket = obj.raw_packet || {};
-  const serverState = obj.server_state || obj.state || 'NORMAL';
-
-  obj.node_state = obj.node_state || rawPacket.st || obj.state || 'UNKNOWN';
-  obj.node_confidence = obj.node_confidence ?? rawPacket.c ?? obj.confidence ?? 0;
-  obj.server_state = serverState;
-  obj.server_risk_score = obj.server_risk_score ?? 0;
-  obj.server_reasons = obj.server_reasons || [];
-  obj.fire_danger_level = obj.fire_danger_level || 'LOW';
-  obj.evidence = obj.evidence || {
-    smoke: 'none',
-    heat: 'none',
-    humidity: 'none',
-    trend: 'none'
-  };
-  obj.state = serverState;
-
-  return obj;
+  return normalizeNodeRisk(reading);
 }
 
 function validationError(message) {
@@ -260,11 +243,10 @@ router.get('/:node_id', async (req, res, next) => {
             confidence: { $last: '$confidence' },
             node_state: { $last: '$node_state' },
             node_confidence: { $last: '$node_confidence' },
-            server_state: { $last: '$server_state' },
-            server_risk_score: { $max: '$server_risk_score' },
-            server_reasons: { $last: '$server_reasons' },
-            fire_danger_level: { $last: '$fire_danger_level' },
-            evidence: { $last: '$evidence' },
+            // Keep score and state from the same last report in the bucket.
+            risk_score: { $last: { $ifNull: ['$risk_score', '$node_confidence', '$raw_packet.c', '$confidence'] } },
+            risk_source: { $last: '$risk_source' },
+            risk_model_version: { $last: '$risk_model_version' },
             air_temp: { $avg: '$air_temp' },
             humidity: { $avg: '$humidity' },
             smoke_raw: { $avg: '$smoke_raw' },

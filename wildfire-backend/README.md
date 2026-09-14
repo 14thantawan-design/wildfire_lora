@@ -5,6 +5,16 @@ Node.js API for the Wildfire LoRa project.
 The backend receives packets from the Gateway over Wi-Fi/HTTP, stores node status
 and sensor history in MongoDB, and exposes API endpoints for the dashboard.
 
+Risk is calculated only by sensor firmware. The backend copies packet `st` and
+`c` into `state` and `risk_score`; `risk_source: "node"` and
+`risk_model_version` identify the origin and packet `rv` (absent means version 1).
+There is no backend risk engine or sensor-history scoring query.
+Old records are read through `nodeRisk.js`, preferring their original node
+decision; no history is rewritten or deleted. Old server fields remain in the
+schema for reading existing data but are neither generated nor returned as
+current risk fields. The dashboard uses current online node states, while alert
+records keep the historical peak of an event.
+
 ## Requirements
 
 - Node.js 20+
@@ -41,13 +51,15 @@ TELEGRAM_TIMEZONE=Asia/Bangkok
 
 ## Telegram Channel Notifications
 
-Telegram notifications use the existing server alert lifecycle. No fire-detection thresholds are changed:
+Telegram notifications follow the states already confirmed by the firmware:
 
 - A new `WATCH`, `WARNING`, `CRITICAL`, or `SENSOR_FAULT` alert sends one message.
 - An active alert sends another message only when its level increases.
 - Repeated readings at the same level do not send duplicate messages.
 - If Telegram is temporarily unreachable, the next reading retries the unsent alert.
-- After three distinct `NORMAL` readings close the alert, one resolved message is sent.
+- A firmware-confirmed `NORMAL` closes the alert and sends one resolved message.
+  Firmware already waits for three clean measurement cycles; the backend does not wait again.
+  Only legacy records without a node decision use the old distinct-reading fallback.
 - `CALIBRATING` and `NORMAL` without an active alert do not send messages.
 
 Setup:
