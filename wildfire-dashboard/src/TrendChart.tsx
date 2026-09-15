@@ -11,12 +11,12 @@ import {
 import { getTimeRange, timeRangeOptions, type TimeRangeKey } from './timeRanges'
 import type { Reading } from './types'
 
-type MetricKey = 'air_temp' | 'humidity' | 'smoke_raw'
+type MetricKey = 'air_temp' | 'humidity' | 'particle_ug_m3'
 
 const metrics: Record<MetricKey, { label: string; unit: string; color: string }> = {
   air_temp: { label: 'อุณหภูมิ', unit: '°C', color: '#f2a93b' },
   humidity: { label: 'ความชื้น', unit: '%', color: '#4da7a0' },
-  smoke_raw: { label: 'ควัน', unit: ' raw', color: '#ee7548' },
+  particle_ug_m3: { label: 'อนุภาค', unit: ' µg/m³', color: '#ee7548' },
 }
 
 function formatChartTime(timestamp: string, range: TimeRangeKey) {

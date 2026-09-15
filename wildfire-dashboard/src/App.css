@@ -317,9 +317,9 @@
 }
 
 .text-normal { color: #347654; }
-.text-calibrating, .text-unknown { color: #78716c; }
+.text-unknown { color: #78716c; }
 .text-watch { color: #b57518; }
-.text-warning, .text-critical { color: #c34b35; }
+.text-warning { color: #c34b35; }
 .text-sensor_fault { color: #7f50bd; }
 
 .stat-grid {
@@ -531,64 +531,6 @@
   border-color: #6fa286;
   box-shadow: 0 0 0 2px rgba(84, 145, 111, .12);
 }
-
-.baseline-maintenance {
-  display: flex;
-  padding-top: 9px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 9px;
-  border-top: 1px solid #e2e8e3;
-}
-
-.baseline-maintenance button {
-  display: inline-flex;
-  min-height: 31px;
-  padding: 6px 9px;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  color: #7a5424;
-  font: inherit;
-  font-size: 8px;
-  font-weight: 700;
-  border: 1px solid #d9c5a9;
-  border-radius: 7px;
-  background: #fff9ef;
-  cursor: pointer;
-}
-
-.baseline-maintenance button:hover {
-  color: #614015;
-  border-color: #caa775;
-  background: #fff4df;
-}
-
-.baseline-maintenance button:disabled {
-  color: #9da49f;
-  border-color: #dfe3df;
-  background: #f5f6f4;
-  cursor: not-allowed;
-}
-
-.baseline-maintenance small {
-  min-width: 0;
-  color: #858f89;
-  font-size: 7px;
-  line-height: 1.45;
-  text-align: right;
-}
-
-.baseline-maintenance .phase-calibrating,
-.baseline-maintenance .phase-pending,
-.baseline-maintenance .phase-sent,
-.baseline-maintenance .phase-accepted {
-  color: #a1681d;
-}
-
-.baseline-maintenance .phase-completed { color: #377753; }
-.baseline-maintenance .phase-rejected { color: #ba4f45; }
 
 .dashboard-grid {
   display: grid;
@@ -1133,11 +1075,9 @@
 }
 
 .legend-dot.normal { background: #66c98a; }
-.legend-dot.calibrating { background: #6fb3d9; }
 .legend-dot.watch { background: #f5ad45; }
 .legend-dot.warning { background: #f57845; }
 .legend-dot.sensor { background: #a779e9; }
-.legend-dot.critical { background: #e34b42; }
 
 .alert-list {
   max-height: 347px;
@@ -1278,9 +1218,7 @@
 .state-normal { color: #347755; background: #e4f2e8; }
 .state-watch { color: #ad6c13; background: #fff0d7; }
 .state-warning { color: #c55d31; background: #fbe5d9; }
-.state-critical { color: #c83f38; background: #f9dfdc; }
 .state-sensor_fault { color: #7c4db4; background: #eee3fa; }
-.state-calibrating { color: #34798d; background: #dff0f4; }
 .state-unknown { color: #68716c; background: #e9ece9; }
 .state-offline { color: #6b736f; background: #e8ebe9; }
 

@@ -3,18 +3,27 @@ const NodeModel = require('../models/Node');
 const Reading = require('../models/Reading');
 const { processAlertForReading } = require('./alertService');
 const { riskFromPacket } = require('./nodeRisk');
-const { recordBaselineRecalibrationProgress } = require('./commandQueue');
 
 const NODE_ID_PATTERN = /^[A-Za-z0-9_-]{1,32}$/;
 const SENSOR_STATES = new Set([
-  'CALIBRATING',
   'NORMAL',
   'WATCH',
   'WARNING',
-  'CRITICAL',
   'SENSOR_FAULT'
 ]);
-const SENSOR_HEALTH_VALUES = new Set(['OK', 'CAL', 'CALIBRATING', 'FAULT']);
+const LEGACY_SENSOR_STATES = new Set([...SENSOR_STATES, 'CALIBRATING', 'CRITICAL']);
+const SENSOR_HEALTH_VALUES = new Set(['OK', 'FAULT']);
+const LEGACY_SENSOR_HEALTH_VALUES = new Set([...SENSOR_HEALTH_VALUES, 'CAL', 'CALIBRATING']);
+const WARNING_REASON_MASK = 0b00000111;
+const WATCH_REASON_MASK = 0b00111000;
+const SENSOR_FAULT_REASON = 0b01000000;
+const RECOVERY_REASON = 0b10000000;
+const REPORT_INTERVAL_BY_STATE = {
+  NORMAL: 300,
+  WATCH: 120,
+  WARNING: 20,
+  SENSOR_FAULT: 300
+};
 const LEGACY_DUPLICATE_WINDOW_MS = 2 * 60 * 1000;
 const LEGACY_PACKET_BUCKET_MS = 5 * 60 * 1000;
 
@@ -83,22 +92,62 @@ function validateSensorPacket(packet) {
 
   const state = typeof packet.st === 'string' ? packet.st.trim().toUpperCase() : '';
   const health = typeof packet.sh === 'string' ? packet.sh.trim().toUpperCase() : '';
-  if (!SENSOR_STATES.has(state)) return 'sensor packet has invalid state';
-  if (!SENSOR_HEALTH_VALUES.has(health)) return 'sensor packet has invalid health';
-  if (!isFiniteNumber(packet.c) || packet.c < 0 || packet.c > 100) return 'sensor packet has invalid confidence';
   if (packet.rv !== undefined && (!Number.isInteger(packet.rv) || packet.rv < 1 || packet.rv > 255)) {
     return 'sensor packet has invalid risk model version';
   }
-  if (!isFiniteNumber(packet.sm) || packet.sm < 0 || packet.sm > 4095) return 'sensor packet has invalid smoke value';
+  const isResearchThresholdPacket = packet.rv >= 7;
+  const allowedStates = isResearchThresholdPacket ? SENSOR_STATES : LEGACY_SENSOR_STATES;
+  const allowedHealth = isResearchThresholdPacket ? SENSOR_HEALTH_VALUES : LEGACY_SENSOR_HEALTH_VALUES;
+  if (isResearchThresholdPacket && packet.t !== 's') return 'sensor packet has invalid type';
+  if (!allowedStates.has(state)) return 'sensor packet has invalid state';
+  if (!allowedHealth.has(health)) return 'sensor packet has invalid health';
+  if (isResearchThresholdPacket) {
+    if (!Number.isInteger(packet.rb) || packet.rb < 0 || packet.rb > 255) {
+      return 'sensor packet has invalid risk reason bits';
+    }
+    const reasonBits = packet.rb;
+    if ((state === 'SENSOR_FAULT') !== (health === 'FAULT')) {
+      return 'sensor packet state and health disagree';
+    }
+    if (state === 'NORMAL' && reasonBits !== 0) {
+      return 'NORMAL sensor packet has invalid risk reason bits';
+    }
+    if (state === 'WATCH' &&
+        ((reasonBits & (WARNING_REASON_MASK | SENSOR_FAULT_REASON)) !== 0 ||
+         (reasonBits & (WATCH_REASON_MASK | RECOVERY_REASON)) === 0)) {
+      return 'WATCH sensor packet has invalid risk reason bits';
+    }
+    if (state === 'WARNING' &&
+        ((reasonBits & (WATCH_REASON_MASK | SENSOR_FAULT_REASON)) !== 0 ||
+         (reasonBits & WARNING_REASON_MASK) === 0)) {
+      return 'WARNING sensor packet has invalid risk reason bits';
+    }
+    if (state === 'SENSOR_FAULT' && reasonBits !== SENSOR_FAULT_REASON) {
+      return 'SENSOR_FAULT packet has invalid risk reason bits';
+    }
+    const expectedInterval = REPORT_INTERVAL_BY_STATE[state];
+    if (!isFiniteNumber(packet.ri) ||
+        (packet.ri !== expectedInterval && packet.ri !== 5)) {
+      return 'sensor packet has invalid report interval for state';
+    }
+  } else if (!isFiniteNumber(packet.c) || packet.c < 0 || packet.c > 100) {
+    return 'sensor packet has invalid confidence';
+  }
+  const hasParticleField = packet.pm !== undefined && packet.pm !== null;
+  const hasLegacySmokeField = packet.sm !== undefined && packet.sm !== null;
+  if (health !== 'FAULT' && !hasParticleField && !hasLegacySmokeField) {
+    return 'sensor packet has invalid particle value';
+  }
+  if (hasParticleField && (!isFiniteNumber(packet.pm) || packet.pm < 0 || packet.pm > 2000)) {
+    return 'sensor packet has invalid particle value';
+  }
+  if (hasLegacySmokeField && (!isFiniteNumber(packet.sm) || packet.sm < 0 || packet.sm > 4095)) {
+    return 'sensor packet has invalid legacy smoke value';
+  }
 
   const ranges = [
     ['at', -80, 100],
     ['h', 0, 100],
-    ['sr', -4095, 4095],
-    ['ar', -100, 100],
-    ['hr', -100, 100],
-    ['bc', 0, 100],
-    ['bt', 1, 100],
     ['ri', 1, 86400]
   ];
 
@@ -222,14 +271,11 @@ async function handleSensorPacket(packet, meta = {}) {
   const nodeConfidence = toNumber(packet.c);
   const airTemp = packetNumber(packet, 'at');
   const humidity = packetNumber(packet, 'h');
+  const particleUgM3 = packetNumber(packet, 'pm');
+  // Read legacy fields during the staged firmware rollout; v7 does not use them.
   const smokeRaw = packetNumber(packet, 'sm');
-  const smokeBaselineDelta = packetNumber(packet, 'sr');
-  const airBaselineDelta = packetNumber(packet, 'ar');
-  const humidityBaselineDelta = packetNumber(packet, 'hr');
-  const baselineWarmupCount = packetNumber(packet, 'bc');
-  const baselineWarmupTarget = packetNumber(packet, 'bt');
   const sensorHealth = packet.sh.trim().toUpperCase();
-  const nodeState = packet.st.trim().toUpperCase();
+  const nodeState = risk.state;
 
   const readingData = {
     node_id: nodeId,
@@ -241,22 +287,20 @@ async function handleSensorPacket(packet, meta = {}) {
     seq: toNumber(packet.q),
     timestamp: now,
     ...risk,
-    confidence: nodeConfidence,
     node_state: nodeState,
-    node_confidence: nodeConfidence,
     air_temp: airTemp,
     humidity,
+    particle_ug_m3: particleUgM3,
     smoke_raw: smokeRaw,
-    smoke_baseline_delta: smokeBaselineDelta,
-    air_baseline_delta: airBaselineDelta,
-    humidity_baseline_delta: humidityBaselineDelta,
     sensor_health: sensorHealth,
-    baseline_warmup_count: baselineWarmupCount,
-    baseline_warmup_target: baselineWarmupTarget,
     rssi,
     snr,
     raw_packet: packet
   };
+  if (nodeConfidence !== undefined) {
+    readingData.confidence = nodeConfidence;
+    readingData.node_confidence = nodeConfidence;
+  }
 
   let reading;
   try {
@@ -274,21 +318,22 @@ async function handleSensorPacket(packet, meta = {}) {
 
   const nodeSet = {
     ...risk,
-    confidence: nodeConfidence,
     node_state: nodeState,
-    node_confidence: nodeConfidence,
     air_temp: airTemp,
     humidity,
+    particle_ug_m3: particleUgM3,
     smoke_raw: smokeRaw,
     sensor_health: sensorHealth,
-    baseline_warmup_count: baselineWarmupCount ?? null,
-    baseline_warmup_target: baselineWarmupTarget ?? null,
     last_seen: now,
     session_id: identity.sessionId,
     last_seq: toNumber(packet.q),
     report_interval_sec: toNumber(packet.ri),
     online: true
   };
+  if (nodeConfidence !== undefined) {
+    nodeSet.confidence = nodeConfidence;
+    nodeSet.node_confidence = nodeConfidence;
+  }
 
   setIfDefined(nodeSet, 'rssi', rssi);
   setIfDefined(nodeSet, 'snr', snr);
@@ -298,13 +343,6 @@ async function handleSensorPacket(packet, meta = {}) {
     { $set: nodeSet, $setOnInsert: { node_id: nodeId } },
     { upsert: true, new: true, setDefaultsOnInsert: true }
   );
-
-  await recordBaselineRecalibrationProgress(nodeId, {
-    node_state: nodeState,
-    sensor_health: sensorHealth,
-    baseline_warmup_count: baselineWarmupCount,
-    baseline_warmup_target: baselineWarmupTarget
-  }, now);
 
   const alertResult = await processAlertForReading(reading);
 

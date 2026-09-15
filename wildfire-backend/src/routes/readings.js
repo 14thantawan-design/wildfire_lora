@@ -60,13 +60,13 @@ function buildReadingUpdate(input) {
   const rawFieldNames = {
     air_temp: 'at',
     humidity: 'h',
-    smoke_raw: 'sm',
+    particle_ug_m3: 'pm',
     sensor_health: 'sh'
   };
   const numericFields = {
     air_temp: [-80, 100],
     humidity: [0, 100],
-    smoke_raw: [0, 4095],
+    particle_ug_m3: [0, 2000],
     rssi: [-200, 50],
     snr: [-50, 50]
   };
@@ -95,7 +95,7 @@ function buildReadingUpdate(input) {
       const sensorHealth = typeof input.sensor_health === 'string'
         ? input.sensor_health.trim().toUpperCase()
         : '';
-      if (!['OK', 'CAL', 'CALIBRATING', 'FAULT'].includes(sensorHealth)) {
+      if (!['OK', 'FAULT'].includes(sensorHealth)) {
         throw validationError('sensor_health is invalid');
       }
       set.sensor_health = sensorHealth;
@@ -243,12 +243,15 @@ router.get('/:node_id', async (req, res, next) => {
             confidence: { $last: '$confidence' },
             node_state: { $last: '$node_state' },
             node_confidence: { $last: '$node_confidence' },
-            // Keep score and state from the same last report in the bucket.
+            // Preserve legacy score when present; v7 uses explicit reason bits instead.
             risk_score: { $last: { $ifNull: ['$risk_score', '$node_confidence', '$raw_packet.c', '$confidence'] } },
+            risk_reason_bits: { $last: '$risk_reason_bits' },
+            risk_reasons: { $last: '$risk_reasons' },
             risk_source: { $last: '$risk_source' },
             risk_model_version: { $last: '$risk_model_version' },
             air_temp: { $avg: '$air_temp' },
             humidity: { $avg: '$humidity' },
+            particle_ug_m3: { $avg: '$particle_ug_m3' },
             smoke_raw: { $avg: '$smoke_raw' },
             sensor_health: { $last: '$sensor_health' },
             rssi: { $last: '$rssi' },

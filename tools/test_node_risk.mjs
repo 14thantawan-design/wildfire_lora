@@ -9,10 +9,17 @@ const root = resolve(import.meta.dirname, '..')
 const compiler = process.env.CLANGXX || 'C:/Users/14tha/AppData/Local/Android/Sdk/ndk/28.2.13676358/toolchains/llvm/prebuilt/windows-x86_64/bin/clang++.exe'
 const output = resolve(root, 'tmp/risk-tests')
 mkdirSync(output, { recursive: true })
-const names = ['median3', 'readSmokeMedian', 'hasSensorFault', 'getEvidenceFlags',
-  'calculateConfidence', 'evaluateFireStatusRaw', 'statusSeverity',
-  'isWeakEnvironmentalWatch', 'applyWeakWatchDebounce', 'applyCriticalDebounce',
-  'applyStateLatch', 'evaluateFireStatus', 'updateBaselineAfterDecision']
+
+const names = [
+  'median3',
+  'readParticleMedianMilliVolts',
+  'particleUgM3FromMilliVolts',
+  'hasSensorFault',
+  'statusSeverity',
+  'evaluateRawRisk',
+  'applyStateLatch',
+  'evaluateFireStatus'
+]
 
 function extract(source, name) {
   const match = source.match(new RegExp('^\\w+ ' + name + '\\([^]*?^}', 'm'))
@@ -23,112 +30,118 @@ function extract(source, name) {
 let firstFunctions
 for (const sketch of ['sensor_node', 'sensor_node_2']) {
   const source = readFileSync(resolve(root, sketch, sketch + '.ino'), 'utf8')
-  const functions = names.map(name => extract(source, name)).join('\n')
-  if (firstFunctions) assert.equal(functions, firstFunctions, 'Both nodes must use identical decision functions')
+  const config = readFileSync(resolve(root, sketch, 'config.h'), 'utf8')
+  assert.match(config, /#define NORMAL_REPORT_INTERVAL_SEC 300UL/)
+  assert.match(config, /#define WATCH_REPORT_INTERVAL_SEC 120UL/)
+  assert.match(config, /#define WARNING_REPORT_INTERVAL_SEC 20UL/)
+  assert.match(config, /#define RISK_MODEL_VERSION 7/)
+  assert.match(config, /#define STATUS_RELEASE_CYCLES 3/)
+  assert.match(source, /doc\["rb"\] = decision\.reasonBits/,
+    'Packets must include risk reason bits')
+  assert.match(source, /doc\["rv"\] = RISK_MODEL_VERSION/,
+    'Packets must identify the research-threshold model')
+  assert.match(source, /addFloatOrNull\(doc, "pm", data\.particleUgM3\)/,
+    'Packets must include estimated particle concentration')
+  assert.doesNotMatch(source, /doc\["(?:c|pd|sr|ar|hr|bc|bt)"\]/,
+    'Current packets must not include score or baseline fields')
+
+  const functions = names.map((name) => extract(source, name)).join('\n')
+  if (firstFunctions) {
+    assert.equal(functions, firstFunctions, 'Both nodes must use identical decision functions')
+  }
   firstFunctions = functions
-  const types = ['FireStatus', 'SensorData', 'DeltaData', 'EvidenceFlags'].map(name =>
-    source.match(new RegExp('(?:enum|struct) ' + name + ' {[^]*?};'))[0]).join('\n')
+
+  const types = ['FireStatus', 'SensorData', 'RiskReasonBit', 'RiskDecision'].map((name) => {
+    const match = source.match(new RegExp('(?:enum|struct) ' + name + '[^\\{]*\\{[^]*?};'))
+    assert.ok(match, 'Missing type: ' + name)
+    return match[0]
+  }).join('\n')
+
   const cpp = `
 #include "${resolve(root, sketch, 'config.h').replaceAll('\\', '/')}"
 typedef unsigned char uint8_t;
 typedef unsigned short uint16_t;
-template <typename T> T min(T a, T b) { return a < b ? a : b; }
-bool isnan(float x) { return x != x; }
+typedef unsigned int uint32_t;
+#define NAN (__builtin_nanf(""))
+bool isnan(float value) { return value != value; }
 ${types}
-bool baselineInitialized = true;
+uint32_t rtcRiskStateVersion = RTC_RISK_STATE_VERSION;
 int latchedStatusValue = NORMAL;
-uint8_t releaseCounter = 0, criticalCandidateCounter = 0, weakWatchCandidateCounter = 0;
-uint16_t bootAbnormalCount = 0, baselineNvsCyclesSinceSave = 0;
-float baselineAirTemp = 30, baselineHumidity = 70;
-int baselineSmokeRaw = 100;
-void saveBaselineToNvs() {}
-int reads = 0, smokeSamples[3] = {100, 4000, 120};
-int readSharpOnce() { return smokeSamples[reads++]; }
+uint8_t releaseCounter = 0;
+uint16_t latchedReasonBits = REASON_NONE;
+int reads = 0;
+int particleSamples[3] = {100, 4000, 120};
+int readSharpOnce() { return particleSamples[reads++]; }
 void delay(int) {}
 ${functions}
 extern "C" {
-void reset(int ready) {
-  baselineInitialized = ready; latchedStatusValue = NORMAL;
-  releaseCounter = criticalCandidateCounter = weakWatchCandidateCounter = 0;
-  bootAbnormalCount = 0; baselineNvsCyclesSinceSave = 0;
-  baselineAirTemp = 30; baselineHumidity = 70; baselineSmokeRaw = 100;
+void reset() {
+  rtcRiskStateVersion = RTC_RISK_STATE_VERSION;
+  latchedStatusValue = NORMAL;
+  releaseCounter = 0;
+  latchedReasonBits = REASON_NONE;
 }
-int medianTest() { reads = 0; int value = readSmokeMedian(); return value * 10 + reads; }
-int run(float temp, float humidity, int smoke, float td, float hd, int sd,
-        float tr, float hr, float sr, int healthy) {
-  SensorData data = {temp, humidity, smoke, healthy != 0, healthy != 0};
-  DeltaData delta = {};
-  delta.airTempBaselineDelta = td; delta.humidityBaselineDelta = hd; delta.smokeBaselineDelta = sd;
-  delta.airTempDelta = tr; delta.humidityDelta = hr; delta.smokeDelta = (int)sr;
-  delta.airTempRatePerMin = tr; delta.humidityRatePerMin = hr; delta.smokeRatePerMin = sr;
-  EvidenceFlags evidence = getEvidenceFlags(data, delta);
-  int score = calculateConfidence(data, delta, evidence);
-  return evaluateFireStatus(data, evidence, score) * 1000 + score;
+int medianTest() {
+  reads = 0;
+  int value = readParticleMedianMilliVolts();
+  return value * 10 + reads;
 }
-int rawState(int score) {
-  SensorData data = {30, 70, 100, true, true};
-  EvidenceFlags evidence = {};
-  return evaluateFireStatusRaw(data, evidence, score);
+float conversionTest(int milliVolts) { return particleUgM3FromMilliVolts(milliVolts); }
+int run(float temp, float humidity, float particle, int healthy) {
+  SensorData data = {temp, humidity, 600, particle, healthy != 0, healthy != 0};
+  RiskDecision decision = evaluateFireStatus(data);
+  return ((int)decision.status * 1000) + decision.reasonBits;
 }
-float adapt(int state, int smoke) {
-  SensorData data = {32, 65, 200, true, true};
-  DeltaData delta = {};
-  EvidenceFlags evidence = {}; evidence.smokeWatch = smoke;
-  updateBaselineAfterDecision(data, delta, evidence, (FireStatus)state);
-  return baselineAirTemp;
+int raw(float temp, float humidity, float particle, int healthy) {
+  SensorData data = {temp, humidity, 600, particle, healthy != 0, healthy != 0};
+  RiskDecision decision = evaluateRawRisk(data);
+  return ((int)decision.status * 1000) + decision.reasonBits;
 }
 }`
+
   const input = resolve(output, sketch + '.cpp')
   const binary = resolve(output, sketch + '.wasm')
   writeFileSync(input, cpp)
-  const compiled = spawnSync(compiler, ['--target=wasm32', '-O2', '-nostdlib',
-    '-Wl,--no-entry', '-Wl,--export-all', input, '-o', binary], { encoding: 'utf8' })
+  const compiled = spawnSync(compiler, [
+    '--target=wasm32', '-O2', '-nostdlib',
+    '-Wl,--no-entry', '-Wl,--export-all', input, '-o', binary
+  ], { encoding: 'utf8' })
   assert.equal(compiled.status, 0, compiled.error?.message || compiled.stderr)
+
   const { instance } = await WebAssembly.instantiate(readFileSync(binary))
   const api = instance.exports
-  const sample = (t = 30, h = 70, s = 100, td = 0, hd = 0, sd = 0, tr = 0, hr = 0, sr = 0, healthy = 1) =>
-    api.run(t, h, s, td, hd, sd, tr, hr, sr, healthy)
-  assert.equal(api.medianTest(), 1203, 'Read exactly three samples and reject the 4000 spike')
-  api.reset(1)
-  assert.equal(sample(), 2000)
-  assert.equal(sample(32, 65, 100, 2, -5), 2020, 'First weak environmental WATCH waits')
-  assert.equal(sample(32, 65, 100, 2, -5), 3020)
-  api.reset(1)
-  assert.equal(sample(34, 60, 100, 4, -10), 4050)
-  api.reset(1)
-  assert.equal(sample(36, 55, 100, 6, -15), 4080, 'First CRITICAL waits in WARNING')
-  assert.equal(sample(36, 55, 100, 6, -15), 5080, 'Heat and dryness reach CRITICAL without smoke')
-  assert.equal(sample(), 5000)
-  assert.equal(sample(), 5000)
-  assert.equal(sample(), 2000, 'Three clean measurements release')
-  api.reset(1)
-  assert.equal(sample(30, 70, 1800), 3020, 'Smoke alone cannot exceed WATCH')
-  api.reset(1)
-  assert.equal(sample(40, 45), 4050, 'Absolute values work with zero baseline differences')
-  api.reset(1)
-  assert.equal(sample(50, 35, 1800, 6, -15, 900), 4100, 'No double counting absolute and baseline evidence')
-  assert.equal(sample(50, 35, 1800, 6, -15, 900), 5100)
-  api.reset(1)
-  assert.equal(sample(30, 85, 100, 0, 15), 2000, 'Humidity increase is not a drop')
-  api.reset(1)
-  assert.equal(sample(30, 70, 100, 0, 0, 0, 1.2, -4), 4080, 'Existing rate evidence still participates')
-  api.reset(1)
-  assert.equal(sample(30, 70, 100, 0, -5, 0, 0.2), 2020, 'Temperature WATCH rate starts at 0.20 C/min')
-  api.reset(0)
-  assert.equal(sample(), 1000, 'Startup is CALIBRATING')
-  assert.equal(sample(50, 35, 1800), 1060, 'Startup score cap is retained')
-  api.reset(1)
-  assert.ok(sample(50, 35, 1800, 0, 0, 0, 0, 0, 0, 0) < 1000, 'Sensor fault takes priority')
-  for (const [score, state] of [[0, 2], [19, 2], [20, 3], [49, 3], [50, 4], [74, 4], [75, 5], [100, 5]]) {
-    assert.equal(api.rawState(score), state)
-  }
-  api.reset(1)
-  assert.ok(Math.abs(api.adapt(2, 0) - 30.1) < 0.0001, 'NORMAL adapts 5%')
-  api.reset(1)
-  assert.ok(Math.abs(api.adapt(3, 0) - 30.02) < 0.0001, 'WATCH without smoke adapts 1%')
-  for (const [state, smoke] of [[3, 1], [4, 0], [5, 0]]) {
-    api.reset(1)
-    assert.equal(api.adapt(state, smoke), 30, 'Freeze baseline on smoke/WARNING/CRITICAL')
-  }
-  console.log(sketch + ': C++ score, boundary, median, confirmation, recovery and baseline checks passed')
+  const raw = (t = 30, h = 70, p = 20, healthy = 1) => api.raw(t, h, p, healthy)
+  const run = (t = 30, h = 70, p = 20, healthy = 1) => api.run(t, h, p, healthy)
+
+  assert.equal(api.medianTest(), 1203, 'Read exactly three samples and reject the 4000 mV spike')
+  assert.equal(api.conversionTest(1100), 100,
+    'Convert 1100 mV using 600 mV clean-air voltage and 5 mV/(ug/m3)')
+
+  // Enum: SENSOR_FAULT=0, NORMAL=1, WATCH=2, WARNING=3.
+  assert.equal(raw(35, 50, 50), 1000, 'All inclusive NORMAL boundaries stay NORMAL')
+  assert.equal(raw(35.01, 50, 50), 2008, 'Temperature above 35 enters WATCH')
+  assert.equal(raw(35, 49.99, 50), 2032, 'Humidity below 50 enters WATCH')
+  assert.equal(raw(35, 50, 50.01), 2016, 'Particle above 50 enters WATCH')
+  assert.equal(raw(45, 50, 50), 2008, 'Exactly 45 is WATCH, not WARNING')
+  assert.equal(raw(45.01, 50, 50), 3001, 'Temperature above 45 enters WARNING')
+  assert.equal(raw(30, 50, 150), 2016, 'Exactly 150 is WATCH, not WARNING')
+  assert.equal(raw(30, 50, 150.01), 3002, 'Particle above 150 enters WARNING')
+  assert.equal(raw(30, 30, 20), 3004, '30C together with 30%RH enters WARNING')
+  assert.equal(raw(29.99, 30, 20), 2032, 'Humidity alone stays WATCH')
+  assert.equal(raw(30, 70, 20, 0), 64, 'A failed sensor reports SENSOR_FAULT separately')
+
+  api.reset()
+  assert.equal(run(46, 60, 20), 3001, 'Escalation to WARNING is immediate')
+  assert.equal(run(), 3129, 'First clean sample holds WARNING with recovery bit')
+  assert.equal(run(), 3129, 'Second clean sample still holds WARNING')
+  assert.equal(run(), 2128, 'Third clean sample releases WARNING to WATCH')
+  assert.equal(run(), 2128, 'First WATCH recovery sample holds WATCH')
+  assert.equal(run(), 2128, 'Second WATCH recovery sample holds WATCH')
+  assert.equal(run(), 1000, 'Third WATCH recovery sample releases to NORMAL')
+
+  api.reset()
+  assert.equal(run(36, 60, 20), 2008, 'Escalation to WATCH is immediate')
+  assert.equal(run(46, 60, 20), 3001, 'WATCH escalates to WARNING immediately')
+
+  console.log(`${sketch}: C++ thresholds, boundaries, reason bits, latch, median and conversion passed`)
 }

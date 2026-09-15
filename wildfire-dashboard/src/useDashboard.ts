@@ -4,7 +4,6 @@ import { selectLiveOverview } from './liveOverview'
 import type {
   Alert,
   ApiHealth,
-  BaselineRecalibrationStatus,
   GpsReacquireCommand,
   ManualLocationInput,
   NodeStatus,
@@ -58,7 +57,6 @@ export function useDashboard(selectedNodeId: string, timeRange: TimeRangeKey) {
   const [nodes, setNodes] = useState<NodeStatus[]>([])
   const [alerts, setAlerts] = useState<Alert[]>([])
   const [readings, setReadings] = useState<Reading[]>([])
-  const [recentReadings, setRecentReadings] = useState<Reading[]>([])
   const [backendUnavailable, setBackendUnavailable] = useState(false)
   const [health, setHealth] = useState<ApiHealth>()
   const activeRequestRef = useRef<AbortController | undefined>(undefined)
@@ -84,18 +82,12 @@ export function useDashboard(selectedNodeId: string, timeRange: TimeRangeKey) {
       // Only currently online nodes participate in the live overview.
       const { liveNodes, effectiveNodeId } = selectLiveOverview(nodeData, selectedNodeId)
       const bucketQuery = selectedRange.bucketMs ? `&bucket_ms=${selectedRange.bucketMs}` : ''
-      const [readingData, recentReadingData] = effectiveNodeId
-        ? await Promise.all([
-            getJson<Reading[]>(
-              `/readings/${encodeURIComponent(effectiveNodeId)}?from=${encodeURIComponent(from)}&limit=${selectedRange.apiLimit}${bucketQuery}`,
-              controller.signal,
-            ),
-            getJson<Reading[]>(
-              `/readings/${encodeURIComponent(effectiveNodeId)}?limit=10`,
-              controller.signal,
-            ),
-          ])
-        : [[], []]
+      const readingData = effectiveNodeId
+        ? await getJson<Reading[]>(
+            `/readings/${encodeURIComponent(effectiveNodeId)}?from=${encodeURIComponent(from)}&limit=${selectedRange.apiLimit}${bucketQuery}`,
+            controller.signal,
+          )
+        : []
 
       if (requestId !== requestIdRef.current) return
       const alertsById = new Map(alertHistory.map((alert) => [alert._id, alert]))
@@ -107,7 +99,6 @@ export function useDashboard(selectedNodeId: string, timeRange: TimeRangeKey) {
         ),
       )
       setReadings(readingData.reverse())
-      setRecentReadings(recentReadingData)
       setHealth(healthData)
       setBackendUnavailable(false)
     } catch {
@@ -166,32 +157,15 @@ export function useDashboard(selectedNodeId: string, timeRange: TimeRangeKey) {
     [load],
   )
 
-  const recalibrateBaseline = useCallback(
-    async (nodeId: string) => postJson<BaselineRecalibrationStatus>(
-      `/nodes/${encodeURIComponent(nodeId)}/baseline/recalibration`,
-    ),
-    [],
-  )
-
-  const getBaselineRecalibrationStatus = useCallback(
-    async (nodeId: string) => getJson<BaselineRecalibrationStatus>(
-      `/nodes/${encodeURIComponent(nodeId)}/baseline/recalibration`,
-    ),
-    [],
-  )
-
   return {
     nodes,
     alerts,
     readings,
-    recentReadings,
     backendUnavailable,
     health,
     refresh: load,
     deleteAlert,
     reacquireGps,
-    recalibrateBaseline,
-    getBaselineRecalibrationStatus,
     saveManualLocation,
   }
 }

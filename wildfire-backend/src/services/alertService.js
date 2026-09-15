@@ -3,13 +3,12 @@ const Reading = require('../models/Reading');
 const { notifyTelegram } = require('./telegramService');
 const { normalizeNodeRisk } = require('./nodeRisk');
 
-const ALERT_LEVELS = ['WATCH', 'WARNING', 'CRITICAL', 'SENSOR_FAULT'];
+const ALERT_LEVELS = ['WATCH', 'WARNING', 'SENSOR_FAULT'];
 const SEVERITY = {
   NORMAL: 0,
   WATCH: 1,
   SENSOR_FAULT: 2,
-  WARNING: 3,
-  CRITICAL: 4
+  WARNING: 3
 };
 
 function isAlertLevel(state) {
@@ -49,9 +48,9 @@ function mergeReasons(...reasonLists) {
   return [...new Set(reasonLists.flat().filter(Boolean).map(normalizeReason))];
 }
 
-function buildMessage(nodeId, level, riskScore, reasons = []) {
+function buildMessage(nodeId, level, reasons = []) {
   const reasonText = reasons.length ? `: ${reasons.slice(0, 4).join(', ')}` : '';
-  return `${nodeId} event reached ${level} with peak risk ${riskScore ?? 0}${reasonText}`;
+  return `${nodeId} event reached ${level}${reasonText}`;
 }
 
 function buildLastReading(reading) {
@@ -63,6 +62,8 @@ function buildLastReading(reading) {
     timestamp: reading.timestamp,
     state: reading.state,
     risk_score: reading.risk_score,
+    risk_reason_bits: reading.risk_reason_bits,
+    risk_reasons: reading.risk_reasons,
     risk_source: reading.risk_source,
     risk_model_version: reading.risk_model_version,
     node_state: reading.node_state,
@@ -70,6 +71,8 @@ function buildLastReading(reading) {
     node_confidence: reading.node_confidence,
     air_temp: reading.air_temp,
     humidity: reading.humidity,
+    particle_ug_m3: reading.particle_ug_m3,
+    particle_baseline_delta_ug_m3: reading.particle_baseline_delta_ug_m3,
     smoke_raw: reading.smoke_raw,
     smoke_baseline_delta: reading.smoke_baseline_delta,
     air_baseline_delta: reading.air_baseline_delta,
@@ -128,9 +131,9 @@ async function processAlertForReading(reading) {
   const now = reading.timestamp || new Date();
   const nodeId = reading.node_id;
   const state = reading.state;
-  const confidence = reading.confidence || 0;
-  const riskScore = reading.risk_score ?? 0;
-  const reasons = ['node_reported'];
+  const confidence = Number.isFinite(reading.confidence) ? reading.confidence : undefined;
+  const riskScore = reading.risk_score;
+  const reasons = reading.risk_reasons?.length ? reading.risk_reasons : ['node_reported'];
 
   if (state === 'NORMAL') {
     // Firmware already confirms recovery. Do not impose another confirmation
@@ -169,18 +172,19 @@ async function processAlertForReading(reading) {
 
   if (!activeAlert) {
     try {
-      const alert = await Alert.create({
+      const alertData = {
         node_id: nodeId,
         level: state,
         started_at: now,
         active: true,
-        max_confidence: confidence,
-        max_risk_score: riskScore,
         max_state: state,
         reasons,
-        message: buildMessage(nodeId, state, riskScore, reasons),
+        message: buildMessage(nodeId, state, reasons),
         last_reading: lastReading
-      });
+      };
+      if (confidence !== undefined) alertData.max_confidence = confidence;
+      if (riskScore !== undefined && riskScore !== null) alertData.max_risk_score = riskScore;
+      const alert = await Alert.create(alertData);
 
       const notification = await notifyTelegram('created', alert, reading);
       await saveTelegramResult(alert, state, notification, now);
@@ -191,15 +195,21 @@ async function processAlertForReading(reading) {
     }
   }
 
-  const previousLevel = activeAlert.level;
+  // Convert an active legacy CRITICAL alert before updating it with v7 data.
+  const previousLevel = activeAlert.level === 'CRITICAL' ? 'WARNING' : activeAlert.level;
   const nextLevel = severityOf(state) > severityOf(previousLevel) ? state : previousLevel;
   activeAlert.level = nextLevel;
-  activeAlert.max_confidence = Math.max(activeAlert.max_confidence || 0, confidence);
-  activeAlert.max_risk_score = Math.max(activeAlert.max_risk_score || 0, riskScore);
+  if (confidence !== undefined) {
+    activeAlert.max_confidence = Math.max(activeAlert.max_confidence || 0, confidence);
+  }
+  if (riskScore !== undefined && riskScore !== null) {
+    activeAlert.max_risk_score = Math.max(activeAlert.max_risk_score || 0, riskScore);
+  }
+  const previousMaxState = activeAlert.max_state === 'CRITICAL' ? 'WARNING' : activeAlert.max_state;
   activeAlert.max_state =
-    severityOf(state) > severityOf(activeAlert.max_state) ? state : activeAlert.max_state || nextLevel;
+    severityOf(state) > severityOf(previousMaxState) ? state : previousMaxState || nextLevel;
   activeAlert.reasons = mergeReasons(activeAlert.reasons || [], reasons);
-  activeAlert.message = buildMessage(nodeId, nextLevel, activeAlert.max_risk_score, activeAlert.reasons);
+  activeAlert.message = buildMessage(nodeId, nextLevel, activeAlert.reasons);
   activeAlert.last_reading = lastReading;
   await activeAlert.save();
 

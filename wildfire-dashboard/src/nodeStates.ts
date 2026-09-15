@@ -1,11 +1,9 @@
 import type { NodeState } from './types'
 
 export const stateLabels: Record<NodeState, string> = {
-  CALIBRATING: 'กำลังปรับค่า',
   NORMAL: 'ปกติ',
   WATCH: 'เฝ้าระวัง',
   WARNING: 'เตือนภัย',
-  CRITICAL: 'วิกฤต',
   SENSOR_FAULT: 'เซนเซอร์ขัดข้อง',
   UNKNOWN: 'ไม่ทราบสถานะ',
 }
@@ -13,34 +11,36 @@ export const stateLabels: Record<NodeState, string> = {
 export const stateSeverity: Record<NodeState, number> = {
   UNKNOWN: -1,
   NORMAL: 0,
-  CALIBRATING: 1,
-  WATCH: 2,
-  SENSOR_FAULT: 3,
-  WARNING: 4,
-  CRITICAL: 5,
+  WATCH: 1,
+  SENSOR_FAULT: 2,
+  WARNING: 3,
 }
 
 export const stateColors: Record<NodeState, string> = {
   NORMAL: '#66c98a',
   WATCH: '#f5ad45',
-  WARNING: '#f57845',
-  CRITICAL: '#e34b42',
+  WARNING: '#e34b42',
   SENSOR_FAULT: '#a779e9',
-  CALIBRATING: '#6fb3d9',
   UNKNOWN: '#9ca3af',
 }
 
 const reasonLabels: Record<string, string> = {
-  node_reported: 'ใช้คะแนนและสถานะที่โหนดประเมินส่งมา',
-  baseline_calibrating: 'กำลังเรียนค่าเริ่มต้นของเซนเซอร์',
-  smoke_sensor_low_stuck: 'ค่าควัน 0 ต่อเนื่อง',
-  smoke_low_stable: 'ค่าควันต่ำคงที่',
+  node_reported: 'ใช้สถานะที่โหนดประเมินส่งมา',
+  temperature_above_45: 'อุณหภูมิสูงกว่า 45°C',
+  particle_above_150: 'อนุภาคโดยประมาณสูงกว่า 150 µg/m³',
+  hot_dry_30_30: 'อุณหภูมิอย่างน้อย 30°C และความชื้นไม่เกิน 30%RH',
+  temperature_above_35: 'อุณหภูมิสูงกว่า 35°C',
+  particle_above_50: 'อนุภาคโดยประมาณสูงกว่า 50 µg/m³',
+  humidity_below_50: 'ความชื้นต่ำกว่า 50%RH',
+  recovery_confirmation_pending: 'กำลังยืนยันค่าปกติก่อนลดระดับ',
+  smoke_sensor_low_stuck: 'ค่าอนุภาค 0 ต่อเนื่อง',
+  smoke_low_stable: 'ค่าอนุภาคต่ำคงที่',
   sensor_data_incomplete: 'ข้อมูลเซนเซอร์ประกอบไม่ครบ',
   sht31_missing: 'อุณหภูมิ/ความชื้นไม่ส่งค่า',
   sensor_fault: 'ตรวจพบปัญหาเซนเซอร์',
-  smoke_weak: 'เริ่มพบสัญญาณควัน',
-  smoke_strong: 'พบสัญญาณควันชัดเจน',
-  smoke_critical: 'ควันสูงผิดปกติ',
+  smoke_weak: 'เริ่มพบอนุภาคควัน',
+  smoke_strong: 'พบอนุภาคควันชัดเจน',
+  smoke_critical: 'อนุภาคควันสูงผิดปกติ',
   heat_weak: 'อุณหภูมิเริ่มสูงกว่าปกติ',
   heat_strong: 'อุณหภูมิสูงผิดปกติ',
   heat_critical: 'อุณหภูมิสูงระดับวิกฤต',

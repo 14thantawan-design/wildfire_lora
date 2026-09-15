@@ -5,15 +5,15 @@ Node.js API for the Wildfire LoRa project.
 The backend receives packets from the Gateway over Wi-Fi/HTTP, stores node status
 and sensor history in MongoDB, and exposes API endpoints for the dashboard.
 
-Risk is calculated only by sensor firmware. The backend copies packet `st` and
-`c` into `state` and `risk_score`; `risk_source: "node"` and
-`risk_model_version` identify the origin and packet `rv` (absent means version 1).
-There is no backend risk engine or sensor-history scoring query.
+Risk is calculated only by sensor firmware. For current risk model 7, the backend
+copies packet `st` and reason bitmask `rb` into `state`, `risk_reason_bits` and
+`risk_reasons`; `risk_source: "node"` and `risk_model_version` identify the origin.
+There is no backend risk engine, score, baseline, or sensor-history scoring query.
 Old records are read through `nodeRisk.js`, preferring their original node
-decision; no history is rewritten or deleted. Old server fields remain in the
-schema for reading existing data but are neither generated nor returned as
-current risk fields. The dashboard uses current online node states, while alert
-records keep the historical peak of an event.
+decision; no history is rewritten or deleted. Historical `CRITICAL` is exposed as
+`WARNING` and historical `CALIBRATING` as `UNKNOWN`. Old fields remain in the
+schema only for compatibility. The dashboard uses current online node states,
+while alert records keep the historical peak of an event.
 
 ## Requirements
 
@@ -53,14 +53,14 @@ TELEGRAM_TIMEZONE=Asia/Bangkok
 
 Telegram notifications follow the states already confirmed by the firmware:
 
-- A new `WATCH`, `WARNING`, `CRITICAL`, or `SENSOR_FAULT` alert sends one message.
+- A new `WATCH`, `WARNING`, or `SENSOR_FAULT` alert sends one message.
 - An active alert sends another message only when its level increases.
 - Repeated readings at the same level do not send duplicate messages.
 - If Telegram is temporarily unreachable, the next reading retries the unsent alert.
 - A firmware-confirmed `NORMAL` closes the alert and sends one resolved message.
   Firmware already waits for three clean measurement cycles; the backend does not wait again.
   Only legacy records without a node decision use the old distinct-reading fallback.
-- `CALIBRATING` and `NORMAL` without an active alert do not send messages.
+- `NORMAL` without an active alert does not send a message.
 
 Setup:
 
@@ -118,7 +118,7 @@ The Node list keeps known Nodes visible and marks each one online or offline fro
 curl -X POST http://localhost:4000/api/packets ^
   -H "Content-Type: application/json" ^
   -H "X-Gateway-Key: replace-with-your-gateway-key" ^
-  -d "{\"t\":\"s\",\"id\":\"NODE01\",\"q\":12,\"st\":\"NORMAL\",\"c\":20,\"at\":31.2,\"h\":55.4,\"sm\":120,\"sd\":20,\"sr\":80,\"ar\":1.2,\"hr\":-3.1,\"sh\":\"OK\"}"
+  -d "{\"t\":\"s\",\"id\":\"NODE01\",\"q\":12,\"sid\":1234,\"ri\":300,\"st\":\"NORMAL\",\"rb\":0,\"rv\":7,\"at\":31.2,\"h\":55.4,\"pm\":20,\"sh\":\"OK\"}"
 ```
 
 GPS test:

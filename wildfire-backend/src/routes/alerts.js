@@ -8,7 +8,16 @@ const router = express.Router();
 
 function serializeAlert(alert) {
   const obj = alert.toObject ? alert.toObject() : { ...alert };
-  if (obj.last_reading) obj.last_reading = normalizeNodeRisk(obj.last_reading);
+  if (obj.level === 'CRITICAL') obj.level = 'WARNING';
+  if (obj.max_state === 'CRITICAL') obj.max_state = 'WARNING';
+  if (obj.telegram_notified_level === 'CRITICAL') obj.telegram_notified_level = 'WARNING';
+  if (obj.last_reading) {
+    obj.last_reading = normalizeNodeRisk(obj.last_reading);
+    if (obj.last_reading.risk_model_version >= 7) {
+      delete obj.max_confidence;
+      delete obj.max_risk_score;
+    }
+  }
   return obj;
 }
 

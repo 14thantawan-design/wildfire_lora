@@ -1,32 +1,39 @@
 # Codex / Next Developer Notes
 
-This SHT31 + Sharp build fixes the major delta-only issue and adds several safety mechanisms:
+The current source uses the research-aligned, threshold-based state model. The old score, baseline, delta/rate, calibration, `CRITICAL`, and `SURVEILLANCE` model has been removed.
 
-- Baseline warm-up instead of using the first sample as normal baseline
-- Boot abnormal guard so smoke/heat at startup is not learned as baseline
-- Previous delta normalized to rate per minute
-- Baseline delta for sustained abnormal values
-- Absolute thresholds as fallback
-- Critical debounce: CRITICAL requires consecutive confirmation cycles
-- Risk model v2 uses heat 40 / humidity 40 / smoke 20; CRITICAL does not require smoke
-- Sharp health checks for 0/4095/stuck readings
-- Slow baseline adaptation in WATCH only when there is no smoke evidence
-- Gateway parses and prints `sr`, `ar`, `hr`, `g`, and `bc`
+## Authoritative state rules
 
-Important constraints:
+- `SENSOR_FAULT` when a required sensor is invalid.
+- `WARNING` when `T > 45`, `P > 150`, or `T >= 30 && RH <= 30`.
+- `WATCH` (only when not `WARNING`) when `T > 35`, `P > 50`, or `RH < 50`.
+- `NORMAL` otherwise.
 
-- Node firmware is the only risk calculator. Backend/API/Telegram use its state and score.
-- See docs/node-risk-v2.md for current thresholds, compatibility, and verification.
-- Keep `node_id` and `seq`.
-- Keep Gateway multi-node support.
-- Keep compact LoRa payload below `MAX_SAFE_PAYLOAD_BYTES`.
-- Do not make CRITICAL depend on one sensor only.
-- Do not let baseline update during smoke-related WATCH/WARNING/CRITICAL.
+The Sensor Node is the only component that calculates the state. The Gateway, backend, database/API, Telegram notifications, and dashboard carry and display the node's state and reason bits; they must not calculate a separate risk score.
+
+## Timing and state transitions
+
+- `NORMAL`: measure/send every 300 seconds.
+- `WATCH`: measure/send every 120 seconds.
+- `WARNING`: send immediately, then measure/send every 20 seconds without deep sleep.
+- Escalation is immediate.
+- Recovery requires 3 consecutive lower-risk cycles. `WARNING` recovers through `WATCH` before `NORMAL`.
+
+## Protocol constraints
+
+- Packet version is `v=7`.
+- Keep `node_id`, `seq`, `st`, `rb`, `rv`, `at`, `h`, `pm`, `sh`, and `ri`.
+- Keep Gateway multi-node support and the compact payload below `MAX_SAFE_PAYLOAD_BYTES`.
+- Do not reintroduce score/baseline fields as authoritative risk data.
+- See `docs/node-risk-v2.md` for thresholds, boundary cases, reason-bit definitions, limitations, and verification.
+
+## Deployment note
+
+The tracked source files are authoritative. Rebuild firmware before flashing; previously tracked `build/` artifacts may contain an older model and must not be used as current firmware.
 
 Suggested next improvements:
 
-1. Add ACK for CRITICAL packets from Gateway to Node.
-2. Save baseline to NVS/Preferences after calibration.
-3. Add a manual recalibration command or button.
-4. Add web/API upload from Gateway.
-5. Add outdoor enclosure/radiation shield validation.
+1. Calibrate Sharp GP2Y1014AU0F against a reference instrument before claiming quantitative accuracy.
+2. Add an ACK/retry design for `WARNING` packets and validate SF12 airtime/collisions with both nodes.
+3. Add end-to-end Gateway-to-backend upload if direct automatic ingestion is required.
+4. Validate the outdoor enclosure and radiation shield in field conditions.

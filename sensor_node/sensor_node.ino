@@ -20,7 +20,6 @@
   - millis() คือเวลาหลังเริ่มเครื่องเป็น ms; delay รอ ms; 1 วินาที = 1000 ms = 1000000 us
   - 0.05f เป็น float; UL/ULL กำหนดชนิดจำนวนเต็มให้รองรับค่ามาก เช่นเวลาเป็นไมโครวินาที
 
-  คำสำคัญ: ค่าฐาน = ค่าปกติที่เรียนรู้, ผลต่าง = ปัจจุบันลบค่าอ้างอิง, อัตราการเปลี่ยนแปลง = ผลต่างต่อนาที
   RTC_DATA_ATTR เก็บข้าม การหลับลึก ได้ แต่ไม่ใช่ข้อมูลถาวรเมื่อไฟดับ; NVS คือพื้นที่แฟลชที่เก็บข้ามไฟดับ
   ACK คือคำตอบยืนยันรับแพ็กเก็ต ไม่ได้ยืนยันว่าข้อมูลถูกบันทึกขึ้นเว็บสำเร็จแล้ว
   คอมเมนต์ "ถ้าไม่มี" หมายถึงผลเมื่อข้ามหน้าที่นั้น; ถ้าลบฟังก์ชันแต่ยังเรียกชื่อเดิม จะคอมไพล์ไม่ผ่าน
@@ -49,57 +48,40 @@
 // =========================
 // โครงสร้างข้อมูล
 // =========================
-// สถานะที่ระบบใช้: เซนเซอร์เสีย / กำลังเรียนฐาน / ปกติ / เฝ้าระวัง / เตือน / วิกฤต ตามลำดับด้านล่าง
+// สถานะความเสี่ยงมี 3 ระดับ; SENSOR_FAULT เป็นสุขภาพอุปกรณ์ ไม่ใช่ระดับความเสี่ยง
 enum FireStatus {
   SENSOR_FAULT,
-  CALIBRATING,
   NORMAL,
   WATCH,
-  WARNING,
-  CRITICAL
+  WARNING
 };
 
-// struct รวมค่าที่อ่านหนึ่งรอบ: airTemp (°C), humidity (%RH), smokeRaw (ADC ไม่ใช่ค่า PM2.5), shtOk/sharpOk คือธงผ่านการตรวจ
+// struct รวมค่าที่อ่านหนึ่งรอบ: ค่าอนุภาคเป็นค่าประมาณ µg/m³ ส่วนแรงดัน ADC เก็บไว้ตรวจใน Serial เท่านั้น
 struct SensorData {
   float airTemp;
   float humidity;
-  int smokeRaw;
+  int particleAdcMilliVolts;
+  float particleUgM3;
   bool shtOk;
   bool sharpOk;
 };
 
-// รวมผลต่างสามแบบ: Delta เทียบครั้งก่อน, RatePerMin หารด้วยนาที, BaselineDelta เทียบค่าปกติ; ความชื้นติดลบหมายถึงแห้งลง
-struct DeltaData {
-  // ผลต่างจากค่าที่อ่านในรอบก่อนหน้าทันที
-  float airTempDelta;
-  float humidityDelta;
-  int smokeDelta;
-
-  // ผลต่างจากรอบก่อนที่แปลงเป็นอัตราต่อนาที ช่วยให้เปรียบเทียบได้เมื่อช่วงเวลาหลับเปลี่ยน
-  float airTempRatePerMin;
-  float humidityRatePerMin;  // ค่าติดลบหมายถึงความชื้นกำลังลดลง
-  float smokeRatePerMin;
-
-  // ผลต่างจากค่าปกติที่เรียนรู้ ช่วยให้ยังแจ้งเตือนเมื่อค่าคงอยู่สูงแม้ไม่เพิ่มจากรอบก่อนแล้ว
-  float airTempBaselineDelta;
-  float humidityBaselineDelta; // ค่าปัจจุบันลบค่าฐาน; ค่าติดลบหมายถึงความชื้นลดลง
-  int smokeBaselineDelta;
-
-  float elapsedMinutes;
+// เหตุผลใช้ bitmask เพื่อส่งผ่าน LoRa แบบสั้นและตรวจสอบย้อนหลังได้
+enum RiskReasonBit : uint16_t {
+  REASON_NONE = 0,
+  REASON_TEMP_WARNING = 1 << 0,
+  REASON_PARTICLE_WARNING = 1 << 1,
+  REASON_HOT_DRY_WARNING = 1 << 2,
+  REASON_TEMP_WATCH = 1 << 3,
+  REASON_PARTICLE_WATCH = 1 << 4,
+  REASON_HUMIDITY_WATCH = 1 << 5,
+  REASON_SENSOR_FAULT = 1 << 6,
+  REASON_RECOVERY_HOLD = 1 << 7
 };
 
-// ธงหลักฐานแต่ละกลุ่ม: Watch ระดับอ่อน, Group ระดับเตือน, Critical ระดับแรง; groupCount นับ Group ไม่ได้นับจำนวนเซนเซอร์จริง
-struct EvidenceFlags {
-  bool smokeWatch;
-  bool smokeGroup;
-  bool smokeCritical;
-  bool heatWatch;
-  bool heatGroup;
-  bool heatCritical;
-  bool humidityWatch;
-  bool humidityGroup;
-  bool humidityCritical;
-  int groupCount;
+struct RiskDecision {
+  FireStatus status;
+  uint16_t reasonBits;
 };
 
 // พิกัดละติจูด/ลองจิจูดและธง valid; มีเลขพิกัดอย่างเดียวไม่ได้แปลว่าใช้ได้ ต้องดู valid ด้วย
@@ -143,48 +125,23 @@ uint32_t gpsByteCount = 0;
 bool gpsFixReportPending = false;
 bool gpsFailureReportPending = false;
 #endif
-// จำคำสั่งล่าสุดและเปิดพื้นที่ NVS แยกสำหรับคำสั่ง/ฐาน; ป้องกันการทำคำสั่งซ้ำโดยไม่เกี่ยวกับหมายเลขข้อมูลวัด
+// จำคำสั่งล่าสุดใน NVS เพื่อป้องกันการทำคำสั่ง GPS ซ้ำ
 String lastHandledCommandId;
 Preferences commandPrefs;
-Preferences baselinePrefs;
 unsigned long lastLoRaInitAttemptMs = 0;
 bool loraReady = false;
-// สำเนาค่ารอบล่าสุดและสถานะสำหรับตรวจคำสั่งปรับฐาน; เริ่มว่าไม่พร้อม จึงไม่อนุญาตก่อนมีการวัด
-SensorData commandSafetyData = {NAN, NAN, -1, false, false};
-FireStatus commandSafetyStatus = SENSOR_FAULT;
-bool commandSafetyReady = false;
-// จำว่ามีคำสั่งล้างฐานระหว่างส่งรอบนี้ และผลตอบคำสั่งล่าสุด เพื่อเลือกสถานะ/เวลารอใหม่ให้ตรง
-bool baselineRecalibrationAcceptedThisCycle = false;
 bool lastCommandAccepted = true;
 String lastCommandResultReason;
 
-// seq คือเลขชุดข้อมูล; bootSessionId แยกชุดหลังเริ่มเครื่องใหม่; hasPreviousData กันใช้ previousData ก่อนเคยวัดจริง
+// seq คือเลขชุดข้อมูล และ bootSessionId แยกชุดหลังเริ่มเครื่องใหม่
 RTC_DATA_ATTR uint32_t seq = 0;
 RTC_DATA_ATTR uint32_t bootSessionId = 0;
-RTC_DATA_ATTR bool hasPreviousData = false;
-RTC_DATA_ATTR SensorData previousData;
-RTC_DATA_ATTR unsigned long previousReadMs = 0;
-// ใช้ในโหมดภาคสนาม เพราะ millis() เริ่มนับใหม่หลังหลับลึก แต่ข้อมูลในหน่วยความจำ RTC ยังอยู่
-RTC_DATA_ATTR float expectedNextElapsedMinutes = 0.0f;
 
-// จำสถานะที่ค้างและจำนวนรอบยืนยัน/ลดระดับข้าม การหลับลึก; หากลืมตัวนับทุกครั้งที่ตื่น อาจยืนยันต่อเนื่องไม่ครบ
+// จำสถานะ เหตุผล และจำนวนรอบลดระดับข้าม deep sleep
+RTC_DATA_ATTR uint32_t rtcRiskStateVersion = 0;
 RTC_DATA_ATTR int latchedStatusValue = NORMAL;
 RTC_DATA_ATTR uint8_t releaseCounter = 0;
-RTC_DATA_ATTR uint8_t criticalCandidateCounter = 0;
-RTC_DATA_ATTR uint8_t weakWatchCandidateCounter = 0;
-
-// การสะสมข้อมูลเริ่มต้นและค่าฐานปกติที่เรียนรู้แล้ว
-// กลุ่มฐาน: ธงพร้อม จำนวนรอบสะสม/ผิดปกติ ผลรวมเพื่อเฉลี่ย ค่าฐานสามค่า และจำนวนรอบก่อนบันทึกแฟลชอีกครั้ง
-RTC_DATA_ATTR bool baselineInitialized = false;
-RTC_DATA_ATTR uint16_t baselineWarmupCount = 0;
-RTC_DATA_ATTR uint16_t bootAbnormalCount = 0;
-RTC_DATA_ATTR float warmupAirSum = 0.0f;
-RTC_DATA_ATTR float warmupHumiditySum = 0.0f;
-RTC_DATA_ATTR long warmupSmokeSum = 0;
-RTC_DATA_ATTR float baselineAirTemp = 0.0f;
-RTC_DATA_ATTR float baselineHumidity = 0.0f;
-RTC_DATA_ATTR int baselineSmokeRaw = 0;
-RTC_DATA_ATTR uint16_t baselineNvsCyclesSinceSave = 0;
+RTC_DATA_ATTR uint16_t latchedReasonBits = REASON_NONE;
 
 // =========================
 // ฟังก์ชันช่วยทำงานทั่วไป
@@ -193,11 +150,9 @@ RTC_DATA_ATTR uint16_t baselineNvsCyclesSinceSave = 0;
 const char* statusToString(FireStatus status) {
   switch (status) {
     case SENSOR_FAULT: return "SENSOR_FAULT";
-    case CALIBRATING: return "CALIBRATING";
     case NORMAL: return "NORMAL";
     case WATCH: return "WATCH";
     case WARNING: return "WARNING";
-    case CRITICAL: return "CRITICAL";
     default: return "UNKNOWN";
   }
 }
@@ -233,27 +188,37 @@ int median3(int a, int b, int c) {
   return c;
 }
 
-// readSharpOnce: อ่านอนุภาคจาก Sharp หนึ่งครั้ง โดยเปิด LED ภายในแล้วอ่าน ADC ตามจังหวะ; ถ้าตัดการควบคุม LED/เวลารอออก ค่าที่อ่านอาจไม่ตรงช่วงวัด
+// readSharpOnce: อ่านแรงดัน Sharp หนึ่งครั้งเป็น mV ที่คาลิเบรตโดย ESP32 ตามจังหวะใน datasheet
 int readSharpOnce() {
   // จังหวะอ่าน GP2Y1014: เปิดแอลอีดี รอ 280 ไมโครวินาที อ่าน ADC รอ 40 ไมโครวินาที แล้วปิดแอลอีดี
   // วงจร Sharp ส่วนมากใช้ LOW เพื่อเปิดแอลอีดี และ HIGH เพื่อปิดแอลอีดี
   digitalWrite(SHARP_LED_PIN, LOW);
   delayMicroseconds(280);
-  int raw = analogRead(SHARP_ANALOG_PIN);
+  int milliVolts = (int)analogReadMilliVolts(SHARP_ANALOG_PIN);
   delayMicroseconds(40);
   digitalWrite(SHARP_LED_PIN, HIGH);
   delayMicroseconds(9680);
-  return raw;
+  return milliVolts;
 }
 
-// readSmokeMedian: อ่าน Sharp สามครั้งแล้วคืนค่ามัธยฐาน; ถ้าอ่านครั้งเดียว ค่ากระโดดอาจหลุดไปเข้าตรรกะแจ้งเตือนง่ายขึ้น
-int readSmokeMedian() {
+// readParticleMedianMilliVolts: อ่าน Sharp สามครั้งแล้วคืนแรงดันค่ากลาง; ช่วยตัดค่ากระโดดหนึ่งครั้ง
+int readParticleMedianMilliVolts() {
   int a = readSharpOnce();
   delay(5);
   int b = readSharpOnce();
   delay(5);
   int c = readSharpOnce();
   return median3(a, b, c);
+}
+
+// particleUgM3FromMilliVolts: ชดเชยวงจรและแรงดันศูนย์ก่อนแปลงด้วย sensitivity ทั่วไปของผู้ผลิต
+// ค่านี้เป็นค่าประมาณอนุภาค ไม่ใช่ PM2.5 ที่ผ่านการสอบเทียบกับเครื่องอ้างอิง
+float particleUgM3FromMilliVolts(int adcMilliVolts) {
+  if (adcMilliVolts < 0) return NAN;
+  float sensorOutputMilliVolts = adcMilliVolts * SHARP_VOLTAGE_DIVIDER_GAIN;
+  float estimated = (sensorOutputMilliVolts - SHARP_ZERO_OUTPUT_MV) /
+                    SHARP_SENSITIVITY_MV_PER_UG_M3;
+  return estimated > 0.0f ? estimated : 0.0f;
 }
 
 // isShtReadingSane: รับ t (องศาเซลเซียส) และ h (%RH) แล้วคืน true เมื่อไม่ใช่ NaN และอยู่ในช่วงที่ตั้งไว้; เป็นการตรวจความสมเหตุสมผล ไม่ใช่การสอบเทียบ
@@ -289,8 +254,9 @@ void initSensors() {
 
   pinMode(SHARP_LED_PIN, OUTPUT);
   digitalWrite(SHARP_LED_PIN, HIGH);
-  // ADC 12 บิตอ่านได้ 0–4095 ซึ่งต้องตรงกับเกณฑ์ตรวจ Sharp ด้านล่าง
+  // ใช้ ADC 12 บิตและ attenuation สูงสุดเพื่ออ่านแรงดัน Sharp แล้วให้ analogReadMilliVolts คาลิเบรตเป็น mV
   analogReadResolution(12);
+  analogSetPinAttenuation(SHARP_ANALOG_PIN, ADC_11db);
 
   bool shtOk = beginSht31();
 
@@ -347,7 +313,8 @@ SensorData readSensors() {
   SensorData data;
   data.airTemp = NAN;
   data.humidity = NAN;
-  data.smokeRaw = -1;
+  data.particleAdcMilliVolts = -1;
+  data.particleUgM3 = NAN;
   data.shtOk = false;
   data.sharpOk = false;
 
@@ -368,445 +335,138 @@ SensorData readSensors() {
     data.shtOk = true;
   }
 
-  int smoke = readSmokeMedian();
-  data.smokeRaw = smoke;
-  // ตรวจแค่ช่วงตัวเลข: แม้ 0 หรือ 4095 ค้างก็ยังผ่านโค้ดนี้ จึงอย่าตีความ OK ว่าอุปกรณ์สมบูรณ์แน่นอน
-  data.sharpOk = (smoke >= 0 && smoke <= 4095);
+  int particleMilliVolts = readParticleMedianMilliVolts();
+  data.particleAdcMilliVolts = particleMilliVolts;
+  data.particleUgM3 = particleUgM3FromMilliVolts(particleMilliVolts);
+  // ตรวจช่วงแรงดันและผลแปลงเท่านั้น; การทดสอบว่าค่าตอบสนองต่อควันจริงยังต้องทำกับฮาร์ดแวร์
+  data.sharpOk = particleMilliVolts >= 0 && particleMilliVolts <= SHARP_ADC_MAX_MV &&
+                 !isnan(data.particleUgM3);
 
   return data;
 }
 
-// hasSensorFault: คืน true เมื่อธงสุขภาพตัวใดตัวหนึ่งเป็น false; Sharp รุ่นนี้ตรวจเพียงช่วง ADC 0–4095 ยังตรวจสายหลุดหรือค่าค้างได้ไม่ครบ
+// hasSensorFault: คืน true เมื่อธงสุขภาพตัวใดตัวหนึ่งเป็น false; Sharp รุ่นนี้ตรวจเพียงช่วงแรงดัน ADC ยังตรวจสายหลุดหรือค่าค้างได้ไม่ครบ
 bool hasSensorFault(const SensorData &data) {
   if (!data.shtOk) return true;
   if (!data.sharpOk) return true;
   return false;
 }
 
-// isBootAbnormalReading: กันข้อมูลที่เสีย ควันสูง ร้อนจัด หรือแห้งมาก ไม่ให้ใช้เรียนรู้ค่าปกติช่วงเริ่มเครื่อง; หากข้าม อาจจำสภาพผิดปกติเป็น ค่าฐาน
-bool isBootAbnormalReading(const SensorData &data) {
-  if (hasSensorFault(data)) return true;
-  if (data.smokeRaw >= SMOKE_RAW_WARNING) return true;
-  if (!isnan(data.airTemp) && data.airTemp >= AIR_TEMP_ABSOLUTE_WARNING) return true;
-  if (!isnan(data.humidity) && data.humidity <= HUMIDITY_VERY_LOW) return true;
-  return false;
-}
+// ensureRtcRiskState: ล้างสถานะ RTC จากสูตรรุ่นเก่าเมื่ออัปโหลดเฟิร์มแวร์กฎใหม่
+void ensureRtcRiskState() {
+  bool validStatus = latchedStatusValue == NORMAL ||
+                     latchedStatusValue == WATCH ||
+                     latchedStatusValue == WARNING ||
+                     latchedStatusValue == SENSOR_FAULT;
+  if (rtcRiskStateVersion == RTC_RISK_STATE_VERSION && validStatus) return;
 
-// isStoredBaselineSane: ตรวจค่าฐานที่อ่านจากหน่วยความจำว่ามีตัวเลขและอยู่ในช่วงยอมรับได้; ไม่ได้รับรองว่ายังเหมาะกับสถานที่ติดตั้งใหม่
-bool isStoredBaselineSane(float airTemp, float humidity, int smokeRaw) {
-  return !isnan(airTemp) && !isnan(humidity) &&
-         airTemp >= SHT31_MIN_TEMP_C && airTemp <= SHT31_MAX_TEMP_C &&
-         humidity >= SHT31_MIN_HUMIDITY && humidity <= SHT31_MAX_HUMIDITY &&
-         smokeRaw >= 0 && smokeRaw <= 4095;
-}
-
-// loadBaselineFromNvs: คืน true เมื่อนำ ค่าฐาน ที่เคยบันทึกกลับมาใช้ได้; TEST_MODE ไม่โหลด ส่วน FORCE_RECALIBRATE ล้างข้อมูลเดิม หากไม่มีต้องสะสมค่าฐานใหม่หลังไฟดับ
-bool loadBaselineFromNvs() {
-#if BASELINE_SAVE_TO_NVS && !TEST_MODE
-  if (baselineInitialized) return true;
-
-#if BASELINE_FORCE_RECALIBRATE
-  if (baselinePrefs.begin("node_base", false)) {
-    baselinePrefs.clear();
-    baselinePrefs.end();
-  }
-  return false;
-#else
-  if (!baselinePrefs.begin("node_base", true)) return false;
-  bool valid = baselinePrefs.getBool("valid", false);
-  uint32_t version = baselinePrefs.getUInt("ver", 0);
-  float airTemp = baselinePrefs.getFloat("air", NAN);
-  float humidity = baselinePrefs.getFloat("hum", NAN);
-  int smokeRaw = baselinePrefs.getInt("smoke", -1);
-  baselinePrefs.end();
-
-  if (!valid || version != BASELINE_STORAGE_VERSION ||
-      !isStoredBaselineSane(airTemp, humidity, smokeRaw)) return false;
-
-  baselineAirTemp = airTemp;
-  baselineHumidity = humidity;
-  baselineSmokeRaw = smokeRaw;
-  baselineInitialized = true;
-  baselineWarmupCount = BASELINE_WARMUP_CYCLES;
-  bootAbnormalCount = 0;
-  baselineNvsCyclesSinceSave = 0;
-  debugPrintln("Baseline restored from NVS");
-  return true;
-#endif
-#else
-  return false;
-#endif
-}
-
-// saveBaselineToNvs: เก็บ ค่าฐาน ลงแฟลช NVS เพื่อใช้หลังตัดไฟ; ตั้ง valid=false ก่อนเขียนแล้ว true ท้ายสุดเพื่อลดโอกาสอ่านชุดที่เขียนไม่ครบ ทั้งนี้โค้ดไม่ได้ตรวจผล put แต่ละตัว
-void saveBaselineToNvs() {
-#if BASELINE_SAVE_TO_NVS && !TEST_MODE
-  if (!baselineInitialized ||
-      !isStoredBaselineSane(baselineAirTemp, baselineHumidity, baselineSmokeRaw)) return;
-  if (!baselinePrefs.begin("node_base", false)) return;
-  baselinePrefs.putBool("valid", false);
-  baselinePrefs.putUInt("ver", BASELINE_STORAGE_VERSION);
-  baselinePrefs.putFloat("air", baselineAirTemp);
-  baselinePrefs.putFloat("hum", baselineHumidity);
-  baselinePrefs.putInt("smoke", baselineSmokeRaw);
-  baselinePrefs.putBool("valid", true);
-  baselinePrefs.end();
-  baselineNvsCyclesSinceSave = 0;
-  debugPrintln("Baseline saved to NVS");
-#endif
-}
-
-// clearLearnedBaseline: ล้าง ค่าฐาน ใน NVS (ถ้าเปิดใช้) และตัวแปรสะสม พร้อมกลับ CALIBRATING; คืน false เมื่อเปิด NVS ไม่ได้ การเรียกนี้ทำให้ต้องเรียนรู้ใหม่
-bool clearLearnedBaseline() {
-#if BASELINE_SAVE_TO_NVS && !TEST_MODE
-  if (!baselinePrefs.begin("node_base", false)) return false;
-  baselinePrefs.clear();
-  baselinePrefs.end();
-#endif
-
-  baselineInitialized = false;
-  baselineWarmupCount = 0;
-  bootAbnormalCount = 0;
-  warmupAirSum = 0.0f;
-  warmupHumiditySum = 0.0f;
-  warmupSmokeSum = 0;
-  baselineAirTemp = 0.0f;
-  baselineHumidity = 0.0f;
-  baselineSmokeRaw = 0;
-  baselineNvsCyclesSinceSave = 0;
-  latchedStatusValue = CALIBRATING;
+  rtcRiskStateVersion = RTC_RISK_STATE_VERSION;
+  latchedStatusValue = NORMAL;
+  latchedReasonBits = REASON_NONE;
   releaseCounter = 0;
-  criticalCandidateCounter = 0;
-  weakWatchCandidateCounter = 0;
-  baselineRecalibrationAcceptedThisCycle = true;
-  debugPrintln("Baseline cleared; recalibration requested");
-  return true;
 }
 
-// baselineRecalibrationBlockReason: คืนข้อความเหตุผลที่ไม่ยอมเรียน ค่าฐาน ใหม่ หรือข้อความว่างเมื่ออนุญาต; ป้องกันล้างฐานขณะข้อมูลเสีย/วิกฤต/ค่าจริงไม่ปลอดภัย แต่ WATCH หรือ WARNING ที่ค่าจริงผ่านเกณฑ์ยังทำได้
-String baselineRecalibrationBlockReason() {
-  if (!commandSafetyReady) return "measurement_unavailable";
-  if (hasSensorFault(commandSafetyData)) return "sensor_fault";
-  if (commandSafetyStatus == CALIBRATING) return "already_calibrating";
-  // การย้ายจากห้องเย็นไปพื้นที่อุ่นกว่าอาจทำให้ค่าฐานเดิมนำไปสู่สถานะเตือน
-  // แม้ค่าที่วัดจริงในขณะนั้นยังผ่านเกณฑ์ที่อนุญาตให้เรียนรู้ฐานใหม่
-  if (commandSafetyStatus == CRITICAL || commandSafetyStatus == SENSOR_FAULT) {
-    return "unsafe_state";
-  }
-  if (isBootAbnormalReading(commandSafetyData)) return "unsafe_reading";
-  return "";
-}
-
-// updateBaselineWarmup: สะสมเฉพาะรอบที่ผ่านเกณฑ์แล้วหาค่าเฉลี่ยเมื่อครบจำนวน; คืนว่าฐานพร้อมหรือยัง รอบผิดปกติถูกข้ามและไม่ได้ล้างผลรวมรอบดีก่อนหน้า
-bool updateBaselineWarmup(const SensorData &data) {
-  if (baselineInitialized) return true;
-  if (hasSensorFault(data)) return false;
-
-  if (isBootAbnormalReading(data)) {
-    if (bootAbnormalCount < 255) bootAbnormalCount++;
-    return false;
-  }
-
-  warmupAirSum += data.airTemp;
-  warmupHumiditySum += data.humidity;
-  warmupSmokeSum += data.smokeRaw;
-  baselineWarmupCount++;
-
-  if (baselineWarmupCount >= BASELINE_WARMUP_CYCLES) {
-    baselineAirTemp = warmupAirSum / baselineWarmupCount;
-    baselineHumidity = warmupHumiditySum / baselineWarmupCount;
-    baselineSmokeRaw = (int)(warmupSmokeSum / baselineWarmupCount);
-    baselineInitialized = true;
-    saveBaselineToNvs();
-  }
-
-  return baselineInitialized;
-}
-
-// getElapsedMinutesForDelta: คืนเวลาระหว่างการวัดเป็นนาที: ทดสอบใช้ millis เมื่อใช้ได้ ส่วนภาคสนามอาศัยช่วงที่คาดไว้; เป็นค่าประมาณ ไม่รวมเวลาทำงานทั้งหมดหลังตื่น
-float getElapsedMinutesForDelta(unsigned long nowMs) {
-#if TEST_MODE
-  if (previousReadMs > 0 && nowMs >= previousReadMs) {
-    float measured = (nowMs - previousReadMs) / 60000.0f;
-    if (measured >= 0.001f) return measured;
-  }
-  if (expectedNextElapsedMinutes > 0.0f) return expectedNextElapsedMinutes;
-  return LOOP_INTERVAL_MS / 60000.0f;
-#else
-  if (expectedNextElapsedMinutes > 0.0f) return expectedNextElapsedMinutes;
-  return NORMAL_SLEEP_SEC / 60.0f;
-#endif
-}
-
-// calculateDelta: คืนผลต่างจากครั้งก่อน อัตราต่อนาที และผลต่างจาก ค่าฐาน; ถ้าไม่มีข้อมูลก่อนหน้าจะไม่คำนวณ อัตราการเปลี่ยนแปลง ส่วน ค่าฐาน ช่วยจับค่าที่สูงค้างแม้ไม่เพิ่มแล้ว
-DeltaData calculateDelta(const SensorData &current, const SensorData &previous, bool hasPrev, unsigned long nowMs) {
-  DeltaData d;
-  d.airTempDelta = 0.0f;
-  d.humidityDelta = 0.0f;
-  d.smokeDelta = 0;
-  d.airTempRatePerMin = 0.0f;
-  d.humidityRatePerMin = 0.0f;
-  d.smokeRatePerMin = 0.0f;
-  d.airTempBaselineDelta = 0.0f;
-  d.humidityBaselineDelta = 0.0f;
-  d.smokeBaselineDelta = 0;
-  d.elapsedMinutes = 0.0f;
-
-  if (hasPrev) {
-    d.elapsedMinutes = getElapsedMinutesForDelta(nowMs);
-    // กันหารด้วยศูนย์หรือช่วงเวลาสั้นเกินไปจน อัตราการเปลี่ยนแปลง พุ่งผิดธรรมชาติ
-    if (d.elapsedMinutes < 0.001f) d.elapsedMinutes = 0.001f;
-
-    if (!isnan(current.airTemp) && !isnan(previous.airTemp)) d.airTempDelta = current.airTemp - previous.airTemp;
-    if (!isnan(current.humidity) && !isnan(previous.humidity)) d.humidityDelta = current.humidity - previous.humidity;
-    if (current.smokeRaw >= 0 && previous.smokeRaw >= 0) d.smokeDelta = current.smokeRaw - previous.smokeRaw;
-
-    d.airTempRatePerMin = d.airTempDelta / d.elapsedMinutes;
-    d.humidityRatePerMin = d.humidityDelta / d.elapsedMinutes;
-    d.smokeRatePerMin = d.smokeDelta / d.elapsedMinutes;
-  }
-
-  if (baselineInitialized) {
-    if (!isnan(current.airTemp)) d.airTempBaselineDelta = current.airTemp - baselineAirTemp;
-    if (!isnan(current.humidity)) d.humidityBaselineDelta = current.humidity - baselineHumidity;
-    if (current.smokeRaw >= 0) d.smokeBaselineDelta = current.smokeRaw - baselineSmokeRaw;
-  }
-
-  return d;
-}
-
-// getEvidenceFlags: แปลงค่าเซนเซอร์เป็นหลักฐานสามกลุ่ม: ควัน ความร้อน ความชื้น; ใช้ทั้งอัตราเพิ่ม/ลด ความต่างจากฐาน และเกณฑ์ค่าจริง แล้วนับจำนวนกลุ่มที่เข้าเกณฑ์
-EvidenceFlags getEvidenceFlags(const SensorData &data, const DeltaData &delta) {
-  EvidenceFlags e;
-  // กลับเครื่องหมายให้การลดความชื้นกลายเป็นจำนวนบวก เพื่อเทียบเกณฑ์การลดได้ตรงกัน
-  float humidityDropFromBaseline = -delta.humidityBaselineDelta;
-
-  // ต้องเปลี่ยนมากพอทั้งขนาดจริงและอัตราต่อนาที ช่วยไม่ขยายการสั่นเล็ก ๆ เป็นสัญญาณเตือนเมื่อวัดถี่
-  bool smokeRateWatch = delta.smokeDelta >= SMOKE_RATE_MIN_DELTA_RAW &&
-                        delta.smokeRatePerMin >= SMOKE_RATE_WATCH_PER_MIN;
-  bool smokeRateWarning = delta.smokeDelta >= SMOKE_RATE_MIN_DELTA_RAW &&
-                          delta.smokeRatePerMin >= SMOKE_RATE_WARNING_PER_MIN;
-  bool smokeRateCritical = delta.smokeDelta >= SMOKE_RATE_MIN_DELTA_RAW &&
-                           delta.smokeRatePerMin >= SMOKE_RATE_CRITICAL_PER_MIN;
-
-  bool airTempRateWatch = delta.airTempDelta >= AIR_TEMP_RATE_MIN_DELTA_C &&
-                          delta.airTempRatePerMin >= AIR_TEMP_RATE_WATCH_PER_MIN;
-  bool airTempRateWarning = delta.airTempDelta >= AIR_TEMP_RATE_MIN_DELTA_C &&
-                            delta.airTempRatePerMin >= AIR_TEMP_RATE_WARNING_PER_MIN;
-  bool airTempRateCritical = delta.airTempDelta >= AIR_TEMP_RATE_MIN_DELTA_C &&
-                             delta.airTempRatePerMin >= AIR_TEMP_RATE_CRITICAL_PER_MIN;
-
-  bool humidityRateWatch = (-delta.humidityDelta) >= HUMIDITY_DROP_RATE_MIN_DELTA &&
-                           (-delta.humidityRatePerMin) >= HUMIDITY_DROP_RATE_WATCH_PER_MIN;
-  bool humidityRateWarning = (-delta.humidityDelta) >= HUMIDITY_DROP_RATE_MIN_DELTA &&
-                             (-delta.humidityRatePerMin) >= HUMIDITY_DROP_RATE_WARNING_PER_MIN;
-  bool humidityRateCritical = (-delta.humidityDelta) >= HUMIDITY_DROP_RATE_MIN_DELTA &&
-                              (-delta.humidityRatePerMin) >= HUMIDITY_DROP_RATE_CRITICAL_PER_MIN;
-
-  bool smokeBaselineWatch = delta.smokeBaselineDelta >= SMOKE_BASELINE_WATCH &&
-                            data.smokeRaw >= SMOKE_RAW_WATCH_MIN;
-
-  e.smokeWatch = smokeRateWatch || smokeBaselineWatch;
-  e.smokeGroup = smokeRateWarning ||
-                 delta.smokeBaselineDelta >= SMOKE_BASELINE_WARNING ||
-                 data.smokeRaw >= SMOKE_RAW_WARNING;
-  e.smokeCritical = smokeRateCritical ||
-                    delta.smokeBaselineDelta >= SMOKE_BASELINE_CRITICAL ||
-                    data.smokeRaw >= SMOKE_RAW_CRITICAL;
-
-  e.heatWatch = airTempRateWatch ||
-                delta.airTempBaselineDelta >= AIR_TEMP_BASELINE_WATCH;
-  e.heatGroup = airTempRateWarning ||
-                delta.airTempBaselineDelta >= AIR_TEMP_BASELINE_WARNING ||
-                (!isnan(data.airTemp) && data.airTemp >= AIR_TEMP_ABSOLUTE_WARNING);
-  e.heatCritical = airTempRateCritical ||
-                   delta.airTempBaselineDelta >= AIR_TEMP_BASELINE_CRITICAL ||
-                   (!isnan(data.airTemp) && data.airTemp >= AIR_TEMP_ABSOLUTE_CRITICAL);
-
-  e.humidityWatch = humidityRateWatch ||
-                    humidityDropFromBaseline >= HUMIDITY_BASELINE_DROP_WATCH;
-  e.humidityGroup = humidityRateWarning ||
-                    humidityDropFromBaseline >= HUMIDITY_BASELINE_DROP_WARNING ||
-                    (!isnan(data.humidity) && data.humidity <= HUMIDITY_LOW);
-  e.humidityCritical = humidityRateCritical ||
-                       humidityDropFromBaseline >= HUMIDITY_BASELINE_DROP_CRITICAL ||
-                       (!isnan(data.humidity) && data.humidity <= HUMIDITY_VERY_LOW);
-
-  e.groupCount = 0;
-  if (e.smokeGroup) e.groupCount++;
-  if (e.heatGroup) e.groupCount++;
-  if (e.humidityGroup) e.groupCount++;
-  return e;
-}
-
-// calculateConfidence: รวมคะแนนหลักฐานแล้วจำกัด 0–100; เป็นคะแนนตามกฎของโครงการ ไม่ใช่ความน่าจะเป็นเกิดไฟที่สอบเทียบแล้ว พารามิเตอร์ ผลต่าง ยังไม่ได้ใช้ในฟังก์ชันนี้
-int calculateConfidence(const SensorData &data, const DeltaData &delta, const EvidenceFlags &e) {
-  int score = 0;
-
-  // แต่ละกลุ่มเลือกคะแนนขั้นสูงสุดเพียงขั้นเดียวด้วย if/else if จึงไม่บวก Watch+Group+Critical ซ้อนกัน
-  if (e.smokeCritical) score += 20;
-  else if (e.smokeGroup) score += 10;
-  else if (e.smokeWatch) score += 5;
-
-  if (e.heatCritical) score += 40;
-  else if (e.heatGroup) score += 25;
-  else if (e.heatWatch) score += 10;
-
-  if (e.humidityCritical) score += 40;
-  else if (e.humidityGroup) score += 25;
-  else if (e.humidityWatch) score += 10;
-
-  if (hasSensorFault(data)) score -= 40;
-  // ฐานยังไม่พร้อมจำกัดคะแนนไม่เกิน 60 เสมอ; สถานะช่วงนี้ใช้กฎเริ่มเครื่องใน evaluateFireStatusRaw
-  if (!baselineInitialized) score = min(score, 60); // ก่อนค่าฐานพร้อม จำกัดคะแนนไม่เกิน 60; สถานะใช้กฎช่วงเริ่มเครื่องแยกต่างหาก
-
-  if (score < 0) score = 0;
-  if (score > 100) score = 100;
-  return score;
-}
-
-// evaluateFireStatusRaw: ตัดสินจากสุขภาพเซนเซอร์ ความพร้อมค่าฐาน และคะแนน; ยังไม่ผ่านการยืนยันหรือค้างสถานะ
-FireStatus evaluateFireStatusRaw(const SensorData &data, const EvidenceFlags &e, int confidence) {
-  if (hasSensorFault(data)) return SENSOR_FAULT;
-
-  if (!baselineInitialized) {
-    if (bootAbnormalCount >= BOOT_ABNORMAL_REQUIRED_CYCLES) {
-      if (e.smokeCritical && (e.heatGroup || e.humidityGroup)) return WARNING;
-      return WATCH;
-    }
-    return CALIBRATING;
-  }
-
-  // ดัชนีความเสี่ยง ไม่ใช่เปอร์เซ็นต์โอกาสเกิดไฟ; ควันไม่ใช่เงื่อนไขบังคับ
-  // ใช้คะแนนตัดระดับ แล้วให้ debounce/latch ยืนยันการเปลี่ยนสถานะ
-  if (confidence >= CRITICAL_CONFIDENCE) return CRITICAL;
-  if (confidence >= WARNING_CONFIDENCE) return WARNING;
-  if (confidence >= WATCH_CONFIDENCE) return WATCH;
-  return NORMAL;
-}
-
-// statusSeverity: แปลงชื่อสถานะเป็นอันดับสำหรับเปรียบเทียบในโค้ด; SENSOR_FAULT อันดับ 0 ไม่ได้หมายความว่าเซนเซอร์เสียปลอดภัย
+// statusSeverity: ใช้เปรียบเทียบเฉพาะสามระดับความเสี่ยง; SENSOR_FAULT แยกออกจากลำดับ
 int statusSeverity(FireStatus status) {
   switch (status) {
-    case SENSOR_FAULT: return 0;
-    case CALIBRATING: return 1;
-    case NORMAL: return 2;
-    case WATCH: return 3;
-    case WARNING: return 4;
-    case CRITICAL: return 5;
-    default: return 0;
+    case NORMAL: return 0;
+    case WATCH: return 1;
+    case WARNING: return 2;
+    default: return -1;
   }
 }
 
-// isWeakEnvironmentalWatch: ระบุ WATCH อ่อนจากสิ่งแวดล้อมที่ไม่มีควันและไม่มีหลักฐานกลุ่มแรง; คืน true เพื่อให้ขั้นต่อไปรอยืนยันหลายรอบ
-bool isWeakEnvironmentalWatch(FireStatus rawStatus, const EvidenceFlags &e, int confidence) {
-  if (rawStatus != WATCH) return false;
-  if (e.smokeWatch || e.smokeGroup || e.smokeCritical) return false;
-  if (e.heatGroup || e.humidityGroup) return false;
-  if (confidence >= WARNING_CONFIDENCE) return false;
-  return e.heatWatch || e.humidityWatch;
-}
-
-// applyWeakWatchDebounce: หน่วง WATCH อ่อนจนพบต่อเนื่องครบจำนวนเมื่อสถานะเดิมต่ำกว่า WATCH; ถ้าตัดออก อากาศแกว่งเล็กน้อยอาจทำให้เปลี่ยนสถานะเร็วขึ้น
-FireStatus applyWeakWatchDebounce(FireStatus rawStatus, const EvidenceFlags &e, int confidence) {
-#if WATCH_ENV_CONFIRM_CYCLES <= 1
-  weakWatchCandidateCounter = 0;
-  return rawStatus;
-#else
-  if (!isWeakEnvironmentalWatch(rawStatus, e, confidence)) {
-    weakWatchCandidateCounter = 0;
-    return rawStatus;
+// evaluateRawRisk: ตัดสินจากค่าปัจจุบันเท่านั้นตามเกณฑ์อ้างอิง ไม่มีคะแนนหรืออัตราการเปลี่ยนแปลง
+RiskDecision evaluateRawRisk(const SensorData &data) {
+  if (hasSensorFault(data)) {
+    return {SENSOR_FAULT, REASON_SENSOR_FAULT};
   }
 
-  FireStatus latched = (FireStatus)latchedStatusValue;
-  if (statusSeverity(latched) >= statusSeverity(WATCH)) {
-    weakWatchCandidateCounter = 0;
-    return rawStatus;
+  uint16_t warningReasons = REASON_NONE;
+  if (data.airTemp > WARNING_AIR_TEMP_GT_C) {
+    warningReasons |= REASON_TEMP_WARNING;
+  }
+  if (data.particleUgM3 > WARNING_PARTICLE_GT_UG_M3) {
+    warningReasons |= REASON_PARTICLE_WARNING;
+  }
+  if (data.airTemp >= HOT_DRY_MIN_AIR_TEMP_C &&
+      data.humidity <= HOT_DRY_MAX_HUMIDITY_RH) {
+    warningReasons |= REASON_HOT_DRY_WARNING;
+  }
+  if (warningReasons != REASON_NONE) {
+    return {WARNING, warningReasons};
   }
 
-  if (weakWatchCandidateCounter < 255) weakWatchCandidateCounter++;
-  if (weakWatchCandidateCounter >= WATCH_ENV_CONFIRM_CYCLES) return rawStatus;
-  return NORMAL;
-#endif
-}
-
-// applyCriticalDebounce: ให้ CRITICAL ใหม่ต้องเข้าเงื่อนไขต่อเนื่องครบจำนวน ระหว่างรอคืน WARNING; ถ้าเดิม CRITICAL แล้วคงไว้ และรีเซ็ตตัวนับเมื่อไม่เข้าเงื่อนไข
-FireStatus applyCriticalDebounce(FireStatus rawStatus) {
-  if (rawStatus == CRITICAL) {
-    if ((FireStatus)latchedStatusValue == CRITICAL) return CRITICAL;
-    if (criticalCandidateCounter < 255) criticalCandidateCounter++;
-    if (criticalCandidateCounter >= CRITICAL_CONFIRM_CYCLES) return CRITICAL;
-    return WARNING; // รอบแรกที่เข้าเงื่อนไขวิกฤตให้เป็นสถานะเตือนก่อน แล้วรอยืนยันรอบถัดไป
+  uint16_t watchReasons = REASON_NONE;
+  if (data.airTemp > NORMAL_MAX_AIR_TEMP_C) {
+    watchReasons |= REASON_TEMP_WATCH;
+  }
+  if (data.particleUgM3 > NORMAL_MAX_PARTICLE_UG_M3) {
+    watchReasons |= REASON_PARTICLE_WATCH;
+  }
+  if (data.humidity < NORMAL_MIN_HUMIDITY_RH) {
+    watchReasons |= REASON_HUMIDITY_WATCH;
+  }
+  if (watchReasons != REASON_NONE) {
+    return {WATCH, watchReasons};
   }
 
-  criticalCandidateCounter = 0;
-  return rawStatus;
+  return {NORMAL, REASON_NONE};
 }
 
-// applyStateLatch: ค้างสถานะเดิมก่อนลดระดับจนคะแนนและจำนวนรอบผ่านเกณฑ์; ลดการสลับสถานะไปมา แต่ SENSOR_FAULT/CALIBRATING จะคืนทันทีโดยไม่รอ
-FireStatus applyStateLatch(FireStatus rawStatus, int confidence) {
+// applyStateLatch: ยกระดับทันที แต่ลด WARNING/WATCH หลังค่าต่ำกว่าระดับเดิมติดต่อกัน 3 รอบ
+RiskDecision applyStateLatch(const RiskDecision &raw) {
   FireStatus latched = (FireStatus)latchedStatusValue;
 
-  if (rawStatus == SENSOR_FAULT || rawStatus == CALIBRATING) {
-    latchedStatusValue = rawStatus;
+  if (raw.status == SENSOR_FAULT) {
+    latchedStatusValue = SENSOR_FAULT;
+    latchedReasonBits = raw.reasonBits;
     releaseCounter = 0;
-    return rawStatus;
+    return raw;
   }
 
-  if (statusSeverity(rawStatus) >= statusSeverity(latched)) {
-    latchedStatusValue = rawStatus;
+  if (latched == SENSOR_FAULT ||
+      (latched != NORMAL && latched != WATCH && latched != WARNING)) {
+    latchedStatusValue = raw.status;
+    latchedReasonBits = raw.reasonBits;
     releaseCounter = 0;
-    return rawStatus;
+    return raw;
   }
 
-  bool allowRelease = false;
-  if (latched == CRITICAL) allowRelease = confidence < CRITICAL_RELEASE_CONFIDENCE;
-  else if (latched == WARNING) allowRelease = confidence < WARNING_RELEASE_CONFIDENCE;
-  else allowRelease = true;
-
-  if (allowRelease) {
-    releaseCounter++;
-    if (releaseCounter >= STATUS_RELEASE_CYCLES) {
-      latchedStatusValue = rawStatus;
-      releaseCounter = 0;
-      return rawStatus;
-    }
-  } else {
+  if (statusSeverity(raw.status) > statusSeverity(latched)) {
+    latchedStatusValue = raw.status;
+    latchedReasonBits = raw.reasonBits;
     releaseCounter = 0;
+    return raw;
   }
 
-  return latched;
+  if (raw.status == latched) {
+    latchedReasonBits = raw.reasonBits;
+    releaseCounter = 0;
+    return raw;
+  }
+
+  if (releaseCounter < 255) releaseCounter++;
+  if (releaseCounter < STATUS_RELEASE_CYCLES) {
+    return {latched, (uint16_t)(latchedReasonBits | REASON_RECOVERY_HOLD)};
+  }
+
+  releaseCounter = 0;
+  if (latched == WARNING) {
+    // แม้ค่ากลับ NORMAL แล้ว ให้ผ่าน WATCH ก่อนตามกฎฟื้นตัวที่ตกลงไว้
+    latchedStatusValue = WATCH;
+    latchedReasonBits = raw.status == WATCH ? raw.reasonBits : REASON_RECOVERY_HOLD;
+    return {WATCH, latchedReasonBits};
+  }
+
+  latchedStatusValue = NORMAL;
+  latchedReasonBits = REASON_NONE;
+  return {NORMAL, REASON_NONE};
 }
 
-// evaluateFireStatus: รวมลำดับตัดสินจริง: สถานะดิบ → ยืนยัน CRITICAL → ยืนยัน WATCH อ่อน → ค้างสถานะ; การสลับลำดับอาจเปลี่ยนผลลัพธ์
-FireStatus evaluateFireStatus(const SensorData &data, const EvidenceFlags &e, int confidence) {
-  FireStatus rawStatus = evaluateFireStatusRaw(data, e, confidence);
-  rawStatus = applyCriticalDebounce(rawStatus);
-  rawStatus = applyWeakWatchDebounce(rawStatus, e, confidence);
-  return applyStateLatch(rawStatus, confidence);
-}
-
-// updateBaselineAfterDecision: ปรับฐานช้า ๆ หลังตัดสินแล้ว: NORMAL ปรับทั้งสามค่า; WATCH ที่ไม่มี smokeWatch/smokeGroup ปรับเฉพาะอุณหภูมิ/ความชื้น; ถ้าปรับก่อนตัดสินอาจกลบความผิดปกติ
-void updateBaselineAfterDecision(const SensorData &data, const DeltaData &delta, const EvidenceFlags &e, FireStatus status) {
-  if (!baselineInitialized || hasSensorFault(data)) return;
-
-  if (status == NORMAL) {
-    // EMA ขยับฐานเข้าหาค่าใหม่ทีละส่วน เช่น alpha=0.05 คือขยับ 5% ของผลต่าง ไม่แทนฐานด้วยค่าปัจจุบันทั้งหมด
-    baselineAirTemp = baselineAirTemp + BASELINE_EMA_ALPHA * (data.airTemp - baselineAirTemp);
-    baselineHumidity = baselineHumidity + BASELINE_EMA_ALPHA * (data.humidity - baselineHumidity);
-    baselineSmokeRaw = (int)(baselineSmokeRaw + BASELINE_EMA_ALPHA * (data.smokeRaw - baselineSmokeRaw));
-    if (baselineNvsCyclesSinceSave < BASELINE_NVS_SAVE_INTERVAL_CYCLES) {
-      baselineNvsCyclesSinceSave++;
-    }
-    if (baselineNvsCyclesSinceSave >= BASELINE_NVS_SAVE_INTERVAL_CYCLES) {
-      saveBaselineToNvs();
-    }
-  } else if (status == WATCH && !e.smokeWatch && !e.smokeGroup) {
-    // อุณหภูมิและความชื้นที่เปลี่ยนตามกลางวันกลางคืนอาจทำให้เฝ้าระวังแม้ไม่มีควัน
-    // ปรับค่าฐานช้า ๆ เพื่อช่วยไม่ให้โหนดค้างสถานะเฝ้าระวังตลอดบ่ายจากการเปลี่ยนตามธรรมชาติ
-    baselineAirTemp = baselineAirTemp + BASELINE_WATCH_NO_SMOKE_ALPHA * (data.airTemp - baselineAirTemp);
-    baselineHumidity = baselineHumidity + BASELINE_WATCH_NO_SMOKE_ALPHA * (data.humidity - baselineHumidity);
-  }
+// evaluateFireStatus: จุดตัดสินสถานะเพียงจุดเดียวของเฟิร์มแวร์
+RiskDecision evaluateFireStatus(const SensorData &data) {
+  return applyStateLatch(evaluateRawRisk(data));
 }
 
 // addFloatOrNull: ใส่ค่าทศนิยมลง JSON ตาม key; ถ้า NaN ใช้ null เพื่อบอกว่าไม่มีข้อมูล แทนเลขศูนย์ที่อาจถูกเข้าใจว่าเป็นค่าจริง
@@ -815,81 +475,60 @@ void addFloatOrNull(JsonDocument &doc, const char *key, float value) {
   else doc[key] = value;
 }
 
-// sensorHealthString: คืน FAULT เมื่อเซนเซอร์เสีย, CAL เมื่อฐานยังไม่พร้อม, OK เมื่อผ่านทั้งสองส่วน; ใช้เป็นช่อง sh ในแพ็กเก็ต
+// sensorHealthString: สุขภาพเซนเซอร์แยกจากระดับความเสี่ยง
 String sensorHealthString(const SensorData &data) {
-  if (hasSensorFault(data)) return "FAULT";
-  if (!baselineInitialized) return "CAL";
-  return "OK";
+  return hasSensorFault(data) ? "FAULT" : "OK";
 }
 
-// plannedReportIntervalSeconds: คืนช่วงรายงานที่ตั้งใจเป็นวินาทีให้ เกตเวย์/ระบบปลายทางรู้รอบส่ง; เวลาจริงอาจยาวกว่าเพราะอ่านเซนเซอร์ ส่งซ้ำ และรอ ACK
+// plannedReportIntervalSeconds: รอบวัดและส่งเป็นรอบเดียวกันตามสถานะ
 uint32_t plannedReportIntervalSeconds(FireStatus status) {
 #if TEST_MODE
-  return status == CRITICAL ? max(1UL, CRITICAL_CONTINUE_INTERVAL_MS / 1000UL)
-                            : max(1UL, LOOP_INTERVAL_MS / 1000UL);
+  return max(1UL, LOOP_INTERVAL_MS / 1000UL);
 #else
-  if (status == CRITICAL) return max(1UL, CRITICAL_CONTINUE_INTERVAL_MS / 1000UL);
-  if (status == CALIBRATING) return CALIBRATING_SLEEP_SEC;
-  if (status == WATCH) return WATCH_SLEEP_SEC;
-  if (status == WARNING) return WARNING_SLEEP_SEC;
-  if (status == SENSOR_FAULT) return SENSOR_FAULT_SLEEP_SEC;
-  return NORMAL_SLEEP_SEC;
+  if (status == WATCH) return WATCH_REPORT_INTERVAL_SEC;
+  if (status == WARNING) return WARNING_REPORT_INTERVAL_SEC;
+  if (status == SENSOR_FAULT) return SENSOR_FAULT_REPORT_INTERVAL_SEC;
+  return NORMAL_REPORT_INTERVAL_SEC;
 #endif
 }
 
 // buildJsonPacket: ประกอบข้อมูลวัดเป็น JSON ย่อและเพิ่ม seq หนึ่งครั้งต่อข้อมูลชุดใหม่; คีย์สั้นช่วยประหยัดพื้นที่ LoRa การส่งซ้ำใช้ ข้อความที่จะส่ง เดิมเพื่อระบุว่าเป็นชุดเดียวกัน
-String buildJsonPacket(const SensorData &data, const DeltaData &delta, FireStatus status, int confidence) {
+String buildJsonPacket(const SensorData &data, const RiskDecision &decision) {
   StaticJsonDocument<MAX_JSON_SIZE> doc;
   seq++;
 
-  // คีย์ JSON: t ชนิด, id โหนด, q ลำดับ, sid รอบบูต, ri ช่วงรายงานวินาที, st สถานะ, c คะแนน, at °C, h %RH, sm ADC
-  doc["t"] = (status == CRITICAL) ? "c" : "s";
+  // pm คืออนุภาคประมาณ µg/m³; rb เป็น bitmask เหตุผลของสถานะ
+  doc["t"] = "s";
   doc["id"] = NODE_ID;
   doc["q"] = seq;
   doc["sid"] = bootSessionId;
-  doc["ri"] = plannedReportIntervalSeconds(status);
-  doc["st"] = statusToString(status);
-  doc["c"] = confidence;
+  doc["ri"] = plannedReportIntervalSeconds(decision.status);
+  doc["st"] = statusToString(decision.status);
+  doc["rb"] = decision.reasonBits;
   doc["rv"] = RISK_MODEL_VERSION;
   addFloatOrNull(doc, "at", data.airTemp);
   addFloatOrNull(doc, "h", data.humidity);
-  doc["sm"] = data.smokeRaw;
-
-  // ส่งผลต่างไว้ตรวจสอบย้อนหลัง; เซิร์ฟเวอร์ใช้ st/c จากโหนดโดยไม่คำนวณซ้ำ
-  // sr/ar/hr = ผลต่างควัน/อุณหภูมิ/ความชื้นจากฐาน; sh = สุขภาพ; bc/bt = จำนวนรอบสะสม/เป้าหมายเมื่อยังเรียนฐาน
-  doc["sr"] = delta.smokeBaselineDelta;
-  doc["ar"] = delta.airTempBaselineDelta;
-  doc["hr"] = delta.humidityBaselineDelta;
-
+  addFloatOrNull(doc, "pm", data.particleUgM3);
   doc["sh"] = sensorHealthString(data);
 
-  if (!baselineInitialized) {
-    doc["bc"] = baselineWarmupCount;
-    doc["bt"] = BASELINE_WARMUP_CYCLES;
-  }
   String payload;
   serializeJson(doc, payload);
 
-  // เมื่อข้อความยาวเกินเพดาน ตัดผลต่างประกอบออก แต่คงผลประเมินจากโหนดครบ
+  // ฉบับย่อยังคงค่าที่ใช้ตรวจสอบผลการตัดสินครบ
   if (payload.length() > MAX_SAFE_PAYLOAD_BYTES) {
     StaticJsonDocument<MAX_JSON_SIZE> mini;
-    mini["t"] = (status == CRITICAL) ? "c" : "s";
+    mini["t"] = "s";
     mini["id"] = NODE_ID;
     mini["q"] = seq;
     mini["sid"] = bootSessionId;
-    mini["ri"] = plannedReportIntervalSeconds(status);
-    mini["st"] = statusToString(status);
-    mini["c"] = confidence;
+    mini["ri"] = plannedReportIntervalSeconds(decision.status);
+    mini["st"] = statusToString(decision.status);
+    mini["rb"] = decision.reasonBits;
     mini["rv"] = RISK_MODEL_VERSION;
-    mini["at"] = data.airTemp;
-    mini["h"] = data.humidity;
-    mini["sm"] = data.smokeRaw;
-    // ย่อโดยตัดเฉพาะผลต่างประกอบ; เก็บสถานะ คะแนน รุ่นสูตร และสุขภาพเสมอ
+    addFloatOrNull(mini, "at", data.airTemp);
+    addFloatOrNull(mini, "h", data.humidity);
+    addFloatOrNull(mini, "pm", data.particleUgM3);
     mini["sh"] = sensorHealthString(data);
-    if (!baselineInitialized) {
-      mini["bc"] = baselineWarmupCount;
-      mini["bt"] = BASELINE_WARMUP_CYCLES;
-    }
     payload = ""; // serializeJson เติมท้าย String จึงต้องล้างฉบับเต็มก่อน
     serializeJson(mini, payload);
   }
@@ -1301,7 +940,7 @@ void loadLastHandledCommandId() {
   commandPrefs.end();
 }
 
-// saveLastHandledCommandId: บันทึกรหัสคำสั่งที่ทำแล้วทั้ง NVS และ RAM; ป้องกัน เกตเวย์ ส่งคำสั่งซ้ำแล้วเริ่มปรับฐาน/ค้น GPS ใหม่ซ้ำ
+// saveLastHandledCommandId: บันทึกรหัสคำสั่งที่ทำแล้วทั้ง NVS และ RAM; ป้องกันเกตเวย์ส่งคำสั่ง GPS ซ้ำ
 void saveLastHandledCommandId(const String &commandId) {
   if (!commandPrefs.begin("node_cmd", false)) return;
   commandPrefs.putString("last_id", commandId);
@@ -1337,28 +976,12 @@ String handleGatewayCommand(const String &payload) {
   String commandId = String((const char *)(doc["cid"] | ""));
   String command = String((const char *)(doc["cmd"] | ""));
   if (commandId.length() == 0 ||
-      (command != "gps_reacquire" && command != "gps_manual" &&
-       command != "baseline_recalibrate")) return "";
+      (command != "gps_reacquire" && command != "gps_manual")) return "";
 
   lastCommandAccepted = true;
   lastCommandResultReason = "";
   // คำสั่งรหัสเดิมตอบรับได้โดยไม่ทำงานซ้ำ; จำเฉพาะรหัสล่าสุด ไม่ใช่ประวัติคำสั่งทั้งหมด
   if (commandId == lastHandledCommandId) return commandId;
-
-  if (command == "baseline_recalibrate") {
-    lastCommandResultReason = baselineRecalibrationBlockReason();
-    if (lastCommandResultReason.length() > 0) {
-      lastCommandAccepted = false;
-      return commandId;
-    }
-    if (!clearLearnedBaseline()) {
-      lastCommandAccepted = false;
-      lastCommandResultReason = "storage_error";
-      return commandId;
-    }
-    saveLastHandledCommandId(commandId);
-    return commandId;
-  }
 
 #if USE_GPS
   if (command == "gps_manual") stopGpsAndUseManualLocation();
@@ -1429,64 +1052,30 @@ void delayWithBackgroundTasks(unsigned long durationMs) {
   }
 }
 
-// printSensorDebug: พิมพ์ค่าจริง ผลต่าง คะแนน ตัวนับ และสถานะใน หน้าต่างแสดงข้อมูลอนุกรม (Serial Monitor) เมื่อเปิด การตรวจหาปัญหา; ใช้ตามเหตุผลการตัดสิน การปิดส่วนนี้ไม่ปิดการตรวจจับ
-void printSensorDebug(const SensorData &data, const DeltaData &delta, const EvidenceFlags &e, FireStatus status, int confidence) {
+// printSensorDebug: แสดงค่าที่ใช้ตัดสิน เหตุผลแบบ bitmask และสถานะสุดท้าย
+void printSensorDebug(const SensorData &data, const RiskDecision &decision) {
 #if SERIAL_DEBUG
   Serial.println("========== SENSOR NODE ==========");
   Serial.print("Node: "); Serial.println(NODE_ID);
-  Serial.print("State: "); Serial.println(statusToString(status));
-  Serial.print("Confidence: "); Serial.println(confidence);
-  Serial.print("Baseline Ready: "); Serial.println(baselineInitialized ? "YES" : "NO");
-  Serial.print("Warmup Count: "); Serial.print(baselineWarmupCount); Serial.print("/"); Serial.println(BASELINE_WARMUP_CYCLES);
-  Serial.print("Boot Abnormal Count: "); Serial.println(bootAbnormalCount);
+  Serial.print("State: "); Serial.println(statusToString(decision.status));
+  Serial.print("Reason Bits: "); Serial.println(decision.reasonBits);
   Serial.print("Air Temp: "); Serial.println(data.airTemp);
   Serial.print("Humidity: "); Serial.println(data.humidity);
-  Serial.print("Smoke Raw: "); Serial.println(data.smokeRaw);
-  Serial.print("Smoke Delta: "); Serial.println(delta.smokeDelta);
-  Serial.print("Smoke Rate/min: "); Serial.println(delta.smokeRatePerMin);
-  Serial.print("Smoke Baseline Delta: "); Serial.println(delta.smokeBaselineDelta);
-  Serial.print("Air Delta: "); Serial.println(delta.airTempDelta);
-  Serial.print("Air Rate/min: "); Serial.println(delta.airTempRatePerMin);
-  Serial.print("Air Baseline Delta: "); Serial.println(delta.airTempBaselineDelta);
-  Serial.print("Humidity Delta: "); Serial.println(delta.humidityDelta);
-  Serial.print("Humidity Rate/min: "); Serial.println(delta.humidityRatePerMin);
-  Serial.print("Humidity Baseline Delta: "); Serial.println(delta.humidityBaselineDelta);
-  Serial.print("Evidence G/S/Hu: "); Serial.print(e.groupCount); Serial.print(" /"); Serial.print(e.smokeGroup); Serial.print("/"); Serial.print(e.heatGroup); Serial.print("/"); Serial.println(e.humidityGroup);
-  Serial.print("Baseline Smoke/Air/Humidity: ");
-  Serial.print(baselineSmokeRaw); Serial.print(" / ");
-  Serial.print(baselineAirTemp); Serial.print(" / ");
-  Serial.println(baselineHumidity);
-  Serial.print("Critical Candidate Counter: "); Serial.println(criticalCandidateCounter);
-  Serial.print("Weak Watch Candidate Counter: "); Serial.println(weakWatchCandidateCounter);
-  Serial.print("Latched Status: "); Serial.println(statusToString((FireStatus)latchedStatusValue));
+  Serial.print("Particle ADC mV: "); Serial.println(data.particleAdcMilliVolts);
+  Serial.print("Particle Estimated ug/m3: "); Serial.println(data.particleUgM3);
   Serial.print("Release Counter: "); Serial.println(releaseCounter);
   Serial.print("Sensor Health: "); Serial.println(sensorHealthString(data));
+  Serial.print("Next Report Sec: "); Serial.println(plannedReportIntervalSeconds(decision.status));
   Serial.println("=================================");
 #endif
 }
 
-// sleepSecondsForStatus: เลือกเวลาหลับตามสถานะในโหมดใช้งานจริง; CRITICAL ถูกแยกให้ตื่นต่อในรอบวัด จึงไม่ได้มีเวลาหลับเฉพาะในฟังก์ชันนี้
-uint64_t sleepSecondsForStatus(FireStatus status) {
-#if TEST_MODE
-  return 0;
-#else
-  if (status == CALIBRATING) return CALIBRATING_SLEEP_SEC;
-  if (status == WATCH) return WATCH_SLEEP_SEC;
-  if (status == WARNING) return WARNING_SLEEP_SEC;
-  if (status == SENSOR_FAULT) return SENSOR_FAULT_SLEEP_SEC;
-  return NORMAL_SLEEP_SEC;
-#endif
-}
-
-// storeExpectedNextInterval: จำช่วงวัดที่คาดไว้เป็นนาทีใน RTC ก่อนรอ/หลับ เพื่อใช้หารหา อัตราการเปลี่ยนแปลง รอบหน้า; ไม่ใช่การวัดเวลาจริงครบทั้งรอบ
-void storeExpectedNextInterval(FireStatus status) {
-#if TEST_MODE
-  if (status == CRITICAL) expectedNextElapsedMinutes = CRITICAL_CONTINUE_INTERVAL_MS / 60000.0f;
-  else expectedNextElapsedMinutes = LOOP_INTERVAL_MS / 60000.0f;
-#else
-  if (status == CRITICAL) expectedNextElapsedMinutes = CRITICAL_CONTINUE_INTERVAL_MS / 60000.0f;
-  else expectedNextElapsedMinutes = sleepSecondsForStatus(status) / 60.0f;
-#endif
+// remainingIntervalMs: ทำให้รอบเป็น start-to-start โดยหักเวลาที่อ่าน/ส่ง/รอ ACK ไปแล้ว
+unsigned long remainingIntervalMs(FireStatus status, unsigned long cycleStartedMs) {
+  uint64_t targetMs = (uint64_t)plannedReportIntervalSeconds(status) * 1000ULL;
+  uint64_t elapsedMs = (uint64_t)(millis() - cycleStartedMs);
+  if (elapsedMs >= targetMs) return 0;
+  return (unsigned long)(targetMs - elapsedMs);
 }
 
 // enterDeepSleepForSeconds: เตรียมเวลาลอง GPS ปิดวิทยุ/ไฟเซนเซอร์ ตั้งปลุกแล้วเข้า การหลับลึก; ถ้าไม่ตั้งปลุกจะไม่ตื่นตามเวลาที่ต้องการ
@@ -1503,32 +1092,33 @@ void enterDeepSleepForSeconds(uint64_t sleepSec) {
 #endif
 }
 
-// enterDeepSleepByStatus: เรียกการหลับตามเวลาของสถานะ เฉพาะเมื่อไม่ใช่ TEST_MODE; ในโหมดทดสอบ (void)status แค่บอกว่าจงใจไม่ใช้พารามิเตอร์
-void enterDeepSleepByStatus(FireStatus status) {
+// enterDeepSleepByStatus: หลับเฉพาะเวลาที่เหลือของรอบ เพื่อให้วัดและส่งตามคาบเดียวกัน
+void enterDeepSleepByStatus(FireStatus status, unsigned long cycleStartedMs) {
 #if !TEST_MODE
-  enterDeepSleepForSeconds(sleepSecondsForStatus(status));
+  uint64_t remainingMs = remainingIntervalMs(status, cycleStartedMs);
+  uint64_t remainingSec = (remainingMs + 999ULL) / 1000ULL;
+  enterDeepSleepForSeconds(remainingSec > 0 ? remainingSec : 1);
 #else
   (void)status;
+  (void)cycleStartedMs;
 #endif
 }
 
 #if USE_GPS
 // serviceGpsUntilNextMeasurementOrSleep: ขณะรอ GPS ให้ปิดไฟเซนเซอร์และบริการ GPS จนถึงรอบวัดถัดไป; ถ้างานจบเร็วจะหลับเฉพาะเวลาที่เหลือแทนเริ่มนับรอบใหม่ทั้งหมด
-void serviceGpsUntilNextMeasurementOrSleep(FireStatus status) {
+void serviceGpsUntilNextMeasurementOrSleep(FireStatus status, unsigned long cycleStartedMs) {
 #if !TEST_MODE
-  const uint64_t intervalSec = sleepSecondsForStatus(status);
-  const unsigned long intervalMs = (unsigned long)(intervalSec * 1000ULL);
-  const unsigned long startedAt = millis();
+  const unsigned long intervalMs = plannedReportIntervalSeconds(status) * 1000UL;
 
   // จีพีเอสต้องให้ ESP32 ตื่นเพื่อแปลข้อมูล UART ส่วนเซนเซอร์สิ่งแวดล้อม
   // ไม่จำเป็นต้องเปิดไฟหรือส่งค่าซ้ำระหว่างรอให้หาพิกัดได้
   powerSensors(false);
-  while (isOneShotGpsActive() && millis() - startedAt < intervalMs) {
+  while (isOneShotGpsActive() && millis() - cycleStartedMs < intervalMs) {
     serviceOneShotGps();
     delay(50);
   }
 
-  const unsigned long elapsedMs = millis() - startedAt;
+  const unsigned long elapsedMs = millis() - cycleStartedMs;
   if (elapsedMs >= intervalMs) return;
 
   const uint64_t remainingMs = (uint64_t)intervalMs - elapsedMs;
@@ -1536,101 +1126,59 @@ void serviceGpsUntilNextMeasurementOrSleep(FireStatus status) {
   enterDeepSleepForSeconds(remainingSec > 0 ? remainingSec : 1);
 #else
   (void)status;
+  (void)cycleStartedMs;
 #endif
 }
 #endif
 
-// sendMeasurement: นำค่าปัจจุบัน ผลต่าง สถานะ และคะแนนมาสร้าง JSON แล้วส่งพร้อมกลไก ACK; ฟังก์ชันนี้ไม่ได้ส่งผลสำเร็จคืนให้ผู้เรียก
-void sendMeasurement(const SensorData &current, const DeltaData &delta, FireStatus status, int confidence) {
-  String payload = buildJsonPacket(current, delta, status, confidence);
+// sendMeasurement: วัดหนึ่งรอบแล้วส่งค่าพร้อมสถานะและเหตุผลทันที
+void sendMeasurement(const SensorData &current, const RiskDecision &decision) {
+  String payload = buildJsonPacket(current, decision);
   sendSensorPacketWithAck(payload);
 }
 
-// runOneMeasurementCycle: งานหลักหนึ่งรอบ: อ่าน → เรียนฐาน → หาผลต่าง/หลักฐาน/คะแนน → ตัดสิน → ส่ง → ปรับฐาน/จำค่า → รอหรือหลับ; อ่านฟังก์ชันนี้ก่อนเพื่อเห็นภาพรวม
+// runOneMeasurementCycle: อ่าน → ตัดสินจากเกณฑ์ → ส่งทันที → รอหรือหลับจนถึงรอบถัดไป
 void runOneMeasurementCycle() {
-  unsigned long nowMs = millis();
+  unsigned long cycleStartedMs = millis();
   SensorData current = readSensors();
+  RiskDecision decision = evaluateFireStatus(current);
 
-  // ขั้น 1: สะสมฐานถ้ายังไม่พร้อม จากนั้นใช้ current เทียบ previousData และฐานเพื่อสร้างหลักฐาน/คะแนน/สถานะ
-  updateBaselineWarmup(current);
-  DeltaData delta = calculateDelta(current, previousData, hasPreviousData, nowMs);
-  EvidenceFlags evidence = getEvidenceFlags(current, delta);
-  int confidence = calculateConfidence(current, delta, evidence);
-  FireStatus status = evaluateFireStatus(current, evidence, confidence);
-
-  // ขั้น 2: เก็บค่าที่ใช้ตรวจคำสั่งก่อนส่ง เพราะระหว่างรอคำตอบ เกตเวย์ อาจสั่งเรียนฐานใหม่
-  commandSafetyData = current;
-  commandSafetyStatus = status;
-  commandSafetyReady = true;
-
-  // ขั้น 3: แสดงเหตุผลใน Serial (ถ้าเปิด) แล้วส่งข้อมูลรอบนี้ออก LoRa
-  printSensorDebug(current, delta, evidence, status, confidence);
-  sendMeasurement(current, delta, status, confidence);
-  // ถ้าเพิ่งรับคำสั่งล้างฐาน เปลี่ยนสถานะภายในหลังส่งเป็น CALIBRATING เพื่อใช้รอบพักสำหรับการเรียนรู้ใหม่
-  if (baselineRecalibrationAcceptedThisCycle) {
-    status = CALIBRATING;
-    baselineRecalibrationAcceptedThisCycle = false;
-  }
+  printSensorDebug(current, decision);
+  sendMeasurement(current, decision);
 #if USE_GPS
   serviceOneShotGps();
 #endif
-  updateBaselineAfterDecision(current, delta, evidence, status);
-
-  // ขั้น 4: จำรอบนี้เป็นรอบก่อนหน้าของการวัดครั้งถัดไป ต้องทำหลังคำนวณผลต่าง มิฉะนั้นจะได้ปัจจุบันลบตัวเองเป็นศูนย์
-  previousData = current;
-  hasPreviousData = true;
-  previousReadMs = nowMs;
-  storeExpectedNextInterval(status);
 
 #if TEST_MODE
-  if (status == CRITICAL) delayWithBackgroundTasks(CRITICAL_CONTINUE_INTERVAL_MS);
-  else delayWithBackgroundTasks(LOOP_INTERVAL_MS);
+  delayWithBackgroundTasks(remainingIntervalMs(decision.status, cycleStartedMs));
 #else
-  // ขั้น 5: วิกฤตให้ตื่นต่อ ส่วน WARNING ตื่นต่อเมื่อเปิดตัวเลือก; การไม่หลับทำให้บริการ GPS ระหว่างรอได้ แต่ใช้พลังงานมากขึ้น
-  if (status == CRITICAL || (KEEP_AWAKE_DURING_WARNING && status == WARNING)) {
-    const unsigned long activeIntervalMs = status == CRITICAL
-      ? CRITICAL_CONTINUE_INTERVAL_MS
-      : WARNING_SLEEP_SEC * 1000UL;
-    delayWithBackgroundTasks(activeIntervalMs);
+  // WARNING ทำงานต่อเนื่อง วัดและส่งทุก 20 วินาที; รอบแรกถูกส่งไปแล้วด้านบนทันที
+  if (decision.status == WARNING) {
+    delayWithBackgroundTasks(remainingIntervalMs(decision.status, cycleStartedMs));
   }
 #if USE_GPS
   else if (isOneShotGpsActive()) {
-    serviceGpsUntilNextMeasurementOrSleep(status);
+    serviceGpsUntilNextMeasurementOrSleep(decision.status, cycleStartedMs);
   }
 #endif
   else {
-    enterDeepSleepByStatus(status);
+    enterDeepSleepByStatus(decision.status, cycleStartedMs);
   }
 #endif
 }
 
 
-// resetRuntimeStateForTestMode: ล้างสถานะ/ตัวนับ RTC เมื่อบูตใน TEST_MODE และสุ่มรหัส รอบการเริ่มเครื่อง ใหม่; ทำให้ทดสอบเริ่มสะอาด ไม่สับสนกับค่าค้างจากครั้งก่อน
+// resetRuntimeStateForTestMode: ล้างสถานะ RTC เพื่อให้การทดสอบแต่ละครั้งเริ่มเหมือนกัน
 void resetRuntimeStateForTestMode() {
 #if TEST_MODE
-  // ระหว่างทดสอบ ให้เริ่มสถานะใหม่หลังรีเซ็ตหรืออัปโหลด เพื่อไม่ให้ตัวนับเก่าใน RTC
-  // เช่น bootAbnormalCount หรือสถานะ SENSOR_FAULT ที่ค้างอยู่ ทำให้สับสนตอนตรวจหาปัญหา
   seq = 0;
   do {
     bootSessionId = esp_random();
   } while (bootSessionId == 0);
-  hasPreviousData = false;
-  previousReadMs = 0;
-  expectedNextElapsedMinutes = 0.0f;
+  rtcRiskStateVersion = RTC_RISK_STATE_VERSION;
   latchedStatusValue = NORMAL;
+  latchedReasonBits = REASON_NONE;
   releaseCounter = 0;
-  criticalCandidateCounter = 0;
-  weakWatchCandidateCounter = 0;
-  baselineInitialized = false;
-  baselineWarmupCount = 0;
-  bootAbnormalCount = 0;
-  warmupAirSum = 0.0f;
-  warmupHumiditySum = 0.0f;
-  warmupSmokeSum = 0;
-  baselineAirTemp = 0.0f;
-  baselineHumidity = 0.0f;
-  baselineSmokeRaw = 0;
-  baselineNvsCyclesSinceSave = 0;
 #endif
 }
 
@@ -1642,6 +1190,7 @@ void setup() {
 #endif
 
   resetRuntimeStateForTestMode();
+  ensureRtcRiskState();
 
   disableUnusedRadios();
   randomSeed(esp_random());
@@ -1651,7 +1200,6 @@ void setup() {
       bootSessionId = esp_random();
     } while (bootSessionId == 0);
   }
-  loadBaselineFromNvs();
   loadLastHandledCommandId();
 
   debugPrintln("Starting Wildfire Sensor Node...");

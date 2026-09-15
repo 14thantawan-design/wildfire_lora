@@ -1,318 +1,145 @@
-# Wildfire LoRa Firmware - SHT31 + Sharp Build
+# Wildfire LoRa — SHT31 + Sharp GP2Y1014AU0F
 
-เวอร์ชันนี้เป็นโค้ดฐานสำหรับระบบต้นแบบแจ้งเตือนไฟป่าระยะเริ่มต้น โดยใช้:
+ระบบต้นแบบตรวจสัญญาณบ่งชี้ไฟป่าจากอุณหภูมิอากาศ ความชื้นสัมพัทธ์ และอนุภาคในอากาศ
+โดย Sensor Node ตัดสินสถานะแล้วส่งผ่าน LoRa ไป Gateway, Backend และ Dashboard
 
-- TTGO LoRa32 1 ตัวเป็น Gateway
-- TTGO LoRa32 2 ตัวเป็น Sensor Node (`NODE01`, `NODE02`)
-- SHT31 สำหรับอุณหภูมิอากาศ/ความชื้น
-- Sharp GP2Y1014AU0F สำหรับอนุภาค/ควัน
+โมเดลความเสี่ยงปัจจุบันคือรุ่น 7 ใช้สถานะ `NORMAL`, `WATCH`, `WARNING` เท่านั้น
+ส่วน `SENSOR_FAULT` เป็นสถานะสุขภาพอุปกรณ์ ไม่ใช่ระดับความเสี่ยงลำดับที่สี่
+ระบบเลิกใช้คะแนน 0–100, baseline และ rate-of-change ในการตัดสินสถานะแล้ว
 
-ความถี่ตั้งไว้เป็น `433E6` ตามบอร์ด/เสาที่ใช้อยู่ตอนนี้
+## เกณฑ์สถานะรุ่น 7
 
----
+โหนดตรวจ `WARNING` ก่อน หากไม่เข้าเงื่อนไขจึงตรวจ `WATCH` และ `NORMAL`
 
-## สิ่งที่แก้เพิ่มจาก baseline-fix เดิม
+| สถานะ | เงื่อนไข |
+|---|---|
+| `WARNING` | อุณหภูมิ `> 45°C` **หรือ** อนุภาคประมาณ `> 150 µg/m³` **หรือ** อุณหภูมิ `>= 30°C` พร้อมความชื้น `<= 30%RH` |
+| `WATCH` | ยังไม่เป็น `WARNING` และอุณหภูมิ `> 35°C` **หรือ** อนุภาคประมาณ `> 50 µg/m³` **หรือ** ความชื้น `< 50%RH` |
+| `NORMAL` | อุณหภูมิ `<= 35°C` และอนุภาคประมาณ `<= 50 µg/m³` และความชื้น `>= 50%RH` |
 
-### 1. Baseline warm-up
+เงื่อนไขอุณหภูมิ `>= 30°C` ร่วมกับความชื้น `<= 30%RH` คือการใช้สองปัจจัยที่โครงการวัดได้
+จากแนวคิด 30-30-30 โดยระบบไม่มีเซนเซอร์ความเร็วลม จึงไม่กล่าวอ้างว่าใช้กฎครบสามปัจจัย
 
-ระบบจะไม่เอาค่ารอบแรกมาตั้งเป็น baseline ทันที แต่จะเก็บค่าปกติหลายรอบก่อน
+รายละเอียดขอบเขต ตัวอย่าง และ bitmask เหตุผลอยู่ใน
+[`docs/node-risk-v2.md`](docs/node-risk-v2.md)
 
-```cpp
-#define BASELINE_WARMUP_CYCLES 5
-```
+## การยืนยันก่อนลดระดับ
 
-ใน TEST_MODE ค่าเริ่มต้นคือ 5 รอบ หรือประมาณ 25 วินาทีถ้าอ่านทุก 5 วินาที
+- การยกระดับเกิดทันทีในรอบที่พบเงื่อนไข
+- `WARNING` ลดเป็น `WATCH` เมื่อพบค่าที่ไม่เป็น `WARNING` ติดต่อกัน 3 รอบ
+- `WATCH` ลดเป็น `NORMAL` เมื่อพบค่า `NORMAL` ติดต่อกัน 3 รอบ
+- ระหว่างรอยืนยัน โหนดส่ง reason bit `recovery_confirmation_pending`
+- `SENSOR_FAULT` แยกจากกลไกค้างระดับความเสี่ยง
 
-ถ้าระหว่างเปิดเครื่องมีค่าผิดปกติ เช่น ควันสูงมาก อุณหภูมิสูงมาก หรือความชื้นต่ำมาก ระบบจะไม่เรียนค่านั้นเป็น baseline ปกติ
+## รอบวัดและส่งข้อมูลภาคสนาม
 
-### 2. Critical debounce
+| สถานะ | รอบวัดและส่ง | การทำงาน |
+|---|---:|---|
+| `NORMAL` | 5 นาที | Deep sleep ระหว่างรอบ |
+| `WATCH` | 2 นาที | Deep sleep ระหว่างรอบ |
+| `WARNING` | 20 วินาที | ส่งทันทีเมื่อยกระดับ แล้วทำงานต่อเนื่องโดยไม่ Deep sleep |
+| `SENSOR_FAULT` | 5 นาที | พักก่อนตรวจเซนเซอร์ใหม่ |
 
-ถ้าระบบเห็นเงื่อนไข CRITICAL แค่รอบเดียว จะยังไม่แดงทันที แต่จะขึ้น WARNING ก่อน และต้องเจอ CRITICAL ต่อเนื่องตามจำนวนรอบที่ตั้งไว้
+คาบเป็นแบบเริ่มรอบถึงเริ่มรอบ โค้ดจึงหักเวลาอ่านเซนเซอร์ ส่ง LoRa และรอ ACK ออกจากเวลาที่เหลือ
+แต่ถ้าการส่ง/ลองซ้ำใช้เวลานานกว่า 20 วินาที รอบถัดไปจะเริ่มทันทีเมื่อรอบเดิมจบ
 
-```cpp
-#define CRITICAL_CONFIRM_CYCLES 2
-```
+โหนดแต่ละตัวหน่วงส่งแบบสุ่มไม่เกิน 5 วินาทีเพื่อลดโอกาสชนกัน อย่างไรก็ตามค่า LoRa ปัจจุบันคือ
+SF12/BW125 kHz ซึ่งมี airtime สูง ควรทดสอบ NODE01 และ NODE02 ส่งทุก 20 วินาทีพร้อมกันในพื้นที่จริง
+ก่อนสรุปความน่าเชื่อถือของระบบ
 
-### 3. คะแนนความเสี่ยงรุ่น 2: คำนวณที่โหนด
+## การวัดอนุภาคด้วย Sharp
 
-อุณหภูมิสูงสุด 40 คะแนน ความชื้นสูงสุด 40 คะแนน ควันสูงสุด 20 คะแนน
-ระดับดิบ: 0–19 NORMAL, 20–49 WATCH, 50–74 WARNING, 75–100 CRITICAL
-ความร้อนร่วมกับความแห้งขึ้น CRITICAL ได้โดยไม่บังคับมีควัน โดยยังรอยืนยัน 2 รอบ
-คะแนนเป็นดัชนีตามกฎของโครงการ ไม่ใช่เปอร์เซ็นต์โอกาสเกิดไฟหรือการยืนยันว่าไฟไหม้
-
-Backend รับสถานะ `st` และคะแนน `c` จากโหนดโดยตรง ไม่คำนวณซ้ำ
-รายละเอียดเกณฑ์ การคงค่าฐาน ข้อมูลเก่า และการทดสอบอยู่ใน [เอกสารสูตรรุ่น 2](docs/node-risk-v2.md)
-
-### 4. Rate-of-change ต่อเวลา
-
-เดิม delta เทียบกับรอบก่อนอาจเพี้ยนเมื่อเปลี่ยนจาก TEST_MODE เป็น DEPLOY_MODE เพราะระยะห่างของรอบอ่านไม่เท่ากัน
-
-เวอร์ชันนี้คำนวณ rate ต่อหนึ่งนาที เช่น:
-
-- smoke rate ต่อ 1 นาที
-- air temperature rate ต่อ 1 นาที
-- humidity drop rate ต่อ 1 นาที
-
-### 5. Sharp health check
-
-เพิ่มการตรวจค่า Sharp ที่ผิดปกติ เช่น:
-
-- ค่าใกล้ 0 ค้างหลายรอบ
-- ค่าใกล้ 4095 ค้างหลายรอบ
-- ค่าแทบไม่เปลี่ยนเลยนานผิดปกติ
-
-ถ้าเจอจะขึ้น `SENSOR_FAULT`
-
-### 6. Gateway แสดง baseline delta
-
-Gateway จะแสดงค่า:
-
-- Smoke From Baseline (`sr`)
-- Air From Baseline (`ar`)
-- Humidity From Baseline (`hr`)
-- Groups (`g`)
-- Baseline Warmup Count (`bc`)
-
-เพื่อใช้ debug ว่าทำไมระบบขึ้น WATCH/WARNING/CRITICAL
-
----
-
-## รอบวัดในโหมดภาคสนาม
-
-`sensor_node/config.h`, `sensor_node_2/config.h` และ `gateway/config.h` ต้องใช้
-`TEST_MODE 0` พร้อมกันก่อนอัปโหลดสำหรับการทดลองภาคสนาม
-
-| สถานะ | รอบวัด/ส่งข้อมูล | การพักระหว่างรอบ |
-| --- | ---: | --- |
-| `NORMAL` | 10 นาที | ตัดไฟ Sharp, LoRa sleep, ESP32 deep sleep |
-| `WATCH` | 2 นาที | ตัดไฟ Sharp, LoRa sleep, ESP32 deep sleep |
-| `WARNING` | 1 นาที | ESP32 และเซนเซอร์ทำงานต่อเนื่อง; LoRa sleep ระหว่างการส่ง |
-| `SENSOR_FAULT` | 5 นาที | ตัดไฟ Sharp, LoRa sleep, ESP32 deep sleep |
-| `CRITICAL` | 20 วินาที | ESP32 และเซนเซอร์ทำงานต่อเนื่อง; LoRa sleep ระหว่างการส่ง |
-
-Firmware จะยอมลดจากสถานะผิดปกติเมื่อค่าดีขึ้นต่อเนื่องครบ 3 รอบ แล้ว Backend
-ปิด Alert เมื่อสถานะจาก Firmware และ Risk Engine ยืนยัน `NORMAL` ตรงกัน
-
-แพ็กเก็ตข้อมูลเซนเซอร์ทุกสถานะจะรอ ACK จาก Gateway หลังส่ง ถ้ายังไม่ได้รับจะสุ่มเวลา
-และลองใหม่ โดยส่งได้สูงสุดรวม 3 ครั้งต่อรอบ จากนั้นจึงพักตามพฤติกรรมของสถานะนั้น
-`WARNING` และ `CRITICAL` ยังคงทำงานต่อเนื่องและไม่เข้า ESP32 deep sleep
-
-Baseline ที่เรียนสำเร็จจะถูกเก็บใน NVS และนำกลับมาใช้หลังไฟดับสนิท โดยบันทึกการ
-ปรับตัวช้า ๆ ไม่เกินประมาณวันละครั้งเพื่อลดการสึกของ Flash หากต้องการบังคับเรียนใหม่
-ให้ตั้ง `BASELINE_FORCE_RECALIBRATE 1` อัปโหลดและเปิดเครื่องหนึ่งครั้ง แล้วเปลี่ยนกลับเป็น `0`
-
-หน้าเว็บสำหรับผู้ดูแลมีปุ่ม `เรียน Baseline ใหม่` ที่รายละเอียดของ Node คำสั่งจะรอจน
-Node ตื่นและส่งข้อมูลรอบถัดไป จากนั้น Gateway ส่ง `baseline_recalibrate` ให้ Node ล้าง
-baseline ใน NVS และเข้า `CALIBRATING` ใหม่ หน้าเว็บจะแสดงสถานะรอคำสั่งและความคืบหน้า
-เช่น `4/12 รอบ` จนเสร็จ ระบบจะไม่ยอมเริ่มใหม่เมื่อ Node ออฟไลน์, เซนเซอร์ขัดข้อง,
-กำลัง calibrate หรืออยู่ในสถานะ/ค่าที่ไม่ปลอดภัย และ Node จะตรวจเงื่อนไขซ้ำก่อนล้างค่า
-
-ทั้ง Gateway และ Backend ใช้เวลาตัด Offline แบบอิงรอบส่งของแต่ละ Node ที่ 2.5 รอบ
-บวกเผื่อ 30 วินาที จึงพลาดแพ็กเก็ตได้หนึ่งรอบโดยไม่ขึ้น Offline ทันที
-
-แพ็กเก็ต GPS ยังคงใช้การส่งซ้ำแบบเดิมและไม่รอ ACK ส่วน ACK นี้ยืนยันว่า Gateway
-รับแพ็กเก็ต LoRa แล้ว ไม่ได้ยืนยันว่าการส่งต่อไปยัง Backend สำเร็จ
-
-Baseline ที่เรียนสำเร็จจะถูกเก็บใน NVS และนำกลับมาใช้หลังไฟดับสนิท โดยบันทึกการ
-ปรับตัวช้า ๆ ไม่เกินประมาณวันละครั้งเพื่อลดการสึกของ Flash หากต้องการบังคับเรียนใหม่
-ให้ตั้ง `BASELINE_FORCE_RECALIBRATE 1` อัปโหลดและเปิดเครื่องหนึ่งครั้ง แล้วเปลี่ยนกลับเป็น `0`
-
-ทั้ง Gateway และ Backend ใช้เวลาตัด Offline แบบอิงรอบส่งของแต่ละ Node ที่ 2.5 รอบ
-บวกเผื่อ 30 วินาที จึงพลาดแพ็กเก็ตได้หนึ่งรอบโดยไม่ขึ้น Offline ทันที
-
-`SENSOR_POWER_PIN` ควบคุมรางไฟ Sharp ผ่าน MOSFET ตามผังปัจจุบัน ส่วน SHT31
-จะถูกตัดไฟด้วยก็ต่อเมื่อ VCC ของ SHT31 ต่ออยู่บนรางไฟที่สวิตช์เดียวกันเท่านั้น
-โมดูล LoRa อยู่บนบอร์ด TTGO จึงใช้ `LoRa.sleep()` แทนการตัดไฟเลี้ยงโดยตรง
-
-การกรอกพิกัดเองบน Dashboard จะคิวคำสั่ง `gps_manual` ผ่าน Gateway ไปยัง Node
-ในรอบสื่อสารถัดไป จากนั้น Node จะปิด GPS และจำโหมดกรอกเองไว้ใน NVS จึงไม่ค้นหา
-ใหม่หลังรีสตาร์ต ส่วนปุ่ม `ค้นหา GPS ใหม่` จะล้างโหมดนี้และเปิดการค้นหาอีกครั้ง
-ระหว่างค้นหา GPS รอบวัดเซนเซอร์ยังคงเป็นไปตามสถานะ (ปกติ 10 นาที) ไม่ลดเหลือ 5 วินาที
-
-การกรอกพิกัดเองบน Dashboard จะคิวคำสั่ง `gps_manual` ผ่าน Gateway ไปยัง Node
-ในรอบสื่อสารถัดไป จากนั้น Node จะปิด GPS และจำโหมดกรอกเองไว้ใน NVS จึงไม่ค้นหา
-ใหม่หลังรีสตาร์ต ส่วนปุ่ม `ค้นหา GPS ใหม่` จะล้างโหมดนี้และเปิดการค้นหาอีกครั้ง
-ระหว่างค้นหา GPS รอบวัดเซนเซอร์ยังคงเป็นไปตามสถานะ (ปกติ 10 นาที) ไม่ลดเหลือ 5 วินาที
-
----
-
-## โครงสร้างไฟล์
+Sharp GP2Y1014AU0F อ่านแรงดันสามครั้งและใช้ค่ามัธยฐานเพื่อลด spike จากนั้นแปลงเป็นค่าประมาณ:
 
 ```text
-wildfire_lora/
-  sensor_node/
-    sensor_node.ino
-    config.h
-  gateway/
-    gateway.ino
-    config.h
-  README.md
-  CODEX_NEXT_STEPS.md
+Particle_est (µg/m³) = max(0, (Vo_mV - 600) / 5)
 ```
 
----
+ค่าคงที่ `600 mV` และ `5 mV/(µg/m³)` อยู่ใน `sensor_node/config.h` และ
+`sensor_node_2/config.h` เพื่อให้เปลี่ยนหลังสอบเทียบแต่ละอุปกรณ์ได้
 
-## ไลบรารีที่ต้องติดตั้ง
+ค่า `Particle_est` ไม่ควรเรียกว่า PM2.5 ที่ผ่านการสอบเทียบ เพราะ GP2Y1014AU0F ไม่ได้แยกขนาดอนุภาค
+และแรงดันศูนย์จริงต่างกันได้ในแต่ละตัว เกณฑ์ 50/150 จึงเป็นเกณฑ์ดัดแปลงสำหรับต้นแบบ
+ที่ต้องยืนยันด้วยการทดลองเทียบเครื่องอ้างอิง
 
-ติดตั้งผ่าน Arduino Library Manager:
+## แพ็กเก็ต Sensor รุ่น 7
 
-1. LoRa by Sandeep Mistry
-2. ArduinoJson by Benoit Blanchon
-3. Adafruit SHT31 Library
-4. Adafruit BusIO
+ตัวอย่างแพ็กเก็ต LoRa:
 
----
+```json
+{"t":"s","id":"NODE01","q":12,"sid":1234,"ri":20,"st":"WARNING","rb":6,"rv":7,"at":30,"h":30,"pm":170,"sh":"OK"}
+```
 
-## ระบบไฟของ Sensor Node
+- `st`: สถานะที่เฟิร์มแวร์ตัดสิน
+- `rb`: bitmask เหตุผล
+- `rv`: รุ่นกฎความเสี่ยง ปัจจุบันคือ 7
+- `ri`: รอบรายงานตามสถานะ หน่วยวินาที
+- `at`, `h`, `pm`: อุณหภูมิ ความชื้น และอนุภาคโดยประมาณ
+- `sh`: `OK` หรือ `FAULT`
 
-ชุดจ่ายไฟประกอบด้วยแผงโซลาร์ 6V 5W, CN3791 สำหรับแผง 6V/แบต Li-ion 1S, แบต INR21700 3.7V 5000mAh ที่มี BMS, ฟิวส์ 2A และ MT3608 ที่ปรับเอาต์พุตเป็น 5.00V
+Backend ตรวจรูปแบบและเก็บผลจากโหนดโดยไม่คำนวณคะแนนหรือเกณฑ์ซ้ำ
+ข้อมูลเก่าถูกอ่านแบบเข้ากันได้ โดยแสดง `CRITICAL` เก่าเป็น `WARNING` และ `CALIBRATING` เก่าเป็น `UNKNOWN`
+แต่แพ็กเก็ตใหม่รุ่น 7 จะไม่ยอมรับสองสถานะเก่านั้น
 
-### ผังการต่อสาย
+## โครงสร้างสำคัญ
 
 ```text
-แผงโซลาร์ 6V 5W
-       │
-       ▼
-CN3791 (Solar input / Li-ion 1S charger)
-       │ BAT+
-       │
-แบต INR21700 BAT+ ── ฟิวส์ 2A ── MT3608 IN+
-                                      │
-                                      └─ MT3608 OUT+ 5.00V ── TTGO 5V
-
-แบต BAT- ── CN3791 GND ── MT3608 IN-/OUT- ── TTGO GND
+sensor_node/          เฟิร์มแวร์ NODE01
+sensor_node_2/        เฟิร์มแวร์ NODE02
+gateway/              รับ LoRa และส่ง HTTP ไป Backend
+wildfire-backend/     API, MongoDB, Alert และ Telegram
+wildfire-dashboard/   หน้าเว็บสถานะ แผนที่ และกราฟ
+tools/test_node_risk.mjs  ทดสอบฟังก์ชัน C++ จริงของทั้งสองโหนด
 ```
 
----
+## ไลบรารี Arduino
+
+- LoRa by Sandeep Mistry
+- ArduinoJson
+- Adafruit SHT31 Library
+- Adafruit BusIO
+- TinyGPSPlus
+
+บอร์ดที่ใช้คอมไพล์คือ `esp32:esp32:ttgo-lora32` การตั้งขา SHT31, Sharp, GPS และ LoRa
+อยู่ใน `config.h` ของแต่ละสเก็ตช์ ทั้ง Gateway และ Sensor Node ต้องใช้ความถี่, spreading factor,
+bandwidth, coding rate และ sync word ตรงกัน
 
 ## วิธีอัปโหลด
 
-### Gateway
+1. ตั้ง `TEST_MODE 1` เฉพาะตอนทดสอบบนโต๊ะ หรือ `0` สำหรับรอบภาคสนาม
+2. อัปโหลด `sensor_node/sensor_node.ino` เป็น `NODE01`
+3. อัปโหลด `sensor_node_2/sensor_node_2.ino` เป็น `NODE02`
+4. คัดลอก `gateway/secrets.example.h` เป็น `gateway/secrets.h` แล้วตั้ง Backend URL/API key
+5. อัปโหลด `gateway/gateway.ino` และตั้ง Wi-Fi ผ่านหน้า `Wildfire-Gateway-*`
 
-เปิด:
+อย่าถือผลการทดสอบซอฟต์แวร์แทนการสอบเทียบเซนเซอร์ การทดสอบระยะ LoRa และการทดสอบไฟเลี้ยงจริง
 
-```text
-gateway/gateway.ino
+## คำสั่งตรวจโครงการ
+
+```powershell
+node tools/test_node_risk.mjs
+cd wildfire-backend
+npm test
+cd ..\wildfire-dashboard
+npm test
+npm run lint
+npm run build
 ```
 
-อัปโหลดลง TTGO ตัวที่เป็น Gateway แล้วเปิด Serial Monitor ที่ 115200
-
-### NODE01
-
-เปิด:
-
-```text
-sensor_node/sensor_node.ino
-```
-
-ใน `sensor_node/config.h` ตั้ง:
-
-```cpp
-#define NODE_ID "NODE01"
-#define LORA_FREQUENCY 433E6
-```
-
-อัปโหลดลง Node ตัวแรก
-
-### NODE02
-
-เปิดสเก็ตช์ที่แยกไว้สำหรับโหนดตัวที่สอง:
-
-```text
-sensor_node_2/sensor_node_2.ino
-```
-
-ใน `sensor_node_2/config.h` กำหนดไว้แล้วว่า:
-
-```cpp
-#define NODE_ID "NODE02"
-```
-
-อัปโหลดสเก็ตช์นี้ลง Node ตัวที่สองได้เลย โดยไม่ต้องแก้ไอดีของ `NODE01`
-
----
-
-## ระดับสถานะ
-
-### CALIBRATING
-
-ระบบกำลังเรียน baseline ยังไม่พร้อมตัดสินเต็มรูปแบบ
-
-### NORMAL
-
-ค่าปกติ ไม่มีสัญญาณควัน/ความร้อน/ความแห้งผิดปกติ
-
-### WATCH
-
-เริ่มมีสัญญาณผิดปกติบางอย่าง แต่ยังไม่ถือว่าเป็นเหตุไฟ
-
-### WARNING
-
-มีสัญญาณผิดปกติชัดเจน หรือมีหลายกลุ่ม sensor สนับสนุนกัน
-
-### CRITICAL
-
-มีควัน/อนุภาคเป็นหนึ่งในหลักฐาน และมี sensor group อื่นช่วยยืนยัน พร้อมผ่าน critical debounce แล้ว
-
-### SENSOR_FAULT
-
-SHT31 หรือ Sharp อ่านค่าผิดปกติ/ขาดหาย/ค้าง
-
----
-
-## วิธีทดสอบที่แนะนำ
-
-1. เปิด Gateway ก่อน
-2. เปิด Node แล้วรอให้ครบ baseline warm-up ประมาณ 5 รอบ
-3. ตอนปกติควรเป็น `NORMAL`
-4. ใช้ธูป/ควันอ่อน ๆ ทดสอบ Sharp: ควรขึ้น `WATCH` หรือ `WARNING`
-5. ใช้ไดร์เป่าห่าง ๆ ทดสอบความร้อน: ถ้าไม่มีควัน ไม่ควรขึ้น `CRITICAL`
-6. ใช้ควัน + ความร้อนพร้อมกัน: ควรขึ้น `WARNING` ก่อน แล้วถ้ายืนยันต่อเนื่องจึงขึ้น `CRITICAL`
-7. เอาควัน/ความร้อนออก ระบบควรค่อย ๆ ลดระดับ ไม่ตกกลับ NORMAL ทันที
-
----
-
-## ขอบเขตที่ควรอธิบายในรายงาน
-
-ระบบนี้ควรอธิบายว่า:
-
-> ระบบต้นแบบตรวจจับสัญญาณบ่งชี้ไฟป่าระยะเริ่มต้นจากควัน/อนุภาค อุณหภูมิอากาศ และความชื้น แล้วส่งแจ้งเตือนผ่าน LoRa
-
-ไม่ควรอ้างว่า:
-
-> ตรวจไฟป่าได้ 100% หรือทำนายไฟป่าก่อนเกิดได้แน่นอน
-
----
-
-## Quiet-smoke fix update
-
-This build treats `Smoke Raw = 0` as a possible clean-air reading instead of an immediate Sharp sensor fault.
-
-Changed behavior:
-
-- `SHARP_LOW_FAULT_ENABLED` defaults to `0`.
-- `SHARP_STUCK_FAULT_ENABLED` defaults to `0`.
-- `SHARP_HIGH_FAULT_ENABLED` also defaults to `0`; enable it only after confirming that a near-4095 value always means ADC saturation or a wiring fault on the installed hardware.
-- In `TEST_MODE`, runtime RTC counters are reset after every reset/upload so old `BOOT_ABNORMAL` or `SENSOR_FAULT` states do not persist during bench testing.
-
-Important: if your Sharp reads 0 in clean air, verify it responds upward when exposed to a safe smoke source such as incense. If it remains 0 even with smoke, the issue is wiring, LED drive, sensor power, or ADC input.
-
----
+สำหรับ Arduino CLI ให้เพิ่มคลังที่ติดตั้งไว้และคอมไพล์ทั้งสามสเก็ตช์ด้วย FQBN เดียวกัน
 
 ## Domain deployment
 
-The Cloudflare Tunnel publishes two hostnames through the same backend:
+ระบบโดเมนใช้ Backend ตัวเดียวเผยแพร่สอง hostname ผ่าน Cloudflare Tunnel:
 
-- `https://wildfire.nattaphat.me` is the public, read-only dashboard.
-- `https://admin.nattaphat.me` is protected by Cloudflare Access and exposes the GPS, manual-location, and alert-management controls.
+- `https://wildfire.nattaphat.me` เป็น Dashboard อ่านอย่างเดียว
+- `https://admin.nattaphat.me` ป้องกันด้วย Cloudflare Access สำหรับ GPS, ตำแหน่ง manual และจัดการ Alert
 
-Build and start the domain version with:
+เริ่มระบบเวอร์ชันโดเมนด้วย:
 
 ```powershell
 cd C:\wildfire_lora
 .\start-domain.ps1
 ```
 
-Create both tunnel routes with service URL `http://localhost:4000`. Enable **Protect with Access** on the admin route and allow only the addresses listed in backend `ADMIN_EMAILS`.
-
-The Gateway may move from its local HTTP URL to `https://wildfire.nattaphat.me/api` only after the Cloudflare route is healthy and the matching public root CA has been placed in `gateway/secrets.h`. The firmware deliberately refuses HTTPS when no CA is configured.
+รายละเอียด Gateway และการตั้ง Wi-Fi อยู่ใน [`gateway/README.md`](gateway/README.md)

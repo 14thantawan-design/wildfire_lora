@@ -1,9 +1,7 @@
 export type NodeState =
-  | 'CALIBRATING'
   | 'NORMAL'
   | 'WATCH'
   | 'WARNING'
-  | 'CRITICAL'
   | 'SENSOR_FAULT'
   | 'UNKNOWN'
 
@@ -11,18 +9,17 @@ export interface NodeStatus {
   _id?: string
   node_id: string
   state: NodeState
-  confidence?: number
   node_state?: NodeState
-  node_confidence?: number
-  risk_score?: number | null
+  risk_reason_bits?: number
+  risk_reasons?: string[]
   risk_source?: 'node' | 'legacy'
   risk_model_version?: number | null
   air_temp?: number | null
   humidity?: number | null
+  particle_ug_m3?: number | null
+  // Legacy value kept only for records from firmware before risk model v7.
   smoke_raw?: number | null
   sensor_health?: string
-  baseline_warmup_count?: number | null
-  baseline_warmup_target?: number | null
   lat?: number
   lng?: number
   gps_fixed?: boolean
@@ -45,40 +42,6 @@ export interface GpsReacquireCommand {
   duplicate: boolean
 }
 
-export type BaselineRecalibrationPhase =
-  | 'idle'
-  | 'pending'
-  | 'sent'
-  | 'accepted'
-  | 'calibrating'
-  | 'completed'
-  | 'rejected'
-
-export interface BaselineRecalibrationCommand {
-  command_id: string
-  node_id: string
-  command: 'baseline_recalibrate'
-  status: 'pending' | 'sent' | 'acknowledged' | 'rejected'
-  created_at: string
-  sent_at?: string
-  acknowledged_at?: string
-  baseline_started_at?: string
-  completed_at?: string
-  result_reason?: string
-  attempts?: number
-}
-
-export interface BaselineRecalibrationStatus {
-  phase: BaselineRecalibrationPhase
-  command: BaselineRecalibrationCommand | null
-  node_id: string
-  node_state: NodeState
-  online: boolean
-  baseline_warmup_count: number | null
-  baseline_warmup_target: number | null
-  duplicate?: boolean
-}
-
 export interface ManualLocationInput {
   lat: number
   lng: number
@@ -90,18 +53,15 @@ export interface Reading {
   seq?: number
   timestamp: string
   state: NodeState
-  confidence?: number
   node_state?: NodeState
-  node_confidence?: number
-  risk_score?: number | null
+  risk_reason_bits?: number
+  risk_reasons?: string[]
   risk_source?: 'node' | 'legacy'
   risk_model_version?: number | null
   air_temp?: number | null
   humidity?: number | null
+  particle_ug_m3?: number | null
   smoke_raw?: number | null
-  smoke_baseline_delta?: number | null
-  air_baseline_delta?: number | null
-  humidity_baseline_delta?: number | null
   sensor_health?: string
   rssi?: number
   snr?: number
@@ -123,12 +83,10 @@ export interface ApiHealth {
 export interface Alert {
   _id: string
   node_id: string
-  level: Exclude<NodeState, 'CALIBRATING' | 'NORMAL' | 'UNKNOWN'>
+  level: Exclude<NodeState, 'NORMAL' | 'UNKNOWN'>
   started_at: string
   ended_at?: string
   active: boolean
-  max_confidence?: number
-  max_risk_score?: number
   max_state?: NodeState
   reasons?: string[]
   last_reading?: {
@@ -136,18 +94,15 @@ export interface Alert {
     seq?: number
     timestamp?: string
     state?: NodeState
-    risk_score?: number | null
+    risk_reason_bits?: number
+    risk_reasons?: string[]
     risk_source?: 'node' | 'legacy'
     risk_model_version?: number | null
     node_state?: NodeState
-    confidence?: number
-    node_confidence?: number
     air_temp?: number | null
     humidity?: number | null
+    particle_ug_m3?: number | null
     smoke_raw?: number | null
-    smoke_baseline_delta?: number | null
-    air_baseline_delta?: number | null
-    humidity_baseline_delta?: number | null
     sensor_health?: string
     rssi?: number
     snr?: number

@@ -6,23 +6,29 @@ const REQUEST_TIMEOUT_MS = 5000;
 const LEVEL_DETAILS = {
   WATCH: { icon: '🟡', label: 'เฝ้าระวัง' },
   WARNING: { icon: '🟠', label: 'เตือนภัย' },
-  CRITICAL: { icon: '🔴', label: 'วิกฤต' },
   SENSOR_FAULT: { icon: '🟣', label: 'เซนเซอร์ขัดข้อง' },
   NORMAL: { icon: '🟢', label: 'ปกติ' }
 };
 
 const REASON_LABELS = {
-  node_reported: 'ใช้คะแนนและสถานะที่โหนดประเมินส่งมา',
+  node_reported: 'ใช้สถานะที่โหนดประเมินส่งมา',
+  temperature_above_45: 'อุณหภูมิสูงกว่า 45°C',
+  particle_above_150: 'อนุภาคโดยประมาณสูงกว่า 150 µg/m³',
+  hot_dry_30_30: 'อุณหภูมิอย่างน้อย 30°C และความชื้นไม่เกิน 30%RH',
+  temperature_above_35: 'อุณหภูมิสูงกว่า 35°C',
+  particle_above_50: 'อนุภาคโดยประมาณสูงกว่า 50 µg/m³',
+  humidity_below_50: 'ความชื้นต่ำกว่า 50%RH',
+  recovery_confirmation_pending: 'กำลังยืนยันค่าปกติก่อนลดระดับ',
   baseline_calibrating: 'กำลังเรียนค่าเริ่มต้นของเซนเซอร์',
-  smoke_sensor_low_stuck: 'ค่าควัน 0 ต่อเนื่อง',
-  smoke_low_stable: 'ค่าควันต่ำคงที่',
+  smoke_sensor_low_stuck: 'ค่าอนุภาค 0 ต่อเนื่อง',
+  smoke_low_stable: 'ค่าอนุภาคต่ำคงที่',
   sensor_fault: 'เซนเซอร์รายงานข้อขัดข้อง',
   sensor_data_incomplete: 'ข้อมูลจากเซนเซอร์ไม่ครบ',
   sht31_missing: 'ไม่พบข้อมูลอุณหภูมิหรือความชื้น',
-  smoke_weak: 'เริ่มพบสัญญาณควัน',
-  smoke_strong: 'พบสัญญาณควันชัดเจน',
-  smoke_critical: 'ควันสูงผิดปกติ',
-  smoke_rising_trend: 'ค่าควันเพิ่มขึ้นต่อเนื่อง',
+  smoke_weak: 'เริ่มพบอนุภาคควัน',
+  smoke_strong: 'พบอนุภาคควันชัดเจน',
+  smoke_critical: 'อนุภาคควันสูงผิดปกติ',
+  smoke_rising_trend: 'อนุภาคควันเพิ่มขึ้นต่อเนื่อง',
   heat_weak: 'อุณหภูมิสูงกว่าปกติ',
   heat_strong: 'อุณหภูมิสูง',
   heat_critical: 'อุณหภูมิสูงผิดปกติ',
@@ -108,10 +114,10 @@ function readingFrom(alert, reading) {
 function buildTelegramMessage(event, alert, reading, options = {}) {
   const config = { ...telegramConfig(), ...options };
   const current = readingFrom(alert, reading);
-  const level = event === 'resolved' ? 'NORMAL' : alert?.level || current.state || current.node_state || current.server_state;
+  const rawLevel = event === 'resolved' ? 'NORMAL' : alert?.level || current.state || current.node_state || current.server_state;
+  const level = rawLevel === 'CRITICAL' ? 'WARNING' : rawLevel;
   const detail = LEVEL_DETAILS[level] || { icon: '🔔', label: level || 'ไม่ทราบสถานะ' };
   const nodeId = escapeHtml(alert?.node_id || current.node_id || 'ไม่ทราบจุดตรวจ');
-  const riskScore = finiteNumber(current.risk_score ?? current.node_confidence ?? current.confidence ?? current.server_risk_score ?? alert?.max_risk_score);
   const timestamp = event === 'resolved'
     ? alert?.ended_at || current.timestamp
     : current.timestamp || alert?.started_at;
@@ -131,21 +137,29 @@ function buildTelegramMessage(event, alert, reading, options = {}) {
   }
 
   const heading = event === 'escalated' ? 'แจ้งเตือนยกระดับ' : 'แจ้งเตือนจากระบบ Wildfire LoRa';
-  const reasons = reasonLines(current.risk_source === 'node' ? ['node_reported'] : current.server_reasons || alert?.reasons || []);
+  const reasons = reasonLines(current.risk_reasons?.length
+    ? current.risk_reasons
+    : current.server_reasons || alert?.reasons || ['node_reported']);
+  const particleValue = finiteNumber(current.particle_ug_m3);
+  const legacySmokeRaw = finiteNumber(current.smoke_raw);
+  const particleText = particleValue !== undefined
+    ? formatValue(particleValue, ' µg/m³', 1)
+    : legacySmokeRaw !== undefined
+      ? `${formatValue(legacySmokeRaw, ' raw', 0)} (ข้อมูลรุ่นเก่า)`
+      : 'ไม่มีข้อมูล';
 
   return [
     `${detail.icon} <b>${heading}: ${escapeHtml(detail.label)}</b>`,
     '',
     `<b>จุดตรวจ:</b> ${nodeId}`,
     `<b>ระดับระบบ:</b> ${escapeHtml(level)} (${escapeHtml(detail.label)})`,
-    `<b>คะแนนความเสี่ยง:</b> ${riskScore === undefined ? 'ไม่มีข้อมูล' : `${riskScore}/100`}`,
     '',
     '<b>สาเหตุ:</b>',
     ...reasons,
     '',
     `<b>อุณหภูมิ:</b> ${formatValue(current.air_temp, '°C')}`,
     `<b>ความชื้น:</b> ${formatValue(current.humidity, '%')}`,
-    `<b>ค่าควัน:</b> ${formatValue(current.smoke_raw, '', 0)}`,
+    `<b>อนุภาคโดยประมาณ:</b> ${particleText}`,
     `<b>เวลา:</b> ${escapeHtml(formatTimestamp(timestamp, config.timezone))}`,
     '',
     `<a href="${dashboardUrl}">ดูตำแหน่งและข้อมูลเพิ่มเติม</a>`

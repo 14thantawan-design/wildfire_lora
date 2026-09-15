@@ -27,14 +27,10 @@ struct ParsedPacket {
   double longitude;
   String gpsError;
   String state;
-  int confidence;
+  uint16_t riskReasonBits;
   float airTemp;
   float humidity;
-  int smokeRaw;
-  int smokeBaselineDelta;
-  float airTempBaselineDelta;
-  float humidityBaselineDelta;
-  uint16_t baselineWarmupCount;
+  float particleUgM3;
   String sensorHealth;
 };
 
@@ -53,14 +49,10 @@ struct NodeStatus {
   String gpsError;
   unsigned long gpsSeenMs;
   String state;
-  int confidence;
+  uint16_t riskReasonBits;
   float airTemp;
   float humidity;
-  int smokeRaw;
-  int smokeBaselineDelta;
-  float airTempBaselineDelta;
-  float humidityBaselineDelta;
-  uint16_t baselineWarmupCount;
+  float particleUgM3;
   String sensorHealth;
   int rssi;
   float snr;
@@ -662,8 +654,7 @@ int getOrCreateNodeIndex(const String &nodeId) {
       nodes[i].gpsError = "";
       nodes[i].gpsSeenMs = 0;
       nodes[i].state = "UNKNOWN";
-      nodes[i].confidence = 0;
-      nodes[i].baselineWarmupCount = 0;
+      nodes[i].riskReasonBits = 0;
       Serial.print("New node registered: ");
       Serial.println(nodeId);
       return i;
@@ -675,9 +666,19 @@ int getOrCreateNodeIndex(const String &nodeId) {
 }
 
 String normalizePacketType(const String &t) {
-  if (t == "c") return "critical";
+  if (t == "c") return "sensor"; // รองรับแพ็กเก็ตเก่าที่ใช้ c แยกชนิด CRITICAL
   if (t == "s") return "sensor";
   return t;
+}
+
+String normalizeRiskState(String state) {
+  state.trim();
+  state.toUpperCase();
+  if (state == "CRITICAL") return "WARNING";
+  if (state == "CALIBRATING") return "UNKNOWN";
+  if (state == "NORMAL" || state == "WATCH" ||
+      state == "WARNING" || state == "SENSOR_FAULT") return state;
+  return "UNKNOWN";
 }
 
 template <typename TDoc>
@@ -744,18 +745,12 @@ bool parseJsonPacket(const String &payload, ParsedPacket &out) {
   out.latitude = getDoubleField(doc, "la", "lat", 0.0);
   out.longitude = getDoubleField(doc, "ln", "lng", 0.0);
   out.gpsError = getStringField(doc, "er", "error", "");
-  out.state = getStringField(doc, "st", "state", "UNKNOWN");
-  out.confidence = getIntField(doc, "c", "confidence", 0);
+  out.state = normalizeRiskState(getStringField(doc, "st", "state", "UNKNOWN"));
+  out.riskReasonBits = getIntField(doc, "rb", "risk_reason_bits", 0);
   out.airTemp = getFloatField(doc, "at", "air_temp", NAN);
   out.humidity = getFloatField(doc, "h", "humidity", NAN);
 
-  out.smokeRaw = getIntField(doc, "sm", "smoke_raw", -1);
-
-  out.smokeBaselineDelta = getIntField(doc, "sr", "smoke_baseline_delta", 0);
-  out.airTempBaselineDelta = getFloatField(doc, "ar", "air_temp_baseline_delta", 0.0f);
-  out.humidityBaselineDelta = getFloatField(doc, "hr", "humidity_baseline_delta", 0.0f);
-  out.baselineWarmupCount = getIntField(doc, "bc", "baseline_count", 0);
-
+  out.particleUgM3 = getFloatField(doc, "pm", "particle_ug_m3", NAN);
   out.sensorHealth = getStringField(doc, "sh", "sensor_health", "UNKNOWN");
 
   if (out.nodeId.length() == 0) {
@@ -795,22 +790,17 @@ void updateNodeStatus(int idx, const ParsedPacket &packet, int rssi, float snr) 
   }
 
   nodes[idx].state = packet.state;
-  nodes[idx].confidence = packet.confidence;
+  nodes[idx].riskReasonBits = packet.riskReasonBits;
   nodes[idx].airTemp = packet.airTemp;
   nodes[idx].humidity = packet.humidity;
-  nodes[idx].smokeRaw = packet.smokeRaw;
-  nodes[idx].smokeBaselineDelta = packet.smokeBaselineDelta;
-  nodes[idx].airTempBaselineDelta = packet.airTempBaselineDelta;
-  nodes[idx].humidityBaselineDelta = packet.humidityBaselineDelta;
-  nodes[idx].baselineWarmupCount = packet.baselineWarmupCount;
+  nodes[idx].particleUgM3 = packet.particleUgM3;
   nodes[idx].sensorHealth = packet.sensorHealth;
 }
 
 String calculateAreaStatus() {
   int activeNodes = 0;
-  int warningCount = 0;
-  int watchCount = 0;
-  int calibratingCount = 0;
+  bool hasWarning = false;
+  bool hasWatch = false;
   int faultOrOfflineCount = 0;
 
   for (int i = 0; i < MAX_NODES; i++) {
@@ -822,19 +812,15 @@ String calculateAreaStatus() {
       continue;
     }
 
-    if (nodes[i].state == "CRITICAL") return "CRITICAL";
-    if (nodes[i].state == "WARNING") warningCount++;
-    if (nodes[i].state == "WATCH") watchCount++;
-    if (nodes[i].state == "CALIBRATING") calibratingCount++;
+    if (nodes[i].state == "WARNING") hasWarning = true;
+    if (nodes[i].state == "WATCH") hasWatch = true;
     if (nodes[i].state == "SENSOR_FAULT") faultOrOfflineCount++;
   }
 
-  if (warningCount >= 2) return "WARNING_HIGH_CONFIDENCE";
-  if (warningCount == 1) return "WARNING";
-  if (watchCount >= 1) return "WATCH";
+  if (hasWarning) return "WARNING";
+  if (hasWatch) return "WATCH";
   if (activeNodes > 0 && faultOrOfflineCount == activeNodes) return "NO_HEALTHY_NODES";
   if (faultOrOfflineCount > 0) return "NORMAL_WITH_NODE_ISSUE";
-  if (calibratingCount > 0) return "CALIBRATING";
   return "NORMAL";
 }
 
@@ -887,17 +873,14 @@ void printNodeStatus(const NodeStatus &n) {
   Serial.print(n.nodeId);
   Serial.println(n.offline ? " = OFFLINE" : "");
   Serial.print("  State: "); Serial.println(n.offline ? "OFFLINE" : n.state);
-  Serial.print("  Confidence: "); Serial.println(n.confidence);
+  Serial.print("  Risk Reason Bits: "); Serial.println(n.riskReasonBits);
+  Serial.print("  Report Interval: "); Serial.print(n.reportIntervalSec); Serial.println(" sec");
   Serial.print("  Last Seq: "); Serial.println(n.lastSeq);
   Serial.print("  Last Seen: "); Serial.print((millis() - n.lastSeenMs) / 1000); Serial.println(" sec ago");
   printLocationOrNA(n);
   printFloatOrNA("  Air Temp: ", n.airTemp);
   printFloatOrNA("  Humidity: ", n.humidity);
-  Serial.print("  Smoke Raw: "); Serial.println(n.smokeRaw);
-  Serial.print("  Smoke From Baseline: "); Serial.println(n.smokeBaselineDelta);
-  Serial.print("  Air From Baseline: "); Serial.println(n.airTempBaselineDelta);
-  Serial.print("  Humidity From Baseline: "); Serial.println(n.humidityBaselineDelta);
-  Serial.print("  Baseline Warmup Count: "); Serial.println(n.baselineWarmupCount);
+  Serial.print("  Particle Estimated ug/m3: "); Serial.println(n.particleUgM3);
   Serial.print("  Sensor Health: "); Serial.println(n.sensorHealth);
   Serial.print("  RSSI: "); Serial.println(n.rssi);
   Serial.print("  SNR: "); Serial.println(n.snr);
@@ -943,14 +926,11 @@ void printReceivedPacket(const ParsedPacket &packet, int rssi, float snr) {
   }
 
   Serial.print("State: "); Serial.println(packet.state);
-  Serial.print("Confidence: "); Serial.println(packet.confidence);
+  Serial.print("Risk Reason Bits: "); Serial.println(packet.riskReasonBits);
+  Serial.print("Report Interval: "); Serial.print(packet.reportIntervalSec); Serial.println(" sec");
   printFloatOrNA("Air Temp: ", packet.airTemp);
   printFloatOrNA("Humidity: ", packet.humidity);
-  Serial.print("Smoke Raw: "); Serial.println(packet.smokeRaw);
-  Serial.print("Smoke From Baseline: "); Serial.println(packet.smokeBaselineDelta);
-  Serial.print("Air From Baseline: "); Serial.println(packet.airTempBaselineDelta);
-  Serial.print("Humidity From Baseline: "); Serial.println(packet.humidityBaselineDelta);
-  Serial.print("Baseline Warmup Count: "); Serial.println(packet.baselineWarmupCount);
+  Serial.print("Particle Estimated ug/m3: "); Serial.println(packet.particleUgM3);
   Serial.print("Sensor Health: "); Serial.println(packet.sensorHealth);
   Serial.print("RSSI: "); Serial.println(rssi);
   Serial.print("SNR: "); Serial.println(snr);
@@ -995,7 +975,7 @@ bool handleCommandAckPacket(const String &payload) {
 
 bool sendSensorUplinkAck(const ParsedPacket &packet) {
 #if SENSOR_UPLINK_ACK_ENABLED
-  if (packet.packetType != "sensor" && packet.packetType != "critical") return false;
+  if (packet.packetType != "sensor") return false;
 
   StaticJsonDocument<192> doc;
   doc["t"] = "rx_ack";

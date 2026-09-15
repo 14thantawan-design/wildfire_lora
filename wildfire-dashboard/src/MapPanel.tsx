@@ -136,8 +136,8 @@ export function MapPanel({ focusRequest, nodes, selectedNodeId, onSelect }: MapP
                     <strong>{formatSensorValue(node.online ? node.humidity : undefined, '%')}</strong>
                   </div>
                   <div>
-                    <span>ค่าควัน</span>
-                    <strong>{formatSensorValue(node.online ? node.smoke_raw : undefined)}</strong>
+                    <span>อนุภาคโดยประมาณ</span>
+                    <strong>{formatSensorValue(node.online ? node.particle_ug_m3 : undefined, ' µg/m³')}</strong>
                   </div>
                 </div>
               </Tooltip>
@@ -148,10 +148,8 @@ export function MapPanel({ focusRequest, nodes, selectedNodeId, onSelect }: MapP
 
       <div className="map-legend">
         <span><i className="legend-dot normal" /> ปกติ</span>
-        <span><i className="legend-dot calibrating" /> กำลังปรับค่า</span>
         <span><i className="legend-dot watch" /> เฝ้าระวัง</span>
         <span><i className="legend-dot warning" /> เตือนภัย</span>
-        <span><i className="legend-dot critical" /> วิกฤต</span>
         <span><i className="legend-dot sensor" /> เซนเซอร์ขัดข้อง</span>
       </div>
     </div>

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { selectLiveOverview, assessLiveSafety } from '../src/liveOverview.ts'
 
 const nodes = [
-  { node_id: 'NODE01', online: false, state: 'CRITICAL' },
+  { node_id: 'NODE01', online: false, state: 'WARNING' },
   { node_id: 'NODE02', online: true, state: 'NORMAL' },
   { node_id: 'NODE03', online: false, state: 'NORMAL' },
 ]
@@ -22,12 +22,9 @@ test('offline historical nodes and their old alerts do not block live assessment
   })
 })
 
-test('live warning and critical decisions come only from nodes', () => {
+test('live warning decisions come only from online nodes', () => {
   assert.equal(assessLiveSafety([
-    { node_id: 'NODE02', online: true, state: 'CRITICAL', risk_score: 80, smoke_raw: 0 },
-  ], health, false).highestState, 'CRITICAL')
-  assert.equal(assessLiveSafety([
-    { node_id: 'NODE02', online: true, state: 'WARNING' },
+    { node_id: 'NODE02', online: true, state: 'WARNING', risk_reasons: ['particle_above_150'] },
   ], health, false).highestState, 'WARNING')
 })
 

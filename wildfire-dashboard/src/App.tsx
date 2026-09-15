@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { lazy, Suspense, useEffect, useState, type FormEvent } from 'react'
 import {
   ArrowLeft,
   ChevronRight,
@@ -9,7 +9,6 @@ import {
   MapPin,
   RadioTower,
   RefreshCw,
-  RotateCcw,
   ShieldCheck,
   Thermometer,
   Trash2,
@@ -18,7 +17,7 @@ import {
   X,
 } from 'lucide-react'
 import { AdminReadingsPage } from './AdminReadingsPage'
-import type { Alert, BaselineRecalibrationStatus, NodeState, Reading } from './types'
+import type { Alert, NodeState } from './types'
 import { useDashboard } from './useDashboard'
 import type { TimeRangeKey } from './timeRanges'
 import { formatReason, stateLabels } from './nodeStates'
@@ -135,14 +134,6 @@ function safetyBannerFor(canAssess: boolean, state: NodeState) {
     }
   }
 
-  if (state === 'CALIBRATING') {
-    return {
-      tone: 'unknown',
-      heading: 'กำลังประเมินสถานการณ์',
-      message: 'จุดตรวจวัดกำลังเรียนค่าเริ่มต้นของเซนเซอร์',
-    }
-  }
-
   if (state === 'WATCH') {
     return {
       tone: 'watch',
@@ -167,14 +158,6 @@ function safetyBannerFor(canAssess: boolean, state: NodeState) {
     }
   }
 
-  if (state === 'CRITICAL') {
-    return {
-      tone: 'danger',
-      heading: 'สถานการณ์ระดับวิกฤต',
-      message: 'โหนดประเมินความเสี่ยงการเกิดไฟป่าอยู่ในระดับวิกฤต',
-    }
-  }
-
   return {
     tone: 'safe',
     heading: 'สถานการณ์จากจุดตรวจออนไลน์',
@@ -182,95 +165,18 @@ function safetyBannerFor(canAssess: boolean, state: NodeState) {
   }
 }
 
-type AverageMetric = 'air_temp' | 'humidity' | 'smoke_raw'
-
-function averageReadings(readings: Reading[], metric: AverageMetric) {
-  const values = readings
-    .map((reading) => reading[metric])
-    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
-
-  return {
-    count: values.length,
-    value: values.length > 0
-      ? values.reduce((sum, value) => sum + value, 0) / values.length
-      : undefined,
-  }
-}
-
-function pickReason(reasons: string[], candidates: string[]) {
-  return candidates.find((reason) => reasons.includes(reason))
-}
-
-function summarizeAlertReasons(reasons: string[] = []) {
-  const smokeReason = pickReason(reasons, ['smoke_critical', 'smoke_strong', 'smoke_weak'])
-  const heatReason = pickReason(reasons, [
-    'heat_critical',
-    'heat_strong',
-    'temperature_fast_rise',
-    'heat_weak',
-  ])
-  const humidityReason = pickReason(reasons, [
-    'humidity_critical_drop',
-    'humidity_fast_drop',
-    'humidity_very_dry',
-    'humidity_dry',
-  ])
-  const sensorReason = pickReason(reasons, ['sensor_data_incomplete', 'sht31_missing', 'sensor_fault'])
-  const orderedReasons = [smokeReason, heatReason, humidityReason, sensorReason]
-    .filter(Boolean) as string[]
-
-  return orderedReasons.length
-    ? orderedReasons.map(formatReason).join(' + ')
-    : reasons.slice(0, 3).map(formatReason).join(', ')
-}
-
-function formatMetric(value: number | null | undefined, suffix = '') {
-  if (value === undefined || value === null) return '—'
-  return `${Number.isInteger(value) ? value : value.toFixed(1)}${suffix}`
-}
-
-function formatPositiveChange(value: number | null | undefined, suffix: string) {
-  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return undefined
-  return formatMetric(value, suffix)
-}
-
 function formatAlertSummary(alert: Alert) {
-  const reasons = alert.reasons ?? []
-  const reading = alert.last_reading
-  const anomalies: string[] = []
-  const hasReason = (...candidates: string[]) => candidates.some((reason) => reasons.includes(reason))
-  const smokeChange = formatPositiveChange(reading?.smoke_baseline_delta, ' raw')
-  const heatChange = formatPositiveChange(reading?.air_baseline_delta, '°C')
-  const humidityDrop = typeof reading?.humidity_baseline_delta === 'number'
-    ? formatPositiveChange(-reading.humidity_baseline_delta, '%')
-    : undefined
-
-  if (hasReason('smoke_sensor_low_stuck', 'smoke_low_stable')) {
-    const latestSmoke = typeof reading?.smoke_raw === 'number'
-      ? ` (ล่าสุด ${formatMetric(reading.smoke_raw, ' raw')})`
-      : ''
-    anomalies.push(`ค่าควันต่ำผิดปกติ${latestSmoke}`)
-  } else if (hasReason('smoke_critical', 'smoke_strong', 'smoke_weak')) {
-    anomalies.push(smokeChange ? `ควันสูงขึ้น ${smokeChange}` : 'ค่าควันสูงผิดปกติ')
-  }
-
-  if (hasReason('heat_critical', 'heat_strong', 'temperature_fast_rise', 'heat_weak')) {
-    anomalies.push(heatChange ? `อุณหภูมิสูงขึ้น ${heatChange}` : 'อุณหภูมิสูงผิดปกติ')
-  }
-
-  if (hasReason('humidity_critical_drop', 'humidity_fast_drop', 'humidity_very_dry', 'humidity_dry')) {
-    anomalies.push(humidityDrop ? `ความชื้นลดลง ${humidityDrop}` : 'ความชื้นต่ำผิดปกติ')
-  }
-
-  if (hasReason('sht31_missing')) {
-    anomalies.push('อุณหภูมิ/ความชื้นไม่ส่งข้อมูล')
-  } else if (hasReason('sensor_data_incomplete', 'sensor_fault')) {
-    anomalies.push('ข้อมูลเซนเซอร์ไม่ครบ')
-  }
-
-  if (anomalies.length > 0) return [...new Set(anomalies)].join(' · ')
-  if (reasons.length > 0) return summarizeAlertReasons(reasons)
+  const reasons = alert.last_reading?.risk_reasons?.length
+    ? alert.last_reading.risk_reasons
+    : alert.reasons ?? []
+  if (reasons.length > 0) return [...new Set(reasons)].map(formatReason).join(' · ')
   return alert.message || 'ตรวจพบค่าสัญญาณผิดปกติ'
+}
+
+function formatReportInterval(seconds: number | undefined) {
+  if (!seconds || seconds <= 0) return '—'
+  if (seconds < 60) return `${seconds} วินาที`
+  return `${seconds / 60} นาที`
 }
 
 function App() {
@@ -289,9 +195,6 @@ function App() {
   const [gpsRequestError, setGpsRequestError] = useState<{ nodeId: string; message: string }>()
   const [mapFocusRequest, setMapFocusRequest] = useState<{ nodeId: string; requestId: number }>()
   const [mapLocateError, setMapLocateError] = useState<{ nodeId: string; message: string }>()
-  const [baselineSubmittingNodeId, setBaselineSubmittingNodeId] = useState<string>()
-  const [baselineStatus, setBaselineStatus] = useState<BaselineRecalibrationStatus>()
-  const [baselineStatusError, setBaselineStatusError] = useState<string>()
   const [manualLocation, setManualLocation] = useState<{
     nodeId: string
     latitude: string
@@ -306,14 +209,11 @@ function App() {
     nodes,
     alerts,
     readings,
-    recentReadings,
     backendUnavailable,
     health,
     refresh,
     deleteAlert,
-    getBaselineRecalibrationStatus,
     reacquireGps,
-    recalibrateBaseline,
     saveManualLocation,
   } = useDashboard(selectedNodeId, chartRange)
 
@@ -324,120 +224,19 @@ function App() {
     }
   }, [nodes, selectedNodeId])
 
-  useEffect(() => {
-    if (!adminMode || !selectedNode?.node_id) {
-      setBaselineStatus(undefined)
-      setBaselineStatusError(undefined)
-      return
-    }
-
-    let active = true
-    const pollStatus = async () => {
-      try {
-        const status = await getBaselineRecalibrationStatus(selectedNode.node_id)
-        if (!active) return
-        setBaselineStatus(status)
-        setBaselineStatusError(undefined)
-      } catch {
-        if (active) setBaselineStatusError('ยังอ่านสถานะการเรียน baseline ไม่ได้')
-      }
-    }
-
-    void pollStatus()
-    const timer = window.setInterval(() => void pollStatus(), 2_000)
-    return () => {
-      active = false
-      window.clearInterval(timer)
-    }
-  }, [adminMode, getBaselineRecalibrationStatus, selectedNode?.node_id])
   const onlineNodes = nodes.filter((node) => node.online)
   const liveNodeIds = new Set(onlineNodes.map((node) => node.node_id))
   const gatewayConnected = !backendUnavailable && Boolean(health?.gateway.connected)
   const selectedLiveNode = gatewayConnected && selectedNode?.online ? selectedNode : undefined
-  const selectedSmoke =
-    typeof selectedLiveNode?.smoke_raw === 'number'
-      ? Math.round(selectedLiveNode.smoke_raw)
-      : selectedLiveNode?.smoke_raw
-  const selectedRecentReadings = useMemo(
-    () => recentReadings
-      .filter((reading) => reading.node_id === selectedNode?.node_id)
-      .slice(0, 10),
-    [recentReadings, selectedNode?.node_id],
-  )
-  const recentAverages = useMemo(
-    () => ({
-      airTemp: averageReadings(selectedRecentReadings, 'air_temp'),
-      humidity: averageReadings(selectedRecentReadings, 'humidity'),
-      smoke: averageReadings(selectedRecentReadings, 'smoke_raw'),
-    }),
-    [selectedRecentReadings],
-  )
-  const latestAverageTimestamp = selectedRecentReadings[0]?.timestamp
-  const averageMeta = (count: number) => {
-    if (!selectedNode) return 'ยังไม่มีโหนดที่เลือก'
-    if (count === 0) return `${selectedNode.node_id} · ยังไม่มีข้อมูลย้อนหลัง`
-    return `${selectedNode.node_id} · ${count}/10 ข้อมูล · ${timeAgo(latestAverageTimestamp)}`
-  }
+  const selectedParticle = selectedLiveNode?.particle_ug_m3
+  const selectedMetricMeta = selectedLiveNode?.last_seen
+    ? `${selectedLiveNode.node_id} · ${timeAgo(selectedLiveNode.last_seen)}`
+    : 'ยังไม่มีข้อมูลสดจากโหนดที่เลือก'
   const { highestState, canAssessSafety } = assessLiveSafety(nodes, health, backendUnavailable)
   const safetyBanner = safetyBannerFor(canAssessSafety, highestState)
   const visibleAlerts = showAllAlerts ? alerts : alerts.slice(0, 5)
   const hiddenAlertCount = Math.max(0, alerts.length - visibleAlerts.length)
   const gpsRequesting = gpsRequestingNodeId === selectedNode?.node_id
-  const baselineSubmitting = baselineSubmittingNodeId === selectedNode?.node_id
-  const baselineNodeState = selectedNode?.state
-  const baselineCount = baselineStatus?.baseline_warmup_count ?? selectedNode?.baseline_warmup_count
-  const baselineTarget = baselineStatus?.baseline_warmup_target ?? selectedNode?.baseline_warmup_target ?? 12
-  const baselineHealth = String(selectedNode?.sensor_health || '').toUpperCase()
-  const baselineCountStillLearning = typeof baselineCount === 'number' &&
-    typeof baselineTarget === 'number' && baselineTarget > 0 && baselineCount < baselineTarget
-  const baselineLearning = Boolean(selectedNode && (
-    selectedNode.node_state === 'CALIBRATING' || baselineHealth === 'CAL' ||
-    baselineHealth === 'CALIBRATING' || baselineCountStillLearning ||
-    baselineStatus?.phase === 'calibrating'
-  ))
-  const baselineDisplayPhase = baselineLearning ? 'calibrating' : (baselineStatus?.phase ?? 'idle')
-  const baselineUnsafeState =
-    baselineNodeState === 'CALIBRATING' ||
-    baselineNodeState === 'WARNING' || baselineNodeState === 'CRITICAL' ||
-    baselineNodeState === 'SENSOR_FAULT'
-  const baselineUnsafeReading = Boolean(selectedNode && (
-    (typeof selectedNode.smoke_raw === 'number' && selectedNode.smoke_raw >= 1200) ||
-    (typeof selectedNode.air_temp === 'number' && selectedNode.air_temp >= 40) ||
-    (typeof selectedNode.humidity === 'number' && selectedNode.humidity <= 35)
-  ))
-  const baselineBlockedMessage = (() => {
-    if (!selectedNode) return 'ยังไม่มี Node ให้เลือก'
-    if (backendUnavailable) return 'ยังเชื่อมต่อ Backend ไม่ได้'
-    if (!selectedNode.online) return 'Node ออฟไลน์อยู่'
-    if (baselineLearning) return 'Node กำลังเรียน baseline อยู่แล้ว'
-    if (baselineUnsafeState) return 'สถานะปัจจุบันยังไม่ปลอดภัยสำหรับการเรียนค่าใหม่'
-    if (String(selectedNode.sensor_health || '').toUpperCase() !== 'OK') return 'เซนเซอร์ยังไม่พร้อม'
-    if (baselineUnsafeReading) return 'ค่าปัจจุบันผิดปกติ กรุณารอให้ปลอดภัยก่อน'
-    return ''
-  })()
-  const baselineProgressText = (() => {
-    if (baselineStatusError) return baselineStatusError
-    if (baselineLearning) {
-      return `กำลังเรียน baseline ${baselineCount ?? 0}/${baselineTarget} รอบ`
-    }
-    if (baselineStatus?.phase === 'pending') return 'รอ Gateway รับคำสั่ง'
-    if (baselineStatus?.phase === 'sent') return 'Gateway ส่งแล้ว · รอ Node ตอบรับ'
-    if (baselineStatus?.phase === 'accepted') return 'Node รับคำสั่งแล้ว · รอข้อมูล CALIBRATING'
-    if (baselineStatus?.phase === 'completed') return 'เรียน baseline รอบล่าสุดเสร็จแล้ว'
-    if (baselineStatus?.phase === 'rejected') {
-      const reason = baselineStatus.command?.result_reason
-      const reasonText: Record<string, string> = {
-        already_calibrating: 'Node กำลังเรียนค่าอยู่แล้ว',
-        measurement_unavailable: 'Node ยังไม่มีค่าปัจจุบันสำหรับตรวจสอบ',
-        sensor_fault: 'Node ปฏิเสธ เพราะเซนเซอร์มีปัญหา',
-        storage_error: 'Node ล้างค่าที่บันทึกไว้ไม่สำเร็จ',
-        unsafe_reading: 'Node ปฏิเสธ เพราะค่าปัจจุบันผิดปกติ',
-        unsafe_state: 'Node ปฏิเสธ เพราะสถานะยังไม่ปลอดภัย',
-      }
-      return reasonText[reason || ''] || 'Node ปฏิเสธคำสั่ง กรุณาตรวจสอบสถานะ'
-    }
-    return 'ใช้เมื่อติดตั้งใหม่ ย้ายจุด หรือเปลี่ยนเซนเซอร์'
-  })()
   const gpsStatus = (() => {
     if (!selectedNode) return { tone: 'muted', text: 'ยังไม่มีจุดตรวจ' }
     if (gpsRequesting) return { tone: 'searching', text: `${selectedNode.node_id} · กำลังส่งคำสั่ง` }
@@ -511,26 +310,6 @@ function App() {
       })
     } finally {
       setGpsRequestingNodeId(undefined)
-    }
-  }
-
-  const requestSelectedNodeBaseline = async () => {
-    if (!selectedNode || baselineBlockedMessage) return
-    const confirmed = window.confirm(
-      `เรียน baseline ใหม่สำหรับ ${selectedNode.node_id} หรือไม่\n\n` +
-      'กรุณาตรวจสอบว่าไม่มีควันหรือความร้อนผิดปกติ บริเวณเซนเซอร์ควรอยู่ในสภาพปกติระหว่างการเรียนค่า',
-    )
-    if (!confirmed) return
-
-    setBaselineSubmittingNodeId(selectedNode.node_id)
-    setBaselineStatusError(undefined)
-    try {
-      const status = await recalibrateBaseline(selectedNode.node_id)
-      setBaselineStatus(status)
-    } catch (error) {
-      setBaselineStatusError(error instanceof Error ? error.message : 'ส่งคำสั่งไม่สำเร็จ')
-    } finally {
-      setBaselineSubmittingNodeId(undefined)
     }
   }
 
@@ -693,7 +472,7 @@ function App() {
             <div>
               <span className="eyebrow">ศูนย์เฝ้าระวังภาคสนาม</span>
               <h1>ภาพรวมพื้นที่ตรวจวัด</h1>
-              <p>ติดตามอุณหภูมิ ความชื้น และสัญญาณควันจากเครือข่าย LoRa</p>
+              <p>ติดตามอุณหภูมิ ความชื้น และอนุภาคควันจากเครือข่าย LoRa</p>
             </div>
             <div className="date-chip">
               <span>{new Intl.DateTimeFormat('th-TH', { weekday: 'long' }).format(new Date())}</span>
@@ -724,18 +503,18 @@ function App() {
             </article>
             <article>
               <span className="stat-icon red"><Thermometer size={19} /></span>
-              <div><span>อุณหภูมิเฉลี่ย · 10 รอบ</span><strong><Value value={recentAverages.airTemp.value} suffix="°C" fractionDigits={1} /></strong></div>
-              <em>{averageMeta(recentAverages.airTemp.count)}</em>
+              <div><span>อุณหภูมิล่าสุด</span><strong><Value value={selectedLiveNode?.air_temp} suffix="°C" fractionDigits={1} /></strong></div>
+              <em>{selectedMetricMeta}</em>
             </article>
             <article>
               <span className="stat-icon blue"><Droplets size={19} /></span>
-              <div><span>ความชื้นเฉลี่ย · 10 รอบ</span><strong><Value value={recentAverages.humidity.value} suffix="%" fractionDigits={1} /></strong></div>
-              <em>{averageMeta(recentAverages.humidity.count)}</em>
+              <div><span>ความชื้นล่าสุด</span><strong><Value value={selectedLiveNode?.humidity} suffix="%" fractionDigits={1} /></strong></div>
+              <em>{selectedMetricMeta}</em>
             </article>
             <article>
               <span className="stat-icon amber"><Wind size={19} /></span>
-              <div><span>ควันเฉลี่ย · 10 รอบ</span><strong><Value value={recentAverages.smoke.value} suffix=" raw" fractionDigits={0} /></strong></div>
-              <em>{averageMeta(recentAverages.smoke.count)}</em>
+              <div><span>อนุภาคล่าสุด</span><strong><Value value={selectedParticle} suffix=" µg/m³" fractionDigits={1} /></strong></div>
+              <em>{selectedMetricMeta}</em>
             </article>
           </section>
 
@@ -826,8 +605,8 @@ function App() {
                 <div className="node-detail-values">
                   <span>อุณหภูมิ <strong><Value value={selectedLiveNode?.air_temp} suffix="°C" fractionDigits={1} /></strong></span>
                   <span>ความชื้น <strong><Value value={selectedLiveNode?.humidity} suffix="%" fractionDigits={1} /></strong></span>
-                  <span>ควัน <strong><Value value={selectedSmoke} suffix=" raw" /></strong></span>
-                  <span>คะแนนความเสี่ยงจากโหนด <strong><Value value={selectedLiveNode?.risk_score} suffix="/100" /></strong></span>
+                  <span>อนุภาคโดยประมาณ <strong><Value value={selectedParticle} suffix=" µg/m³" fractionDigits={1} /></strong></span>
+                  <span>รอบวัดและส่ง <strong>{formatReportInterval(selectedLiveNode?.report_interval_sec)}</strong></span>
                 </div>
                 <div className="node-map-locator">
                   <button
@@ -844,23 +623,6 @@ function App() {
                     <small role="alert">{mapLocateError.message}</small>
                   )}
                 </div>
-                {adminMode && (
-                  <div className="baseline-maintenance">
-                    <button
-                      aria-label={`เรียน baseline ใหม่สำหรับ ${selectedNode?.node_id ?? 'Node'}`}
-                      disabled={Boolean(baselineBlockedMessage) || baselineSubmitting}
-                      onClick={() => void requestSelectedNodeBaseline()}
-                      title={baselineBlockedMessage || 'ล้าง baseline เดิมและให้ Node เรียนค่าจากสภาพแวดล้อมปัจจุบันใหม่'}
-                      type="button"
-                    >
-                      <RotateCcw className={baselineSubmitting ? 'spin' : ''} size={14} />
-                      <span>{baselineSubmitting ? 'กำลังส่งคำสั่ง' : 'เรียน Baseline ใหม่'}</span>
-                    </button>
-                    <small className={`baseline-phase phase-${baselineDisplayPhase}`}>
-                      {baselineProgressText}
-                    </small>
-                  </div>
-                )}
               </aside>
 
               <article className="panel alert-panel" id="alerts">

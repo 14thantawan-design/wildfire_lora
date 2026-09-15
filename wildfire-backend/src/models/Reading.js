@@ -15,6 +15,8 @@ const readingSchema = new mongoose.Schema(
     node_state: { type: String, index: true },
     node_confidence: { type: Number },
     risk_score: { type: Number, min: 0, max: 100 },
+    risk_reason_bits: { type: Number, min: 0, max: 255 },
+    risk_reasons: { type: [String], default: undefined },
     risk_source: { type: String, enum: ['node'] },
     risk_model_version: { type: Number },
     // Legacy fields are read-only compatibility for existing stored records.
@@ -33,6 +35,9 @@ const readingSchema = new mongoose.Schema(
     evidence: { type: mongoose.Schema.Types.Mixed },
     air_temp: { type: Number },
     humidity: { type: Number },
+    particle_ug_m3: { type: Number },
+    particle_baseline_delta_ug_m3: { type: Number },
+    // Legacy ADC fields remain only so existing historical records can still be read.
     smoke_raw: { type: Number },
     smoke_baseline_delta: { type: Number },
     air_baseline_delta: { type: Number },

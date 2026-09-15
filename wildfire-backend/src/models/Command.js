@@ -7,7 +7,7 @@ const commandSchema = new mongoose.Schema(
     command: {
       type: String,
       required: true,
-      enum: ['gps_reacquire', 'gps_manual', 'baseline_recalibrate']
+      enum: ['gps_reacquire', 'gps_manual']
     },
     status: {
       type: String,
@@ -18,7 +18,6 @@ const commandSchema = new mongoose.Schema(
     },
     sent_at: { type: Date },
     acknowledged_at: { type: Date },
-    baseline_started_at: { type: Date },
     completed_at: { type: Date },
     result_reason: { type: String },
     attempts: { type: Number, default: 0 },

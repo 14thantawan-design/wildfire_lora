@@ -4,10 +4,12 @@ const nodeSchema = new mongoose.Schema(
   {
     node_id: { type: String, required: true, unique: true, index: true, trim: true },
     state: { type: String, default: 'UNKNOWN', index: true },
-    confidence: { type: Number, default: 0 },
+    confidence: { type: Number },
     node_state: { type: String, default: 'UNKNOWN', index: true },
-    node_confidence: { type: Number, default: 0 },
+    node_confidence: { type: Number },
     risk_score: { type: Number, min: 0, max: 100 },
+    risk_reason_bits: { type: Number, min: 0, max: 255 },
+    risk_reasons: { type: [String], default: undefined },
     risk_source: { type: String, enum: ['node'] },
     risk_model_version: { type: Number },
     // Legacy fields are read-only compatibility for existing stored records.
@@ -26,6 +28,8 @@ const nodeSchema = new mongoose.Schema(
     evidence: { type: mongoose.Schema.Types.Mixed },
     air_temp: { type: Number },
     humidity: { type: Number },
+    particle_ug_m3: { type: Number },
+    // Legacy field for nodes that have not yet been flashed with risk model v7+.
     smoke_raw: { type: Number },
     sensor_health: { type: String },
     baseline_warmup_count: { type: Number },
