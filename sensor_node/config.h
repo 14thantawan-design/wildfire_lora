@@ -184,8 +184,8 @@
 // เกณฑ์ประเมินสถานะจากงานวิจัย
 // =========================
 // Computers 2026, 15, 105: Normal เมื่อ T<=35, RH>=50 และ PM<=50;
-// Surveillance เมื่อ T>35 หรือ PM>50 ในช่วงที่ยังไม่เข้า Fire; Fire เมื่อ T>45 หรือ PM>150
-// โครงงานเปลี่ยนชื่อ Surveillance เป็น WATCH และ Fire เป็น WARNING
+// WATCH เมื่อ T>35 หรือ PM>50 หรือ RH<50 ในช่วงที่ยังไม่เข้า WARNING
+// WARNING เมื่อ T>45 หรือ PM>150 หรือ T>=30 ร่วมกับ RH<=30
 #define NORMAL_MAX_AIR_TEMP_C 35.0f
 #define NORMAL_MIN_HUMIDITY_RH 50.0f
 #define NORMAL_MAX_PARTICLE_UG_M3 50.0f
@@ -197,7 +197,7 @@
 #define HOT_DRY_MIN_AIR_TEMP_C 30.0f
 #define HOT_DRY_MAX_HUMIDITY_RH 30.0f
 
-// รุ่นกฎ 7: เกณฑ์อ้างอิงแบบค่าคงที่ ไม่มีคะแนน/Rate/Baseline/CRITICAL
+// รุ่นกฎ 7: เกณฑ์อ้างอิงแบบค่าคงที่และรหัสเหตุผล 8 บิต
 #define RISK_MODEL_VERSION 7
 #define RTC_RISK_STATE_VERSION 7
 

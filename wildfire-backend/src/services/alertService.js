@@ -1,5 +1,4 @@
 const Alert = require('../models/Alert');
-const Reading = require('../models/Reading');
 const { notifyTelegram } = require('./telegramService');
 const { normalizeNodeRisk } = require('./nodeRisk');
 
@@ -39,13 +38,8 @@ async function saveTelegramResult(alert, level, notification, now) {
   }
 }
 
-function normalizeReason(reason) {
-  if (reason === 'smoke_sensor_low_stuck') return 'smoke_low_stable';
-  return reason;
-}
-
 function mergeReasons(...reasonLists) {
-  return [...new Set(reasonLists.flat().filter(Boolean).map(normalizeReason))];
+  return [...new Set(reasonLists.flat().filter(Boolean))];
 }
 
 function buildMessage(nodeId, level, reasons = []) {
@@ -61,64 +55,16 @@ function buildLastReading(reading) {
     seq: reading.seq,
     timestamp: reading.timestamp,
     state: reading.state,
-    risk_score: reading.risk_score,
     risk_reason_bits: reading.risk_reason_bits,
     risk_reasons: reading.risk_reasons,
-    risk_source: reading.risk_source,
     risk_model_version: reading.risk_model_version,
-    node_state: reading.node_state,
-    confidence: reading.confidence,
-    node_confidence: reading.node_confidence,
     air_temp: reading.air_temp,
     humidity: reading.humidity,
     particle_ug_m3: reading.particle_ug_m3,
-    particle_baseline_delta_ug_m3: reading.particle_baseline_delta_ug_m3,
-    smoke_raw: reading.smoke_raw,
-    smoke_baseline_delta: reading.smoke_baseline_delta,
-    air_baseline_delta: reading.air_baseline_delta,
-    humidity_baseline_delta: reading.humidity_baseline_delta,
     sensor_health: reading.sensor_health,
     rssi: reading.rssi,
     snr: reading.snr
   };
-}
-
-function hasDistinctNormalStreak(recent, count = 3) {
-  const distinct = [];
-  const seen = new Set();
-
-  for (const reading of recent) {
-    const raw = reading.raw_packet || {};
-    const sessionId = reading.session_id ?? raw.sid;
-    const seq = reading.seq ?? raw.q;
-    const signature = seq !== undefined
-      ? `${sessionId ?? 'legacy'}:${seq}`
-      : reading.packet_hash || reading.packet_id || String(reading._id);
-
-    if (seen.has(signature)) continue;
-    seen.add(signature);
-    distinct.push(reading);
-    if (distinct.length >= count) break;
-  }
-
-  return distinct.length >= count &&
-    distinct.every((reading) => normalizeNodeRisk(reading).state === 'NORMAL');
-}
-
-async function hasCleanNormalStreak(nodeId, count = 3) {
-  const recent = await Reading.find({ node_id: nodeId })
-    .sort({ timestamp: -1 })
-    .limit(count * 8)
-    .select('node_state risk_source state packet_id packet_hash session_id seq raw_packet')
-    .lean();
-
-  return hasDistinctNormalStreak(recent, count);
-}
-
-function isFirmwareConfirmedNormal(reading) {
-  if (!reading) return false;
-  const normalized = normalizeNodeRisk(reading);
-  return normalized.risk_source === 'node' && normalized.state === 'NORMAL';
 }
 
 async function processAlertForReading(reading) {
@@ -131,18 +77,9 @@ async function processAlertForReading(reading) {
   const now = reading.timestamp || new Date();
   const nodeId = reading.node_id;
   const state = reading.state;
-  const confidence = Number.isFinite(reading.confidence) ? reading.confidence : undefined;
-  const riskScore = reading.risk_score;
   const reasons = reading.risk_reasons?.length ? reading.risk_reasons : ['node_reported'];
 
   if (state === 'NORMAL') {
-    // Firmware already confirms recovery. Do not impose another confirmation
-    // delay on node reports; only old records without provenance need a fallback.
-    const clean = isFirmwareConfirmedNormal(reading) || await hasCleanNormalStreak(nodeId, 3);
-    if (!clean) {
-      return { action: 'clean_streak_pending' };
-    }
-
     const closingAlert = await Alert.findOne({ node_id: nodeId, active: true })
       .sort({ started_at: -1 });
     const closed = await Alert.updateMany(
@@ -182,8 +119,6 @@ async function processAlertForReading(reading) {
         message: buildMessage(nodeId, state, reasons),
         last_reading: lastReading
       };
-      if (confidence !== undefined) alertData.max_confidence = confidence;
-      if (riskScore !== undefined && riskScore !== null) alertData.max_risk_score = riskScore;
       const alert = await Alert.create(alertData);
 
       const notification = await notifyTelegram('created', alert, reading);
@@ -195,19 +130,10 @@ async function processAlertForReading(reading) {
     }
   }
 
-  // Convert an active legacy CRITICAL alert before updating it with v7 data.
-  const previousLevel = activeAlert.level === 'CRITICAL' ? 'WARNING' : activeAlert.level;
-  const nextLevel = severityOf(state) > severityOf(previousLevel) ? state : previousLevel;
+  const nextLevel = severityOf(state) > severityOf(activeAlert.level) ? state : activeAlert.level;
   activeAlert.level = nextLevel;
-  if (confidence !== undefined) {
-    activeAlert.max_confidence = Math.max(activeAlert.max_confidence || 0, confidence);
-  }
-  if (riskScore !== undefined && riskScore !== null) {
-    activeAlert.max_risk_score = Math.max(activeAlert.max_risk_score || 0, riskScore);
-  }
-  const previousMaxState = activeAlert.max_state === 'CRITICAL' ? 'WARNING' : activeAlert.max_state;
   activeAlert.max_state =
-    severityOf(state) > severityOf(previousMaxState) ? state : previousMaxState || nextLevel;
+    severityOf(state) > severityOf(activeAlert.max_state) ? state : activeAlert.max_state || nextLevel;
   activeAlert.reasons = mergeReasons(activeAlert.reasons || [], reasons);
   activeAlert.message = buildMessage(nodeId, nextLevel, activeAlert.reasons);
   activeAlert.last_reading = lastReading;
@@ -226,7 +152,5 @@ module.exports = {
   ALERT_LEVELS,
   processAlertForReading,
   severityOf,
-  shouldNotifyLevel,
-  hasDistinctNormalStreak,
-  isFirmwareConfirmedNormal
+  shouldNotifyLevel
 };

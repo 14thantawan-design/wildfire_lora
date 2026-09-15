@@ -7,13 +7,9 @@ and sensor history in MongoDB, and exposes API endpoints for the dashboard.
 
 Risk is calculated only by sensor firmware. For current risk model 7, the backend
 copies packet `st` and reason bitmask `rb` into `state`, `risk_reason_bits` and
-`risk_reasons`; `risk_source: "node"` and `risk_model_version` identify the origin.
-There is no backend risk engine, score, baseline, or sensor-history scoring query.
-Old records are read through `nodeRisk.js`, preferring their original node
-decision; no history is rewritten or deleted. Historical `CRITICAL` is exposed as
-`WARNING` and historical `CALIBRATING` as `UNKNOWN`. Old fields remain in the
-schema only for compatibility. The dashboard uses current online node states,
-while alert records keep the historical peak of an event.
+`risk_reasons`, and stores `risk_model_version: 7`. Sensor packets from any other
+model version are rejected. The dashboard uses current online node states, while
+alert records keep the peak state of an event.
 
 ## Requirements
 
@@ -59,7 +55,6 @@ Telegram notifications follow the states already confirmed by the firmware:
 - If Telegram is temporarily unreachable, the next reading retries the unsent alert.
 - A firmware-confirmed `NORMAL` closes the alert and sends one resolved message.
   Firmware already waits for three clean measurement cycles; the backend does not wait again.
-  Only legacy records without a node decision use the old distinct-reading fallback.
 - `NORMAL` without an active alert does not send a message.
 
 Setup:
@@ -127,5 +122,5 @@ GPS test:
 curl -X POST http://localhost:4000/api/packets ^
   -H "Content-Type: application/json" ^
   -H "X-Gateway-Key: replace-with-your-gateway-key" ^
-  -d "{\"t\":\"gps\",\"id\":\"NODE01\",\"q\":5,\"la\":13.123456,\"ln\":100.123456,\"sat\":7,\"hd\":1.2,\"gf\":1}"
+  -d "{\"t\":\"gps\",\"id\":\"NODE01\",\"q\":5,\"sid\":1234,\"la\":13.123456,\"ln\":100.123456,\"gf\":1}"
 ```

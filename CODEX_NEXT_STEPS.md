@@ -1,6 +1,6 @@
 # Codex / Next Developer Notes
 
-The current source uses the research-aligned, threshold-based state model. The old score, baseline, delta/rate, calibration, `CRITICAL`, and `SURVEILLANCE` model has been removed.
+The current source uses the research-aligned, threshold-based state model version 7.
 
 ## Authoritative state rules
 
@@ -24,12 +24,11 @@ The Sensor Node is the only component that calculates the state. The Gateway, ba
 - Packet version is `v=7`.
 - Keep `node_id`, `seq`, `st`, `rb`, `rv`, `at`, `h`, `pm`, `sh`, and `ri`.
 - Keep Gateway multi-node support and the compact payload below `MAX_SAFE_PAYLOAD_BYTES`.
-- Do not reintroduce score/baseline fields as authoritative risk data.
-- See `docs/node-risk-v2.md` for thresholds, boundary cases, reason-bit definitions, limitations, and verification.
+- See `docs/node-risk-v7.md` for thresholds, boundary cases, reason-bit definitions, limitations, and verification.
 
 ## Deployment note
 
-The tracked source files are authoritative. Rebuild firmware before flashing; previously tracked `build/` artifacts may contain an older model and must not be used as current firmware.
+The tracked source files are authoritative. Rebuild firmware before flashing; generated `build/` directories are ignored by Git.
 
 Suggested next improvements:
 

@@ -9,16 +9,12 @@ export interface NodeStatus {
   _id?: string
   node_id: string
   state: NodeState
-  node_state?: NodeState
   risk_reason_bits?: number
   risk_reasons?: string[]
-  risk_source?: 'node' | 'legacy'
   risk_model_version?: number | null
   air_temp?: number | null
   humidity?: number | null
   particle_ug_m3?: number | null
-  // Legacy value kept only for records from firmware before risk model v7.
-  smoke_raw?: number | null
   sensor_health?: string
   lat?: number
   lng?: number
@@ -53,15 +49,12 @@ export interface Reading {
   seq?: number
   timestamp: string
   state: NodeState
-  node_state?: NodeState
   risk_reason_bits?: number
   risk_reasons?: string[]
-  risk_source?: 'node' | 'legacy'
   risk_model_version?: number | null
   air_temp?: number | null
   humidity?: number | null
   particle_ug_m3?: number | null
-  smoke_raw?: number | null
   sensor_health?: string
   rssi?: number
   snr?: number
@@ -96,13 +89,10 @@ export interface Alert {
     state?: NodeState
     risk_reason_bits?: number
     risk_reasons?: string[]
-    risk_source?: 'node' | 'legacy'
     risk_model_version?: number | null
-    node_state?: NodeState
     air_temp?: number | null
     humidity?: number | null
     particle_ug_m3?: number | null
-    smoke_raw?: number | null
     sensor_health?: string
     rssi?: number
     snr?: number

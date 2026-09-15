@@ -28,6 +28,7 @@ struct ParsedPacket {
   String gpsError;
   String state;
   uint16_t riskReasonBits;
+  uint8_t riskModelVersion;
   float airTemp;
   float humidity;
   float particleUgM3;
@@ -665,55 +666,12 @@ int getOrCreateNodeIndex(const String &nodeId) {
   return -1;
 }
 
-String normalizePacketType(const String &t) {
-  if (t == "c") return "sensor"; // รองรับแพ็กเก็ตเก่าที่ใช้ c แยกชนิด CRITICAL
-  if (t == "s") return "sensor";
-  return t;
-}
-
 String normalizeRiskState(String state) {
   state.trim();
   state.toUpperCase();
-  if (state == "CRITICAL") return "WARNING";
-  if (state == "CALIBRATING") return "UNKNOWN";
   if (state == "NORMAL" || state == "WATCH" ||
       state == "WARNING" || state == "SENSOR_FAULT") return state;
   return "UNKNOWN";
-}
-
-template <typename TDoc>
-String getStringField(TDoc &doc, const char *compactKey, const char *longKey, const char *fallback) {
-  if (!doc[compactKey].isNull()) return String((const char*)doc[compactKey]);
-  if (!doc[longKey].isNull()) return String((const char*)doc[longKey]);
-  return String(fallback);
-}
-
-template <typename TDoc>
-int getIntField(TDoc &doc, const char *compactKey, const char *longKey, int fallback) {
-  if (!doc[compactKey].isNull()) return doc[compactKey].template as<int>();
-  if (!doc[longKey].isNull()) return doc[longKey].template as<int>();
-  return fallback;
-}
-
-template <typename TDoc>
-uint32_t getUIntField(TDoc &doc, const char *compactKey, const char *longKey, uint32_t fallback) {
-  if (!doc[compactKey].isNull()) return doc[compactKey].template as<uint32_t>();
-  if (!doc[longKey].isNull()) return doc[longKey].template as<uint32_t>();
-  return fallback;
-}
-
-template <typename TDoc>
-float getFloatField(TDoc &doc, const char *compactKey, const char *longKey, float fallback) {
-  if (!doc[compactKey].isNull()) return doc[compactKey].template as<float>();
-  if (!doc[longKey].isNull()) return doc[longKey].template as<float>();
-  return fallback;
-}
-
-template <typename TDoc>
-double getDoubleField(TDoc &doc, const char *compactKey, const char *longKey, double fallback) {
-  if (!doc[compactKey].isNull()) return doc[compactKey].template as<double>();
-  if (!doc[longKey].isNull()) return doc[longKey].template as<double>();
-  return fallback;
 }
 
 bool isGpsCoordinateValid(double latitude, double longitude) {
@@ -735,26 +693,38 @@ bool parseJsonPacket(const String &payload, ParsedPacket &out) {
     return false;
   }
 
-  // Supports compact robust packets and older long-key packets.
-  out.packetType = normalizePacketType(getStringField(doc, "t", "packet_type", "sensor"));
-  out.nodeId = getStringField(doc, "id", "node_id", "");
-  out.seq = getUIntField(doc, "q", "seq", 0);
-  out.sessionId = getUIntField(doc, "sid", "session_id", 0);
-  out.reportIntervalSec = getUIntField(doc, "ri", "report_interval_sec", 0);
-  out.gpsFix = getIntField(doc, "gf", "gps_fix", 0) == 1;
-  out.latitude = getDoubleField(doc, "la", "lat", 0.0);
-  out.longitude = getDoubleField(doc, "ln", "lng", 0.0);
-  out.gpsError = getStringField(doc, "er", "error", "");
-  out.state = normalizeRiskState(getStringField(doc, "st", "state", "UNKNOWN"));
-  out.riskReasonBits = getIntField(doc, "rb", "risk_reason_bits", 0);
-  out.airTemp = getFloatField(doc, "at", "air_temp", NAN);
-  out.humidity = getFloatField(doc, "h", "humidity", NAN);
-
-  out.particleUgM3 = getFloatField(doc, "pm", "particle_ug_m3", NAN);
-  out.sensorHealth = getStringField(doc, "sh", "sensor_health", "UNKNOWN");
+  String rawPacketType = String((const char *)(doc["t"] | ""));
+  out.packetType = rawPacketType == "s" ? "sensor" : rawPacketType;
+  out.nodeId = String((const char *)(doc["id"] | ""));
+  out.seq = doc["q"] | 0U;
+  out.sessionId = doc["sid"] | 0U;
+  out.reportIntervalSec = doc["ri"] | 0U;
+  out.gpsFix = (doc["gf"] | 0) == 1;
+  out.latitude = doc["la"] | 0.0;
+  out.longitude = doc["ln"] | 0.0;
+  out.gpsError = String((const char *)(doc["er"] | ""));
+  out.state = normalizeRiskState(String((const char *)(doc["st"] | "")));
+  out.riskReasonBits = doc["rb"] | 0;
+  out.riskModelVersion = doc["rv"] | 0;
+  out.airTemp = doc["at"].isNull() ? NAN : doc["at"].as<float>();
+  out.humidity = doc["h"].isNull() ? NAN : doc["h"].as<float>();
+  out.particleUgM3 = doc["pm"].isNull() ? NAN : doc["pm"].as<float>();
+  out.sensorHealth = String((const char *)(doc["sh"] | ""));
 
   if (out.nodeId.length() == 0) {
     Serial.println("ERROR: packet missing node_id/id");
+    return false;
+  }
+  if (out.packetType != "sensor" && out.packetType != "gps") {
+    Serial.println("ERROR: unsupported packet type");
+    return false;
+  }
+  if (out.sessionId == 0) {
+    Serial.println("ERROR: packet missing session id");
+    return false;
+  }
+  if (out.packetType == "sensor" && out.riskModelVersion != 7) {
+    Serial.println("ERROR: unsupported risk model version");
     return false;
   }
   return true;

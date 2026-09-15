@@ -19,30 +19,7 @@ const REASON_LABELS = {
   particle_above_50: 'อนุภาคโดยประมาณสูงกว่า 50 µg/m³',
   humidity_below_50: 'ความชื้นต่ำกว่า 50%RH',
   recovery_confirmation_pending: 'กำลังยืนยันค่าปกติก่อนลดระดับ',
-  baseline_calibrating: 'กำลังเรียนค่าเริ่มต้นของเซนเซอร์',
-  smoke_sensor_low_stuck: 'ค่าอนุภาค 0 ต่อเนื่อง',
-  smoke_low_stable: 'ค่าอนุภาคต่ำคงที่',
   sensor_fault: 'เซนเซอร์รายงานข้อขัดข้อง',
-  sensor_data_incomplete: 'ข้อมูลจากเซนเซอร์ไม่ครบ',
-  sht31_missing: 'ไม่พบข้อมูลอุณหภูมิหรือความชื้น',
-  smoke_weak: 'เริ่มพบอนุภาคควัน',
-  smoke_strong: 'พบอนุภาคควันชัดเจน',
-  smoke_critical: 'อนุภาคควันสูงผิดปกติ',
-  smoke_rising_trend: 'อนุภาคควันเพิ่มขึ้นต่อเนื่อง',
-  heat_weak: 'อุณหภูมิสูงกว่าปกติ',
-  heat_strong: 'อุณหภูมิสูง',
-  heat_critical: 'อุณหภูมิสูงผิดปกติ',
-  temperature_fast_rise: 'อุณหภูมิเพิ่มเร็ว',
-  humidity_dry: 'ความชื้นต่ำ',
-  humidity_very_dry: 'อากาศแห้งมาก',
-  humidity_critical_drop: 'ความชื้นลดลงแรง',
-  humidity_fast_drop: 'ความชื้นลดเร็ว',
-  weather_drift: 'สภาพอากาศเปลี่ยนแปลงต่อเนื่อง',
-  drying_condition: 'สภาพอากาศแห้งลงต่อเนื่อง',
-  fire_danger_high: 'สภาพอากาศเสี่ยงต่อการเกิดไฟสูง',
-  fire_danger_very_high: 'สภาพอากาศเสี่ยงต่อการเกิดไฟสูงมาก',
-  fog_humidity_penalty: 'ความชื้นสูง อาจมีหมอกหรือไอน้ำรบกวน',
-  fog_humidity_minor_penalty: 'ความชื้นสูง อาจรบกวนค่าควันบางส่วน'
 };
 
 function telegramConfig(env = process.env) {
@@ -114,8 +91,7 @@ function readingFrom(alert, reading) {
 function buildTelegramMessage(event, alert, reading, options = {}) {
   const config = { ...telegramConfig(), ...options };
   const current = readingFrom(alert, reading);
-  const rawLevel = event === 'resolved' ? 'NORMAL' : alert?.level || current.state || current.node_state || current.server_state;
-  const level = rawLevel === 'CRITICAL' ? 'WARNING' : rawLevel;
+  const level = event === 'resolved' ? 'NORMAL' : alert?.level || current.state;
   const detail = LEVEL_DETAILS[level] || { icon: '🔔', label: level || 'ไม่ทราบสถานะ' };
   const nodeId = escapeHtml(alert?.node_id || current.node_id || 'ไม่ทราบจุดตรวจ');
   const timestamp = event === 'resolved'
@@ -139,14 +115,8 @@ function buildTelegramMessage(event, alert, reading, options = {}) {
   const heading = event === 'escalated' ? 'แจ้งเตือนยกระดับ' : 'แจ้งเตือนจากระบบ Wildfire LoRa';
   const reasons = reasonLines(current.risk_reasons?.length
     ? current.risk_reasons
-    : current.server_reasons || alert?.reasons || ['node_reported']);
-  const particleValue = finiteNumber(current.particle_ug_m3);
-  const legacySmokeRaw = finiteNumber(current.smoke_raw);
-  const particleText = particleValue !== undefined
-    ? formatValue(particleValue, ' µg/m³', 1)
-    : legacySmokeRaw !== undefined
-      ? `${formatValue(legacySmokeRaw, ' raw', 0)} (ข้อมูลรุ่นเก่า)`
-      : 'ไม่มีข้อมูล';
+    : alert?.reasons || ['node_reported']);
+  const particleText = formatValue(current.particle_ug_m3, ' µg/m³', 1);
 
   return [
     `${detail.icon} <b>${heading}: ${escapeHtml(detail.label)}</b>`,

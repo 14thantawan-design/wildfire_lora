@@ -1,8 +1,6 @@
-"""Build a Thai DOCX reference for the current Sensor Node risk model (v7).
+"""Build a Thai DOCX reference for the Sensor Node threshold model (v7).
 
-The document is generated from the same fixed thresholds used by NODE01/NODE02.
-It deliberately contains no retired score, baseline, rate-of-change, CALIBRATING,
-or CRITICAL calculation.
+The document is generated from the fixed thresholds used by NODE01/NODE02.
 """
 
 from __future__ import annotations

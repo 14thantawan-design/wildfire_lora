@@ -26,7 +26,6 @@ function withOnlineStatus(node) {
   const obj = normalizeNodeRisk(node);
   const lastSeen = obj.last_seen ? new Date(obj.last_seen).getTime() : 0;
   obj.online = lastSeen > 0 && Date.now() - lastSeen <= offlineTimeoutMs(obj);
-  obj.node_state = obj.node_state || obj.state || 'UNKNOWN';
   // Connectivity is independent of the last risk decision made by the node.
   if (!obj.location_source && obj.gps_fixed && obj.lat !== undefined && obj.lng !== undefined) {
     obj.location_source = 'gps';

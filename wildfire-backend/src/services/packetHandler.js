@@ -2,7 +2,7 @@ const crypto = require('crypto');
 const NodeModel = require('../models/Node');
 const Reading = require('../models/Reading');
 const { processAlertForReading } = require('./alertService');
-const { riskFromPacket } = require('./nodeRisk');
+const { RISK_MODEL_VERSION, riskFromPacket } = require('./nodeRisk');
 
 const NODE_ID_PATTERN = /^[A-Za-z0-9_-]{1,32}$/;
 const SENSOR_STATES = new Set([
@@ -11,9 +11,7 @@ const SENSOR_STATES = new Set([
   'WARNING',
   'SENSOR_FAULT'
 ]);
-const LEGACY_SENSOR_STATES = new Set([...SENSOR_STATES, 'CALIBRATING', 'CRITICAL']);
 const SENSOR_HEALTH_VALUES = new Set(['OK', 'FAULT']);
-const LEGACY_SENSOR_HEALTH_VALUES = new Set([...SENSOR_HEALTH_VALUES, 'CAL', 'CALIBRATING']);
 const WARNING_REASON_MASK = 0b00000111;
 const WATCH_REASON_MASK = 0b00111000;
 const SENSOR_FAULT_REASON = 0b01000000;
@@ -24,8 +22,10 @@ const REPORT_INTERVAL_BY_STATE = {
   WARNING: 20,
   SENSOR_FAULT: 300
 };
-const LEGACY_DUPLICATE_WINDOW_MS = 2 * 60 * 1000;
-const LEGACY_PACKET_BUCKET_MS = 5 * 60 * 1000;
+const SENSOR_PACKET_FIELDS = new Set([
+  't', 'id', 'q', 'sid', 'ri', 'st', 'rb', 'rv', 'at', 'h', 'pm', 'sh',
+  'rssi', 'RSSI', 'rs', 'snr', 'SNR'
+]);
 
 function firstDefined(...values) {
   return values.find((value) => value !== undefined && value !== null);
@@ -85,64 +85,53 @@ function validateOptionalNumber(packet, key, minimum, maximum) {
 }
 
 function validateSensorPacket(packet) {
-  if (packet.t !== 's' && packet.t !== 'c') return 'sensor packet has invalid type';
+  if (packet.t !== 's') return 'sensor packet has invalid type';
+  if (Object.keys(packet).some((key) => !SENSOR_PACKET_FIELDS.has(key))) {
+    return 'sensor packet contains an unsupported field';
+  }
   if (!isValidNodeId(packet.id)) return 'sensor packet has invalid id';
   if (!isValidSequence(packet.q)) return 'sensor packet has invalid sequence';
-  if (packet.sid !== undefined && !isValidSessionId(packet.sid)) return 'sensor packet has invalid session id';
+  if (!isValidSessionId(packet.sid)) return 'sensor packet has invalid session id';
+  if (packet.rv !== RISK_MODEL_VERSION) return 'sensor packet has unsupported risk model version';
 
   const state = typeof packet.st === 'string' ? packet.st.trim().toUpperCase() : '';
   const health = typeof packet.sh === 'string' ? packet.sh.trim().toUpperCase() : '';
-  if (packet.rv !== undefined && (!Number.isInteger(packet.rv) || packet.rv < 1 || packet.rv > 255)) {
-    return 'sensor packet has invalid risk model version';
+  if (!SENSOR_STATES.has(state)) return 'sensor packet has invalid state';
+  if (!SENSOR_HEALTH_VALUES.has(health)) return 'sensor packet has invalid health';
+  if (!Number.isInteger(packet.rb) || packet.rb < 0 || packet.rb > 255) {
+    return 'sensor packet has invalid risk reason bits';
   }
-  const isResearchThresholdPacket = packet.rv >= 7;
-  const allowedStates = isResearchThresholdPacket ? SENSOR_STATES : LEGACY_SENSOR_STATES;
-  const allowedHealth = isResearchThresholdPacket ? SENSOR_HEALTH_VALUES : LEGACY_SENSOR_HEALTH_VALUES;
-  if (isResearchThresholdPacket && packet.t !== 's') return 'sensor packet has invalid type';
-  if (!allowedStates.has(state)) return 'sensor packet has invalid state';
-  if (!allowedHealth.has(health)) return 'sensor packet has invalid health';
-  if (isResearchThresholdPacket) {
-    if (!Number.isInteger(packet.rb) || packet.rb < 0 || packet.rb > 255) {
-      return 'sensor packet has invalid risk reason bits';
-    }
-    const reasonBits = packet.rb;
-    if ((state === 'SENSOR_FAULT') !== (health === 'FAULT')) {
-      return 'sensor packet state and health disagree';
-    }
-    if (state === 'NORMAL' && reasonBits !== 0) {
-      return 'NORMAL sensor packet has invalid risk reason bits';
-    }
-    if (state === 'WATCH' &&
-        ((reasonBits & (WARNING_REASON_MASK | SENSOR_FAULT_REASON)) !== 0 ||
-         (reasonBits & (WATCH_REASON_MASK | RECOVERY_REASON)) === 0)) {
-      return 'WATCH sensor packet has invalid risk reason bits';
-    }
-    if (state === 'WARNING' &&
-        ((reasonBits & (WATCH_REASON_MASK | SENSOR_FAULT_REASON)) !== 0 ||
-         (reasonBits & WARNING_REASON_MASK) === 0)) {
-      return 'WARNING sensor packet has invalid risk reason bits';
-    }
-    if (state === 'SENSOR_FAULT' && reasonBits !== SENSOR_FAULT_REASON) {
-      return 'SENSOR_FAULT packet has invalid risk reason bits';
-    }
-    const expectedInterval = REPORT_INTERVAL_BY_STATE[state];
-    if (!isFiniteNumber(packet.ri) ||
-        (packet.ri !== expectedInterval && packet.ri !== 5)) {
-      return 'sensor packet has invalid report interval for state';
-    }
-  } else if (!isFiniteNumber(packet.c) || packet.c < 0 || packet.c > 100) {
-    return 'sensor packet has invalid confidence';
+  const reasonBits = packet.rb;
+  if ((state === 'SENSOR_FAULT') !== (health === 'FAULT')) {
+    return 'sensor packet state and health disagree';
+  }
+  if (state === 'NORMAL' && reasonBits !== 0) {
+    return 'NORMAL sensor packet has invalid risk reason bits';
+  }
+  if (state === 'WATCH' &&
+      ((reasonBits & (WARNING_REASON_MASK | SENSOR_FAULT_REASON)) !== 0 ||
+       (reasonBits & (WATCH_REASON_MASK | RECOVERY_REASON)) === 0)) {
+    return 'WATCH sensor packet has invalid risk reason bits';
+  }
+  if (state === 'WARNING' &&
+      ((reasonBits & (WATCH_REASON_MASK | SENSOR_FAULT_REASON)) !== 0 ||
+       (reasonBits & WARNING_REASON_MASK) === 0)) {
+    return 'WARNING sensor packet has invalid risk reason bits';
+  }
+  if (state === 'SENSOR_FAULT' && reasonBits !== SENSOR_FAULT_REASON) {
+    return 'SENSOR_FAULT packet has invalid risk reason bits';
+  }
+  const expectedInterval = REPORT_INTERVAL_BY_STATE[state];
+  if (!isFiniteNumber(packet.ri) ||
+      (packet.ri !== expectedInterval && packet.ri !== 5)) {
+    return 'sensor packet has invalid report interval for state';
   }
   const hasParticleField = packet.pm !== undefined && packet.pm !== null;
-  const hasLegacySmokeField = packet.sm !== undefined && packet.sm !== null;
-  if (health !== 'FAULT' && !hasParticleField && !hasLegacySmokeField) {
+  if (health !== 'FAULT' && !hasParticleField) {
     return 'sensor packet has invalid particle value';
   }
   if (hasParticleField && (!isFiniteNumber(packet.pm) || packet.pm < 0 || packet.pm > 2000)) {
     return 'sensor packet has invalid particle value';
-  }
-  if (hasLegacySmokeField && (!isFiniteNumber(packet.sm) || packet.sm < 0 || packet.sm > 4095)) {
-    return 'sensor packet has invalid legacy smoke value';
   }
 
   const ranges = [
@@ -167,7 +156,7 @@ function validateGpsPacket(packet) {
   if (packet.t !== 'gps') return 'gps packet has invalid type';
   if (!isValidNodeId(packet.id)) return 'gps packet has invalid id';
   if (!isValidSequence(packet.q)) return 'gps packet has invalid sequence';
-  if (packet.sid !== undefined && !isValidSessionId(packet.sid)) return 'gps packet has invalid session id';
+  if (!isValidSessionId(packet.sid)) return 'gps packet has invalid session id';
   if (packet.gf !== 0 && packet.gf !== 1) return 'gps packet has invalid fix flag';
 
   if (packet.gf === 1 && !isValidCoordinate(packet.la, packet.ln)) {
@@ -194,15 +183,13 @@ function canonicalize(value) {
     }, {});
 }
 
-function buildPacketIdentity(packet, now = new Date()) {
+function buildPacketIdentity(packet) {
   const packetHash = crypto
     .createHash('sha256')
     .update(JSON.stringify(canonicalize(packet)))
     .digest('hex');
-  const sessionId = isValidSessionId(packet.sid) ? packet.sid : undefined;
-  const packetId = sessionId
-    ? `${packet.id.trim()}:${sessionId}:${packet.q}:${packet.t}`
-    : `legacy:${packetHash}:${Math.floor(now.getTime() / LEGACY_PACKET_BUCKET_MS)}`;
+  const sessionId = packet.sid;
+  const packetId = `${packet.id.trim()}:${sessionId}:${packet.q}:${packet.t}`;
 
   return { packetHash, packetId, sessionId };
 }
@@ -231,17 +218,8 @@ async function handleSensorPacket(packet, meta = {}) {
 
   const nodeId = packet.id.trim();
   const now = new Date();
-  const identity = buildPacketIdentity(packet, now);
-  const duplicate = await Reading.findOne({
-    node_id: nodeId,
-    $or: [
-      { packet_id: identity.packetId },
-      {
-        packet_hash: identity.packetHash,
-        timestamp: { $gte: new Date(now.getTime() - LEGACY_DUPLICATE_WINDOW_MS) }
-      }
-    ]
-  }).lean();
+  const identity = buildPacketIdentity(packet);
+  const duplicate = await Reading.findOne({ packet_id: identity.packetId }).lean();
 
   if (duplicate) {
     return {
@@ -268,14 +246,10 @@ async function handleSensorPacket(packet, meta = {}) {
   const rssi = extractRssi(packet, meta);
   const snr = extractSnr(packet, meta);
   const risk = riskFromPacket(packet);
-  const nodeConfidence = toNumber(packet.c);
   const airTemp = packetNumber(packet, 'at');
   const humidity = packetNumber(packet, 'h');
   const particleUgM3 = packetNumber(packet, 'pm');
-  // Read legacy fields during the staged firmware rollout; v7 does not use them.
-  const smokeRaw = packetNumber(packet, 'sm');
   const sensorHealth = packet.sh.trim().toUpperCase();
-  const nodeState = risk.state;
 
   const readingData = {
     node_id: nodeId,
@@ -287,21 +261,14 @@ async function handleSensorPacket(packet, meta = {}) {
     seq: toNumber(packet.q),
     timestamp: now,
     ...risk,
-    node_state: nodeState,
     air_temp: airTemp,
     humidity,
     particle_ug_m3: particleUgM3,
-    smoke_raw: smokeRaw,
     sensor_health: sensorHealth,
     rssi,
     snr,
     raw_packet: packet
   };
-  if (nodeConfidence !== undefined) {
-    readingData.confidence = nodeConfidence;
-    readingData.node_confidence = nodeConfidence;
-  }
-
   let reading;
   try {
     reading = await Reading.create(readingData);
@@ -318,22 +285,15 @@ async function handleSensorPacket(packet, meta = {}) {
 
   const nodeSet = {
     ...risk,
-    node_state: nodeState,
     air_temp: airTemp,
     humidity,
     particle_ug_m3: particleUgM3,
-    smoke_raw: smokeRaw,
     sensor_health: sensorHealth,
     last_seen: now,
     session_id: identity.sessionId,
     last_seq: toNumber(packet.q),
-    report_interval_sec: toNumber(packet.ri),
-    online: true
+    report_interval_sec: toNumber(packet.ri)
   };
-  if (nodeConfidence !== undefined) {
-    nodeSet.confidence = nodeConfidence;
-    nodeSet.node_confidence = nodeConfidence;
-  }
 
   setIfDefined(nodeSet, 'rssi', rssi);
   setIfDefined(nodeSet, 'snr', snr);
@@ -381,7 +341,6 @@ async function handleGpsPacket(packet, meta = {}) {
     last_seen: now,
     session_id: isValidSessionId(packet.sid) ? packet.sid : undefined,
     last_seq: toNumber(packet.q),
-    online: true,
     gps_fixed: gpsFixed
   };
 
@@ -418,7 +377,7 @@ async function handlePacket(packet, meta = {}) {
     return invalidPacket('invalid packet');
   }
 
-  if (packet.t === 's' || packet.t === 'c') {
+  if (packet.t === 's') {
     return handleSensorPacket(packet, meta);
   }
 

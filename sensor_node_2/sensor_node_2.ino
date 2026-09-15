@@ -352,7 +352,7 @@ bool hasSensorFault(const SensorData &data) {
   return false;
 }
 
-// ensureRtcRiskState: ล้างสถานะ RTC จากสูตรรุ่นเก่าเมื่ออัปโหลดเฟิร์มแวร์กฎใหม่
+// ensureRtcRiskState: ตรวจรูปแบบสถานะ RTC ให้ตรงกับเฟิร์มแวร์รุ่นปัจจุบัน
 void ensureRtcRiskState() {
   bool validStatus = latchedStatusValue == NORMAL ||
                      latchedStatusValue == WATCH ||

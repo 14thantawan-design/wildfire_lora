@@ -7,12 +7,10 @@ const { handleSensorPacket, validateSensorPacket } = require('../src/services/pa
 const {
   RISK_MODEL_VERSION,
   decodeRiskReasons,
-  normalizeRiskState,
   riskFromPacket
 } = require('../src/services/nodeRisk');
 const { serializeReading } = require('../src/routes/readings');
 const { withOnlineStatus } = require('../src/routes/nodes');
-const { serializeAlert } = require('../src/routes/alerts');
 const { buildTelegramMessage } = require('../src/services/telegramService');
 
 function packet(overrides = {}) {
@@ -34,12 +32,11 @@ function query(value) {
   };
 }
 
-test('risk model 7 accepts reason bits without a score and rejects retired states', () => {
+test('risk model 7 accepts only its defined states and reason bits', () => {
   assert.equal(validateSensorPacket(packet()), null);
-  assert.match(validateSensorPacket(packet({ st: 'CRITICAL' })), /state/);
-  assert.match(validateSensorPacket(packet({ st: 'CALIBRATING' })), /state/);
-  assert.match(validateSensorPacket(packet({ t: 'c' })), /type/);
-  assert.match(validateSensorPacket(packet({ sh: 'CAL' })), /health/);
+  assert.match(validateSensorPacket(packet({ st: 'INVALID' })), /state/);
+  assert.match(validateSensorPacket(packet({ t: 'invalid' })), /type/);
+  assert.match(validateSensorPacket(packet({ sh: 'INVALID' })), /health/);
   assert.match(validateSensorPacket(packet({ rb: undefined })), /reason bits/);
   assert.match(validateSensorPacket(packet({ rb: 256 })), /reason bits/);
   assert.match(validateSensorPacket(packet({ st: 'NORMAL', rb: 8 })), /reason bits/);
@@ -59,52 +56,20 @@ test('risk model 7 accepts reason bits without a score and rejects retired state
     state: 'WARNING',
     risk_reason_bits: 0b00000111,
     risk_reasons: ['temperature_above_45', 'particle_above_150', 'hot_dry_30_30'],
-    risk_source: 'node',
     risk_model_version: 7
   });
 });
 
-test('legacy packets remain readable while current API states are normalized', () => {
-  const legacy = packet({ st: 'CRITICAL', c: 80, rv: 6 });
-  delete legacy.rb;
-  assert.equal(validateSensorPacket(legacy), null);
-  assert.deepEqual(riskFromPacket(legacy), {
-    state: 'WARNING', risk_score: 80, risk_reason_bits: 0, risk_reasons: [],
-    risk_source: 'node', risk_model_version: 6
-  });
-  assert.equal(normalizeRiskState('CRITICAL'), 'WARNING');
-  assert.equal(normalizeRiskState('CALIBRATING'), 'UNKNOWN');
-  assert.equal(normalizeRiskState('anything-else'), 'UNKNOWN');
-});
-
-test('historical records prefer the original node decision without mutating history', () => {
-  const old = {
-    state: 'WATCH', server_state: 'WATCH', server_risk_score: 35,
-    node_state: 'CRITICAL', node_confidence: 80,
-    server_reasons: ['smoke_weak'], evidence: { heat: 'none' }
-  };
-  const normalized = serializeReading(old);
-  assert.equal(normalized.state, 'WARNING');
-  assert.equal(normalized.node_state, 'WARNING');
-  assert.equal(normalized.risk_score, 80);
-  assert.equal(normalized.risk_model_version, 1);
-  assert.equal(normalized.server_state, undefined);
-  assert.equal(normalized.evidence, undefined);
-  assert.equal(old.state, 'WATCH');
-});
-
-test('current schema stores explicit reasons and no generated server decision', () => {
+test('current schema stores the firmware state, reason bits, and decoded reasons', () => {
   const risk = riskFromPacket(packet({ st: 'WATCH', rb: 0b00110000 }));
   const node = new NodeModel({ node_id: 'NODE01', ...risk }).toObject();
   const reading = new Reading({ node_id: 'NODE01', raw_packet: packet(), ...risk }).toObject();
 
   for (const obj of [node, reading]) {
     assert.equal(obj.state, 'WATCH');
-    assert.equal(obj.risk_score, undefined);
     assert.equal(obj.risk_reason_bits, 0b00110000);
     assert.deepEqual(obj.risk_reasons, ['particle_above_50', 'humidity_below_50']);
-    assert.equal(obj.server_state, undefined);
-    assert.equal(obj.server_risk_score, undefined);
+    assert.equal(obj.risk_model_version, 7);
   }
   assert.deepEqual(decodeRiskReasons(0b11000000), [
     'sensor_fault', 'recovery_confirmation_pending'
@@ -161,7 +126,6 @@ test('ingestion, storage, live API, alerts and Telegram use firmware v7 end to e
   const first = await handleSensorPacket(warning);
   assert.equal(first.alert.action, 'created');
   assert.equal(readings[0].state, 'WARNING');
-  assert.equal(readings[0].risk_score, undefined);
   assert.equal(readings[0].risk_reason_bits, 0b00000110);
   assert.deepEqual(readings[0].risk_reasons, ['particle_above_150', 'hot_dry_30_30']);
   assert.equal(snapshot.state, 'WARNING');
@@ -179,26 +143,12 @@ test('ingestion, storage, live API, alerts and Telegram use firmware v7 end to e
   assert.equal(normal.alert.action, 'closed');
   assert.equal(closes, 1);
   assert.equal(snapshot.state, 'NORMAL');
-  assert.equal(snapshot.risk_score, undefined);
   assert.equal(active, null);
   assert.equal(serializeReading(readings[1]).state, 'NORMAL');
-  assert.equal(withOnlineStatus(snapshot).risk_score, undefined);
+  assert.equal(withOnlineStatus(snapshot).state, 'NORMAL');
 
   await handleSensorPacket(packet({ q: 3, st: 'SENSOR_FAULT', rb: 1 << 6, sh: 'FAULT', at: null, h: null }));
   assert.equal(active.level, 'SENSOR_FAULT');
   assert.equal(snapshot.state, 'SENSOR_FAULT');
   assert.deepEqual(snapshot.risk_reasons, ['sensor_fault']);
-});
-
-test('alert API maps historical CRITICAL to current WARNING', () => {
-  const serialized = serializeAlert({
-    level: 'CRITICAL',
-    max_state: 'CRITICAL',
-    telegram_notified_level: 'CRITICAL',
-    last_reading: { node_state: 'CRITICAL', risk_model_version: 6, risk_score: 80 }
-  });
-  assert.equal(serialized.level, 'WARNING');
-  assert.equal(serialized.max_state, 'WARNING');
-  assert.equal(serialized.telegram_notified_level, 'WARNING');
-  assert.equal(serialized.last_reading.state, 'WARNING');
 });

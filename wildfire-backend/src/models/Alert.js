@@ -6,17 +6,15 @@ const alertSchema = new mongoose.Schema(
     level: {
       type: String,
       required: true,
-      enum: ['WATCH', 'WARNING', 'CRITICAL', 'SENSOR_FAULT'],
+      enum: ['WATCH', 'WARNING', 'SENSOR_FAULT'],
       index: true
     },
     started_at: { type: Date, required: true, index: true },
     ended_at: { type: Date },
     active: { type: Boolean, default: true, index: true },
-    max_confidence: { type: Number },
-    max_risk_score: { type: Number },
     max_state: {
       type: String,
-      enum: ['WATCH', 'WARNING', 'CRITICAL', 'SENSOR_FAULT'],
+      enum: ['WATCH', 'WARNING', 'SENSOR_FAULT'],
       index: true
     },
     reasons: { type: [String], default: [] },
@@ -24,7 +22,7 @@ const alertSchema = new mongoose.Schema(
     last_reading: { type: mongoose.Schema.Types.Mixed },
     telegram_notified_level: {
       type: String,
-      enum: ['WATCH', 'WARNING', 'CRITICAL', 'SENSOR_FAULT']
+      enum: ['WATCH', 'WARNING', 'SENSOR_FAULT']
     },
     telegram_notified_at: { type: Date },
     telegram_resolved_notified_at: { type: Date },

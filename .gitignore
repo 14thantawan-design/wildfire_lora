@@ -2,3 +2,4 @@ gateway/secrets.h
 .codex-build/
 tmp/
 **/__pycache__/
+**/build/

@@ -9,8 +9,6 @@ const {
   validateSensorPacket
 } = require('../src/services/packetHandler');
 const {
-  hasDistinctNormalStreak,
-  isFirmwareConfirmedNormal,
   severityOf,
   shouldNotifyLevel
 } = require('../src/services/alertService');
@@ -60,7 +58,7 @@ test('backend preserves a node decision regardless of sensor values', () => {
   for (const values of [{ pm: 0, at: 50, h: 20 }, { pm: 170, at: 30, h: 95 }]) {
     assert.deepEqual(riskFromPacket(validSensorPacket({ ...values, st: 'WARNING', rb: 2 })), {
       state: 'WARNING', risk_reason_bits: 2,
-      risk_reasons: ['particle_above_150'], risk_source: 'node', risk_model_version: 7
+      risk_reasons: ['particle_above_150'], risk_model_version: 7
     });
   }
 });
@@ -69,14 +67,9 @@ test('sensor validation rejects incomplete or impossible packets', () => {
   assert.equal(validateSensorPacket(validSensorPacket()), null);
   assert.match(validateSensorPacket({ t: 's', id: 'NODE01' }), /sequence/);
   assert.match(validateSensorPacket(validSensorPacket({ pm: 2001 })), /particle/);
-  assert.match(validateSensorPacket(validSensorPacket({ pm: 2001, sm: 100 })), /particle/);
-  assert.match(validateSensorPacket(validSensorPacket({ pm: 20, sm: 5000 })), /legacy smoke/);
+  assert.match(validateSensorPacket(validSensorPacket({ obsolete: true })), /unsupported field/);
+  assert.match(validateSensorPacket(validSensorPacket({ rv: 6 })), /unsupported risk model/);
   assert.match(validateSensorPacket(validSensorPacket({ sh: 'OK', at: null })), /missing/);
-
-  const legacyPacket = validSensorPacket({ sm: 100, rv: 6, c: 20 });
-  delete legacyPacket.pm;
-  delete legacyPacket.rb;
-  assert.equal(validateSensorPacket(legacyPacket), null);
 });
 
 test('GPS validation requires a real coordinate when fixed', () => {
@@ -135,7 +128,7 @@ test('admin reading edits only accept measured fields in sensor ranges', () => {
   assert.equal(update.$set.timestamp.toISOString(), '2026-08-25T08:30:00.000Z');
   assert.throws(() => buildReadingUpdate({ humidity: 101 }), /out of range/);
   assert.throws(() => buildReadingUpdate({ timestamp: null }), /timestamp is invalid/);
-  assert.throws(() => buildReadingUpdate({ server_state: 'NORMAL' }), /no editable/);
+  assert.throws(() => buildReadingUpdate({ state: 'NORMAL' }), /no editable/);
 });
 
 test('bulk reading deletion validates, deduplicates, and limits ids', () => {
@@ -166,7 +159,7 @@ test('packet identity ignores transport signal metadata', () => {
   assert.equal(first.packetHash, retry.packetHash);
 });
 
-test('older packets in the same boot session cannot overwrite the live node snapshot', () => {
+test('out-of-order packets in the same boot session cannot overwrite the live node snapshot', () => {
   const node = { session_id: 1234, last_seq: 42 };
 
   assert.equal(isOutOfOrderPacket(node, validSensorPacket({ sid: 1234, q: 41 })), true);
@@ -214,34 +207,6 @@ test('node listing keeps offline nodes so the dashboard can show their last data
   assert.equal(statuses[0].online, true);
   assert.equal(statuses[1].online, false);
   assert.equal(statuses[1].state, 'NORMAL');
-  assert.equal(Object.hasOwn(statuses[1], 'server_state'), false);
-});
-
-test('duplicate readings cannot satisfy the normal clean streak', () => {
-  const duplicateRows = [1, 2, 3].map(() => ({
-    server_state: 'NORMAL', session_id: 99, seq: 20
-  }));
-  const distinctRows = [20, 21, 22].map((seq) => ({
-    server_state: 'NORMAL', session_id: 99, seq
-  }));
-
-  assert.equal(hasDistinctNormalStreak(duplicateRows, 3), false);
-  assert.equal(hasDistinctNormalStreak(distinctRows, 3), true);
-});
-
-test('firmware-confirmed NORMAL avoids a second three-report recovery delay', () => {
-  assert.equal(isFirmwareConfirmedNormal({
-    server_state: 'NORMAL', node_state: 'NORMAL'
-  }), true);
-  assert.equal(isFirmwareConfirmedNormal({
-    server_state: 'NORMAL', node_state: 'WARNING'
-  }), false);
-  assert.equal(isFirmwareConfirmedNormal({
-    server_state: 'WARNING', node_state: 'NORMAL'
-  }), true);
-  assert.equal(isFirmwareConfirmedNormal({
-    server_state: 'NORMAL', raw_packet: { st: 'NORMAL' }
-  }), true);
 });
 
 test('WARNING outranks a sensor fault in alert priority', () => {
@@ -300,7 +265,7 @@ test('Telegram alert uses the existing server state and Thai reason labels', () 
 test('Telegram resolved message and configuration are safe by default', () => {
   const message = buildTelegramMessage('resolved', {
     node_id: 'NODE<01>',
-    level: 'CRITICAL',
+    level: 'WARNING',
     ended_at: '2026-08-21T08:00:00.000Z'
   }, undefined, { timezone: 'Asia/Bangkok' });
 
@@ -383,7 +348,6 @@ test('Cloudflare Access JWT is required for tunnel administrator access', async 
 test('Cloudflare Access configuration has no duplicate administrator email list', () => {
   const config = adminConfigFromEnvironment({
     ADMIN_HOSTNAME: 'ADMIN.NATTAPHAT.ME',
-    ADMIN_EMAILS: 'legacy@example.com',
     CF_ACCESS_TEAM_DOMAIN: 'sweet-leaf-5bae.cloudflareaccess.com/',
     CF_ACCESS_AUD: 'forestguard-admin-audience'
   });

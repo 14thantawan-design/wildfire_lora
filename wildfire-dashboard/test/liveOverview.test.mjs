@@ -16,7 +16,7 @@ test('one online node among three is the only map/selector node and reading targ
   assert.equal(nodes.length, 3) // The full history inventory is not mutated.
 })
 
-test('offline historical nodes and their old alerts do not block live assessment', () => {
+test('offline nodes and inactive alerts do not block live assessment', () => {
   assert.deepEqual(assessLiveSafety(nodes, health, false), {
     highestState: 'NORMAL', canAssessSafety: true,
   })
