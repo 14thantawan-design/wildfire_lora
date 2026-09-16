@@ -9,7 +9,6 @@ export interface NodeStatus {
   _id?: string
   node_id: string
   state: NodeState
-  risk_model_version?: number | null
   air_temp?: number | null
   humidity?: number | null
   particle_ug_m3?: number | null
@@ -47,7 +46,6 @@ export interface Reading {
   seq?: number
   timestamp: string
   state: NodeState
-  risk_model_version?: number | null
   air_temp?: number | null
   humidity?: number | null
   particle_ug_m3?: number | null
@@ -82,7 +80,6 @@ export interface Alert {
     seq?: number
     timestamp?: string
     state?: NodeState
-    risk_model_version?: number | null
     air_temp?: number | null
     humidity?: number | null
     particle_ug_m3?: number | null

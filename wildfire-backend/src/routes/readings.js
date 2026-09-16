@@ -57,12 +57,6 @@ function buildReadingUpdate(input) {
   }
 
   const set = {};
-  const rawFieldNames = {
-    air_temp: 'at',
-    humidity: 'h',
-    particle_ug_m3: 'pm',
-    sensor_health: 'sh'
-  };
   const numericFields = {
     air_temp: [-80, 100],
     humidity: [0, 100],
@@ -75,7 +69,6 @@ function buildReadingUpdate(input) {
     if (!Object.hasOwn(input, field)) continue;
     const value = editableNumber(input[field], field, minimum, maximum);
     set[field] = value;
-    if (rawFieldNames[field]) set[`raw_packet.${rawFieldNames[field]}`] = value;
   }
 
   if (Object.hasOwn(input, 'timestamp')) {
@@ -90,7 +83,6 @@ function buildReadingUpdate(input) {
   if (Object.hasOwn(input, 'sensor_health')) {
     if (input.sensor_health === null) {
       set.sensor_health = null;
-      set['raw_packet.sh'] = null;
     } else {
       const sensorHealth = typeof input.sensor_health === 'string'
         ? input.sensor_health.trim().toUpperCase()
@@ -99,7 +91,6 @@ function buildReadingUpdate(input) {
         throw validationError('sensor_health is invalid');
       }
       set.sensor_health = sensorHealth;
-      set['raw_packet.sh'] = sensorHealth;
     }
   }
 
@@ -139,7 +130,6 @@ router.get('/admin', requireLocalAdmin, async (req, res, next) => {
     const query = nodeId ? { node_id: nodeId } : {};
     const [readings, total, nodeIds] = await Promise.all([
       Reading.find(query)
-        .select('-raw_packet -packet_hash')
         .sort({ timestamp: -1, _id: -1 })
         .skip((page - 1) * limit)
         .limit(limit),
@@ -169,7 +159,7 @@ router.patch('/admin/:id', requireLocalAdmin, async (req, res, next) => {
       req.params.id,
       buildReadingUpdate(req.body),
       { new: true, runValidators: true }
-    ).select('-raw_packet -packet_hash');
+    );
 
     if (!reading) return res.status(404).json({ error: 'reading not found' });
     return res.json(serializeReading(reading));
@@ -240,7 +230,6 @@ router.get('/:node_id', async (req, res, next) => {
             seq: { $last: '$seq' },
             timestamp: { $last: '$timestamp' },
             state: { $last: '$state' },
-            risk_model_version: { $last: '$risk_model_version' },
             air_temp: { $avg: '$air_temp' },
             humidity: { $avg: '$humidity' },
             particle_ug_m3: { $avg: '$particle_ug_m3' },

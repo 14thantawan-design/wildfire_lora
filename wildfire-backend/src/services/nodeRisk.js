@@ -9,8 +9,7 @@ function normalizeRiskState(value) {
 // Copy the firmware decision. The backend does not recalculate thresholds.
 function riskFromPacket(packet) {
   return {
-    state: normalizeRiskState(packet.st),
-    risk_model_version: RISK_MODEL_VERSION
+    state: normalizeRiskState(packet.st)
   };
 }
 

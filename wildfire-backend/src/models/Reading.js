@@ -3,9 +3,6 @@ const mongoose = require('mongoose');
 const readingSchema = new mongoose.Schema(
   {
     node_id: { type: String, required: true, index: true, trim: true },
-    packet_id: { type: String },
-    packet_hash: { type: String },
-    packet_type: { type: String },
     session_id: { type: Number },
     report_interval_sec: { type: Number },
     seq: { type: Number, index: true },
@@ -15,23 +12,21 @@ const readingSchema = new mongoose.Schema(
       enum: ['NORMAL', 'WATCH', 'WARNING', 'SENSOR_FAULT'],
       index: true
     },
-    risk_model_version: { type: Number, enum: [8] },
     air_temp: { type: Number },
     humidity: { type: Number },
     particle_ug_m3: { type: Number },
     sensor_health: { type: String },
     rssi: { type: Number },
-    snr: { type: Number },
-    raw_packet: { type: mongoose.Schema.Types.Mixed, required: true }
+    snr: { type: Number }
   },
   {
-    collection: 'readings'
+    collection: 'readings',
+    versionKey: false
   }
 );
 
 readingSchema.index({ node_id: 1, timestamp: -1 });
 readingSchema.index({ node_id: 1, seq: -1 });
-readingSchema.index({ packet_id: 1 }, { unique: true, sparse: true });
-readingSchema.index({ node_id: 1, packet_hash: 1, timestamp: -1 });
+readingSchema.index({ node_id: 1, session_id: 1, seq: 1 }, { unique: true });
 
 module.exports = mongoose.model('Reading', readingSchema);

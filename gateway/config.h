@@ -14,7 +14,7 @@
 */
 
 #define TEST_MODE 0
-#define MAX_NODES 10
+#define MAX_NODES 2
 #define MAX_JSON_SIZE 512
 
 // LoRa config - must match sensor nodes. You said your module is 433 MHz.

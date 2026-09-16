@@ -1,5 +1,7 @@
 gateway/secrets.h
 .codex-build/
 tmp/
+.qa/
+_qa*/
 **/__pycache__/
 **/build/

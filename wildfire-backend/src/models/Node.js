@@ -9,7 +9,6 @@ const nodeSchema = new mongoose.Schema(
       default: 'UNKNOWN',
       index: true
     },
-    risk_model_version: { type: Number, enum: [8] },
     air_temp: { type: Number },
     humidity: { type: Number },
     particle_ug_m3: { type: Number },
@@ -29,6 +28,7 @@ const nodeSchema = new mongoose.Schema(
   },
   {
     collection: 'nodes',
+    versionKey: false,
     timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' }
   }
 );

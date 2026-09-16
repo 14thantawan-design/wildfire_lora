@@ -6,7 +6,7 @@ The backend receives packets from the Gateway over Wi-Fi/HTTP, stores node statu
 and sensor history in MongoDB, and exposes API endpoints for the dashboard.
 
 Risk is calculated only by sensor firmware. For current risk model 8, the backend
-copies packet `st` into `state` and stores `risk_model_version: 8`. It does not
+copies packet `st` into `state`. It validates packet version `rv: 8` but does not
 recalculate the thresholds or store duplicated reason fields. Sensor packets from
 any other model version are rejected. The dashboard uses current online node states, while
 alert records keep the peak state of an event.

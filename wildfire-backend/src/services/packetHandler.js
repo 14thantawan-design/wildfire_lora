@@ -1,4 +1,3 @@
-const crypto = require('crypto');
 const NodeModel = require('../models/Node');
 const Reading = require('../models/Reading');
 const { processAlertForReading } = require('./alertService');
@@ -146,28 +145,12 @@ function validateGpsPacket(packet) {
   return null;
 }
 
-function canonicalize(value) {
-  if (Array.isArray(value)) return value.map(canonicalize);
-  if (!value || typeof value !== 'object') return value;
-
-  return Object.keys(value)
-    .filter((key) => !['rssi', 'RSSI', 'rs', 'snr', 'SNR'].includes(key))
-    .sort()
-    .reduce((result, key) => {
-      result[key] = canonicalize(value[key]);
-      return result;
-    }, {});
-}
-
-function buildPacketIdentity(packet) {
-  const packetHash = crypto
-    .createHash('sha256')
-    .update(JSON.stringify(canonicalize(packet)))
-    .digest('hex');
-  const sessionId = packet.sid;
-  const packetId = `${packet.id.trim()}:${sessionId}:${packet.q}:${packet.t}`;
-
-  return { packetHash, packetId, sessionId };
+function readingIdentity(packet) {
+  return {
+    node_id: packet.id.trim(),
+    session_id: packet.sid,
+    seq: packet.q
+  };
 }
 
 function isOutOfOrderPacket(node, packet) {
@@ -194,8 +177,8 @@ async function handleSensorPacket(packet, meta = {}) {
 
   const nodeId = packet.id.trim();
   const now = new Date();
-  const identity = buildPacketIdentity(packet);
-  const duplicate = await Reading.findOne({ packet_id: identity.packetId }).lean();
+  const identity = readingIdentity(packet);
+  const duplicate = await Reading.findOne(identity).lean();
 
   if (duplicate) {
     return {
@@ -229,10 +212,7 @@ async function handleSensorPacket(packet, meta = {}) {
 
   const readingData = {
     node_id: nodeId,
-    packet_id: identity.packetId,
-    packet_hash: identity.packetHash,
-    packet_type: packet.t,
-    session_id: identity.sessionId,
+    session_id: identity.session_id,
     report_interval_sec: toNumber(packet.ri),
     seq: toNumber(packet.q),
     timestamp: now,
@@ -242,15 +222,14 @@ async function handleSensorPacket(packet, meta = {}) {
     particle_ug_m3: particleUgM3,
     sensor_health: sensorHealth,
     rssi,
-    snr,
-    raw_packet: packet
+    snr
   };
   let reading;
   try {
     reading = await Reading.create(readingData);
   } catch (error) {
     if (error?.code !== 11000) throw error;
-    const existing = await Reading.findOne({ packet_id: identity.packetId }).lean();
+    const existing = await Reading.findOne(identity).lean();
     return {
       type: 'sensor',
       node_id: nodeId,
@@ -266,7 +245,7 @@ async function handleSensorPacket(packet, meta = {}) {
     particle_ug_m3: particleUgM3,
     sensor_health: sensorHealth,
     last_seen: now,
-    session_id: identity.sessionId,
+    session_id: identity.session_id,
     last_seq: toNumber(packet.q),
     report_interval_sec: toNumber(packet.ri)
   };
@@ -370,6 +349,6 @@ module.exports = {
   handleGpsPacket,
   validateSensorPacket,
   validateGpsPacket,
-  buildPacketIdentity,
+  readingIdentity,
   isOutOfOrderPacket
 };

@@ -83,7 +83,7 @@ Backend ตรวจรูปแบบและเก็บผลจากโห
 ```text
 sensor_node/          เฟิร์มแวร์ NODE01
 sensor_node_2/        เฟิร์มแวร์ NODE02
-gateway/              รับ LoRa และส่ง HTTP ไป Backend
+gateway/              รับ LoRa จาก 2 โหนดและส่ง HTTP ไป Backend
 wildfire-backend/     API, MongoDB, Alert และ Telegram
 wildfire-dashboard/   หน้าเว็บสถานะ แผนที่ และกราฟ
 tools/test_node_risk.mjs  ทดสอบฟังก์ชัน C++ จริงของทั้งสองโหนด

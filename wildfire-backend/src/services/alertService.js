@@ -50,7 +50,6 @@ function buildLastReading(reading) {
     seq: reading.seq,
     timestamp: reading.timestamp,
     state: reading.state,
-    risk_model_version: reading.risk_model_version,
     air_temp: reading.air_temp,
     humidity: reading.humidity,
     particle_ug_m3: reading.particle_ug_m3,

@@ -3,8 +3,8 @@ const assert = require('node:assert/strict');
 
 const { riskFromPacket } = require('../src/services/nodeRisk');
 const {
-  buildPacketIdentity,
   isOutOfOrderPacket,
+  readingIdentity,
   validateGpsPacket,
   validateSensorPacket
 } = require('../src/services/packetHandler');
@@ -56,7 +56,7 @@ function validSensorPacket(overrides = {}) {
 test('backend preserves a node decision regardless of sensor values', () => {
   for (const values of [{ pm: 0, at: 50, h: 20 }, { pm: 170, at: 30, h: 95 }]) {
     assert.deepEqual(riskFromPacket(validSensorPacket({ ...values, st: 'WARNING' })), {
-      state: 'WARNING', risk_model_version: 8
+      state: 'WARNING'
     });
   }
 });
@@ -118,11 +118,8 @@ test('admin reading edits only accept measured fields in sensor ranges', () => {
   });
 
   assert.equal(update.$set.air_temp, 34.5);
-  assert.equal(update.$set['raw_packet.at'], 34.5);
   assert.equal(update.$set.sensor_health, 'OK');
-  assert.equal(update.$set['raw_packet.sh'], 'OK');
   assert.equal(update.$set.particle_ug_m3, 104);
-  assert.equal(update.$set['raw_packet.pm'], 104);
   assert.equal(update.$set.timestamp.toISOString(), '2026-08-25T08:30:00.000Z');
   assert.throws(() => buildReadingUpdate({ humidity: 101 }), /out of range/);
   assert.throws(() => buildReadingUpdate({ timestamp: null }), /timestamp is invalid/);
@@ -148,13 +145,12 @@ test('delete-all reading scope accepts one explicit safe node id only', () => {
   assert.throws(() => normalizeNodeId('NODE01,NODE02'), /node_id is invalid/);
 });
 
-test('packet identity ignores transport signal metadata', () => {
-  const now = new Date('2026-07-15T00:00:00.000Z');
-  const first = buildPacketIdentity(validSensorPacket({ rssi: -40, snr: 8 }), now);
-  const retry = buildPacketIdentity(validSensorPacket({ rssi: -45, snr: 7 }), now);
+test('reading identity uses node, boot session, and sequence only', () => {
+  const first = readingIdentity(validSensorPacket({ rssi: -40, snr: 8 }));
+  const retry = readingIdentity(validSensorPacket({ rssi: -45, snr: 7 }));
 
-  assert.equal(first.packetId, retry.packetId);
-  assert.equal(first.packetHash, retry.packetHash);
+  assert.deepEqual(first, retry);
+  assert.deepEqual(first, { node_id: 'NODE01', session_id: 1234, seq: 10 });
 });
 
 test('out-of-order packets in the same boot session cannot overwrite the live node snapshot', () => {

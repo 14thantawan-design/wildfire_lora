@@ -44,19 +44,18 @@ test('risk model 8 accepts a state without duplicated reason fields', () => {
   })), null);
 
   assert.deepEqual(riskFromPacket(packet({ st: 'WARNING' })), {
-    state: 'WARNING',
-    risk_model_version: 8
+    state: 'WARNING'
   });
 });
 
-test('current schema stores only firmware state and model version', () => {
+test('current schema stores only the firmware state', () => {
   const risk = riskFromPacket(packet({ st: 'WATCH' }));
   const node = new NodeModel({ node_id: 'NODE01', ...risk }).toObject();
-  const reading = new Reading({ node_id: 'NODE01', raw_packet: packet(), ...risk }).toObject();
+  const reading = new Reading({ node_id: 'NODE01', ...risk }).toObject();
 
   for (const obj of [node, reading]) {
     assert.equal(obj.state, 'WATCH');
-    assert.equal(obj.risk_model_version, 8);
+    assert.equal(Object.hasOwn(obj, 'risk_model_version'), false);
     assert.equal(Object.hasOwn(obj, 'risk_reason_bits'), false);
     assert.equal(Object.hasOwn(obj, 'risk_reasons'), false);
   }
@@ -109,7 +108,6 @@ test('ingestion, storage, live API, alerts and Telegram use firmware v8 end to e
   const first = await handleSensorPacket(warning);
   assert.equal(first.alert.action, 'created');
   assert.equal(readings[0].state, 'WARNING');
-  assert.equal(readings[0].risk_model_version, 8);
   assert.equal(snapshot.state, 'WARNING');
   assert.equal(snapshot.report_interval_sec, 20);
   assert.equal(active.level, 'WARNING');
