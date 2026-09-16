@@ -402,8 +402,7 @@
 }
 
 .node-detail-head,
-.node-detail-head > span,
-.node-detail-values > span {
+.node-detail-head > span {
   display: flex;
 }
 
@@ -413,8 +412,7 @@
   gap: 8px;
 }
 
-.node-detail-head > span,
-.node-detail-values > span {
+.node-detail-head > span {
   min-width: 0;
   flex-direction: column;
 }
@@ -424,33 +422,6 @@
   font-family: Georgia, "Times New Roman", serif;
   font-size: 14px;
   font-weight: 500;
-}
-
-.node-detail-values {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 1px;
-}
-
-.node-detail-values > span {
-  gap: 2px;
-  color: #929a95;
-  font-size: 7px;
-}
-
-.node-detail-values strong {
-  overflow: hidden;
-  color: #405046;
-  font-family: Georgia, "Times New Roman", serif;
-  font-size: 12px;
-  font-weight: 500;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.node-detail-values small {
-  font-family: "Leelawadee UI", sans-serif;
-  font-size: 7px;
 }
 
 .node-map-locator {

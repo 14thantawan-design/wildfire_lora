@@ -84,11 +84,11 @@ struct RiskDecision {
   uint16_t reasonBits;
 };
 
-// พิกัดละติจูด/ลองจิจูดและธง valid; มีเลขพิกัดอย่างเดียวไม่ได้แปลว่าใช้ได้ ต้องดู valid ด้วย
+// เก็บพิกัดและบอกตรง ๆ ว่า GPS จับตำแหน่งได้แล้วหรือยัง
 struct GpsLocation {
   double latitude;
   double longitude;
-  bool valid;
+  bool hasFix;
 };
 
 // =========================
@@ -104,7 +104,7 @@ TinyGPSPlus gps;
 #if GPS_SAVE_TO_NVS
 Preferences gpsPrefs;
 #endif
-// nodeGpsLocation คือพิกัดที่นำไปใช้ ส่วน gpsWorkingLocation เป็นพื้นที่ทำงานระหว่างค้น; เริ่มด้วย valid=false
+// nodeGpsLocation คือพิกัดที่นำไปใช้ ส่วน gpsWorkingLocation เป็นพื้นที่ทำงานระหว่างค้น
 GpsLocation nodeGpsLocation = {0.0, 0.0, false};
 GpsLocation gpsWorkingLocation = {0.0, 0.0, false};
 // สถานะค้น GPS: ยังไม่เริ่ม / กำลังค้น / จบแล้ว / ล้มเหลว; ใช้แบ่งงานเป็นช่วง ไม่ค้นค้างอยู่ใน setup
@@ -598,15 +598,6 @@ bool sendSensorPacketWithAck(const String &payload) {
 }
 
 #if USE_GPS
-// isGpsCoordinateValid: ตรวจช่วงละติจูด/ลองจิจูดและปฏิเสธจุดใกล้ (0,0) ตามกฎโครงการ; เป็นการกรองค่าตั้งต้น ไม่ใช่การพิสูจน์ความแม่นยำ GPS
-bool isGpsCoordinateValid(double latitude, double longitude) {
-  if (isnan(latitude) || isnan(longitude)) return false;
-  if (latitude < -90.0 || latitude > 90.0) return false;
-  if (longitude < -180.0 || longitude > 180.0) return false;
-  if (fabs(latitude) < 0.000001 && fabs(longitude) < 0.000001) return false;
-  return true;
-}
-
 // powerGps: สั่งสวิตช์จ่ายไฟ GPS และรอหนึ่งวินาทีเมื่อเปิด; GPIO ใช้คุมวงจรสวิตช์ ไม่ใช่ต่อเลี้ยง VCC โมดูลโดยตรง
 void powerGps(bool on) {
   if (GPS_POWER_PIN >= 0) {
@@ -622,16 +613,16 @@ bool loadGpsLocationFromNvs(GpsLocation &fix) {
   if (GPS_FORCE_RECALIBRATE) return false;
   if (!gpsPrefs.begin("node_gps", true)) return false;
 
-  bool storedValid = gpsPrefs.getBool("valid", false);
+  bool storedHasFix = gpsPrefs.getBool("valid", false);
   double latitude = gpsPrefs.getDouble("lat", 0.0);
   double longitude = gpsPrefs.getDouble("lng", 0.0);
   gpsPrefs.end();
 
-  if (!storedValid || !isGpsCoordinateValid(latitude, longitude)) return false;
+  if (!storedHasFix) return false;
 
   fix.latitude = latitude;
   fix.longitude = longitude;
-  fix.valid = true;
+  fix.hasFix = true;
   return true;
 #else
   (void)fix;
@@ -652,10 +643,10 @@ bool loadGpsManualModeFromNvs() {
 #endif
 }
 
-// saveGpsLocationToNvs: บันทึกพิกัดที่ valid และปิดธง กำหนดพิกัดเอง ลงแฟลช; ถ้าไม่บันทึกจะต้องหาตำแหน่งใหม่เมื่อข้อมูลใน RAM หาย
+// saveGpsLocationToNvs: บันทึกพิกัดที่จับได้และปิดธง กำหนดพิกัดเอง ลงแฟลช; ถ้าไม่บันทึกจะต้องหาตำแหน่งใหม่เมื่อข้อมูลใน RAM หาย
 void saveGpsLocationToNvs(const GpsLocation &fix) {
 #if GPS_SAVE_TO_NVS
-  if (!fix.valid) return;
+  if (!fix.hasFix) return;
   if (!gpsPrefs.begin("node_gps", false)) return;
   gpsPrefs.putBool("manual", false);
   gpsPrefs.putBool("valid", true);
@@ -697,7 +688,7 @@ String buildGpsPacket(const GpsLocation &fix, bool gpsFix, const char *errorCode
   doc["sid"] = bootSessionId;
   doc["gf"] = gpsFix ? 1 : 0;
 
-  if (gpsFix && fix.valid) {
+  if (gpsFix && fix.hasFix) {
     doc["la"] = fix.latitude;
     doc["ln"] = fix.longitude;
   } else {
@@ -723,11 +714,11 @@ void sendGpsFailedPacket(const GpsLocation &partialFix) {
   sendLoRaPacket(payload, true);
 }
 
-// resetGpsLocation: ตั้งพิกัดกลับศูนย์และ valid=false; ธงนี้แยกค่าตั้งต้นออกจากตำแหน่งที่นำไปใช้ได้
+// resetGpsLocation: ล้างพิกัดและกลับไปเป็นสถานะยังจับ GPS ไม่ได้
 void resetGpsLocation(GpsLocation &fix) {
   fix.latitude = 0.0;
   fix.longitude = 0.0;
-  fix.valid = false;
+  fix.hasFix = false;
 }
 
 // stopGpsAcquisition: ปิด UART Serial2 และสั่งตัดไฟ GPS; ช่วยหยุดงานและลดพลังงานเมื่อค้นเสร็จหรือหมดเวลา
@@ -800,11 +791,11 @@ void sendPendingGpsReports() {
   }
 }
 
-// serviceOneShotGps: ทำงาน GPS เป็นช่วง ๆ: ส่งรายงานรอ ลองค้นใหม่เมื่อถึงเวลา อ่าน UART และตรวจคุณภาพ พิกัดที่ค้นได้; เมื่อสำเร็จบันทึก/หยุด GPS เมื่อหมดเวลานัดลองใหม่
+// serviceOneShotGps: อ่าน GPS จนได้พิกัดหรือหมดเวลา; เมื่อสำเร็จจะบันทึกพิกัดแล้วหยุด GPS
 void serviceOneShotGps() {
   sendPendingGpsReports();
 
-  if (gpsOneShotState == GPS_ONE_SHOT_FAILED && !nodeGpsLocation.valid) {
+  if (gpsOneShotState == GPS_ONE_SHOT_FAILED && !nodeGpsLocation.hasFix) {
     uint64_t retryWaitMs = (uint64_t)gpsRetryRemainingSec * 1000ULL;
     if (gpsRetryRemainingSec == 0 || (uint64_t)(millis() - gpsLastAttemptMs) >= retryWaitMs) {
       startGpsAcquisition();
@@ -818,18 +809,11 @@ void serviceOneShotGps() {
     gpsByteCount++;
   }
 
-  // ยอมรับ พิกัดที่ค้นได้ เมื่อพิกัด/ดาวเทียม/HDOP ผ่านและข้อมูลยังใหม่; HDOP ต่ำแสดงรูปทรงดาวเทียมที่เหมาะกว่า ไม่ใช่ค่าคลาดเคลื่อนเป็นเมตร
-  if (gps.location.isValid() &&
-      gps.satellites.isValid() &&
-      gps.satellites.value() >= GPS_MIN_SATELLITES &&
-      gps.hdop.isValid() &&
-      gps.hdop.hdop() > 0.0 &&
-      gps.hdop.hdop() <= GPS_MAX_HDOP &&
-      gps.location.age() <= GPS_MAX_LOCATION_AGE_MS &&
-      isGpsCoordinateValid(gps.location.lat(), gps.location.lng())) {
+  // รับทันทีเมื่อ GPS ส่งพิกัดใหม่ที่อ่านได้ โดยไม่กรองจำนวนดาวเทียมหรือความแม่นยำ
+  if (gps.location.isValid() && gps.location.isUpdated()) {
     gpsWorkingLocation.latitude = gps.location.lat();
     gpsWorkingLocation.longitude = gps.location.lng();
-    gpsWorkingLocation.valid = true;
+    gpsWorkingLocation.hasFix = true;
     nodeGpsLocation = gpsWorkingLocation;
     saveGpsLocationToNvs(nodeGpsLocation);
     stopGpsAcquisition();
@@ -860,16 +844,6 @@ void serviceOneShotGps() {
     gpsLastDebugMs = millis();
     Serial.print("GPS waiting, bytes=");
     Serial.print(gpsByteCount);
-    Serial.print(" chars=");
-    Serial.print(gps.charsProcessed());
-    Serial.print(" ok=");
-    Serial.print(gps.passedChecksum());
-    Serial.print(" fail=");
-    Serial.print(gps.failedChecksum());
-    Serial.print(" sat=");
-    Serial.print(gps.satellites.isValid() ? gps.satellites.value() : 0);
-    Serial.print(" hdop=");
-    Serial.print(gps.hdop.isValid() ? gps.hdop.hdop() : 0.0);
     Serial.print(" elapsed_sec=");
     Serial.println((millis() - gpsStartMs) / 1000UL);
   }

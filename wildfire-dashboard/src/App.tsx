@@ -173,12 +173,6 @@ function formatAlertSummary(alert: Alert) {
   return alert.message || 'ตรวจพบค่าสัญญาณผิดปกติ'
 }
 
-function formatReportInterval(seconds: number | undefined) {
-  if (!seconds || seconds <= 0) return '—'
-  if (seconds < 60) return `${seconds} วินาที`
-  return `${seconds / 60} นาที`
-}
-
 function App() {
   const [selectedNodeId, setSelectedNodeId] = useState('NODE01')
   const [showAllAlerts, setShowAllAlerts] = useState(false)
@@ -601,12 +595,6 @@ function App() {
                       {selectedNode.online ? stateLabels[selectedNode.state] : 'ออฟไลน์'}
                     </b>
                   )}
-                </div>
-                <div className="node-detail-values">
-                  <span>อุณหภูมิ <strong><Value value={selectedLiveNode?.air_temp} suffix="°C" fractionDigits={1} /></strong></span>
-                  <span>ความชื้น <strong><Value value={selectedLiveNode?.humidity} suffix="%" fractionDigits={1} /></strong></span>
-                  <span>อนุภาคโดยประมาณ <strong><Value value={selectedParticle} suffix=" µg/m³" fractionDigits={1} /></strong></span>
-                  <span>รอบวัดและส่ง <strong>{formatReportInterval(selectedLiveNode?.report_interval_sec)}</strong></span>
                 </div>
                 <div className="node-map-locator">
                   <button
