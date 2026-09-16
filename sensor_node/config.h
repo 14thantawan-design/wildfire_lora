@@ -191,17 +191,13 @@
 #define HOT_DRY_MIN_AIR_TEMP_C 30.0f
 #define HOT_DRY_MAX_HUMIDITY_RH 30.0f
 
-// รุ่นกฎ 7: เกณฑ์อ้างอิงแบบค่าคงที่และรหัสเหตุผล 8 บิต
-#define RISK_MODEL_VERSION 7
-#define RTC_RISK_STATE_VERSION 7
+// รุ่นกฎ 8: โหนดตัดสินจากเกณฑ์อ้างอิงและส่งค่าที่วัดได้พร้อมสถานะ
+#define RISK_MODEL_VERSION 8
+#define RTC_RISK_STATE_VERSION 8
 
 // ลด WARNING เป็น WATCH เมื่อไม่เข้า WARNING 3 รอบ และลด WATCH เป็น NORMAL
 // เมื่อเข้า NORMAL 3 รอบ; การยกระดับเกิดทันที
 #define STATUS_RELEASE_CYCLES 3
-
-// กำหนดเพดานความยาวข้อความส่ง LoRa ให้เหมาะกับแพ็กเก็ตของ SX127x
-// เพดานข้อความที่ใช้ตรวจใน buildJsonPacket; โค้ด ทางสำรอง ปัจจุบันยังไม่รับประกันว่าจะย่อได้จริง
-#define MAX_SAFE_PAYLOAD_BYTES 240
 
 // =========================
 // การแสดงข้อมูลเพื่อตรวจหาปัญหา

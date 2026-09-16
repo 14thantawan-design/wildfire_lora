@@ -240,8 +240,6 @@ router.get('/:node_id', async (req, res, next) => {
             seq: { $last: '$seq' },
             timestamp: { $last: '$timestamp' },
             state: { $last: '$state' },
-            risk_reason_bits: { $last: '$risk_reason_bits' },
-            risk_reasons: { $last: '$risk_reasons' },
             risk_model_version: { $last: '$risk_model_version' },
             air_temp: { $avg: '$air_temp' },
             humidity: { $avg: '$humidity' },

@@ -66,24 +66,6 @@ struct SensorData {
   bool sharpOk;
 };
 
-// เหตุผลใช้ bitmask เพื่อส่งผ่าน LoRa แบบสั้นและตรวจสอบย้อนหลังได้
-enum RiskReasonBit : uint16_t {
-  REASON_NONE = 0,
-  REASON_TEMP_WARNING = 1 << 0,
-  REASON_PARTICLE_WARNING = 1 << 1,
-  REASON_HOT_DRY_WARNING = 1 << 2,
-  REASON_TEMP_WATCH = 1 << 3,
-  REASON_PARTICLE_WATCH = 1 << 4,
-  REASON_HUMIDITY_WATCH = 1 << 5,
-  REASON_SENSOR_FAULT = 1 << 6,
-  REASON_RECOVERY_HOLD = 1 << 7
-};
-
-struct RiskDecision {
-  FireStatus status;
-  uint16_t reasonBits;
-};
-
 // เก็บพิกัดและบอกตรง ๆ ว่า GPS จับตำแหน่งได้แล้วหรือยัง
 struct GpsLocation {
   double latitude;
@@ -137,11 +119,10 @@ String lastCommandResultReason;
 RTC_DATA_ATTR uint32_t seq = 0;
 RTC_DATA_ATTR uint32_t bootSessionId = 0;
 
-// จำสถานะ เหตุผล และจำนวนรอบลดระดับข้าม deep sleep
+// จำสถานะและจำนวนรอบลดระดับข้าม deep sleep
 RTC_DATA_ATTR uint32_t rtcRiskStateVersion = 0;
 RTC_DATA_ATTR int latchedStatusValue = NORMAL;
 RTC_DATA_ATTR uint8_t releaseCounter = 0;
-RTC_DATA_ATTR uint16_t latchedReasonBits = REASON_NONE;
 
 // =========================
 // ฟังก์ชันช่วยทำงานทั่วไป
@@ -362,7 +343,6 @@ void ensureRtcRiskState() {
 
   rtcRiskStateVersion = RTC_RISK_STATE_VERSION;
   latchedStatusValue = NORMAL;
-  latchedReasonBits = REASON_NONE;
   releaseCounter = 0;
 }
 
@@ -377,95 +357,69 @@ int statusSeverity(FireStatus status) {
 }
 
 // evaluateRawRisk: ตัดสินจากค่าปัจจุบันเท่านั้นตามเกณฑ์อ้างอิง ไม่มีคะแนนหรืออัตราการเปลี่ยนแปลง
-RiskDecision evaluateRawRisk(const SensorData &data) {
-  if (hasSensorFault(data)) {
-    return {SENSOR_FAULT, REASON_SENSOR_FAULT};
+FireStatus evaluateRawRisk(const SensorData &data) {
+  if (hasSensorFault(data)) return SENSOR_FAULT;
+
+  if (data.airTemp > WARNING_AIR_TEMP_GT_C ||
+      data.particleUgM3 > WARNING_PARTICLE_GT_UG_M3 ||
+      (data.airTemp >= HOT_DRY_MIN_AIR_TEMP_C &&
+       data.humidity <= HOT_DRY_MAX_HUMIDITY_RH)) {
+    return WARNING;
   }
 
-  uint16_t warningReasons = REASON_NONE;
-  if (data.airTemp > WARNING_AIR_TEMP_GT_C) {
-    warningReasons |= REASON_TEMP_WARNING;
-  }
-  if (data.particleUgM3 > WARNING_PARTICLE_GT_UG_M3) {
-    warningReasons |= REASON_PARTICLE_WARNING;
-  }
-  if (data.airTemp >= HOT_DRY_MIN_AIR_TEMP_C &&
-      data.humidity <= HOT_DRY_MAX_HUMIDITY_RH) {
-    warningReasons |= REASON_HOT_DRY_WARNING;
-  }
-  if (warningReasons != REASON_NONE) {
-    return {WARNING, warningReasons};
+  if (data.airTemp > NORMAL_MAX_AIR_TEMP_C ||
+      data.particleUgM3 > NORMAL_MAX_PARTICLE_UG_M3 ||
+      data.humidity < NORMAL_MIN_HUMIDITY_RH) {
+    return WATCH;
   }
 
-  uint16_t watchReasons = REASON_NONE;
-  if (data.airTemp > NORMAL_MAX_AIR_TEMP_C) {
-    watchReasons |= REASON_TEMP_WATCH;
-  }
-  if (data.particleUgM3 > NORMAL_MAX_PARTICLE_UG_M3) {
-    watchReasons |= REASON_PARTICLE_WATCH;
-  }
-  if (data.humidity < NORMAL_MIN_HUMIDITY_RH) {
-    watchReasons |= REASON_HUMIDITY_WATCH;
-  }
-  if (watchReasons != REASON_NONE) {
-    return {WATCH, watchReasons};
-  }
-
-  return {NORMAL, REASON_NONE};
+  return NORMAL;
 }
 
 // applyStateLatch: ยกระดับทันที แต่ลด WARNING/WATCH หลังค่าต่ำกว่าระดับเดิมติดต่อกัน 3 รอบ
-RiskDecision applyStateLatch(const RiskDecision &raw) {
+FireStatus applyStateLatch(FireStatus raw) {
   FireStatus latched = (FireStatus)latchedStatusValue;
 
-  if (raw.status == SENSOR_FAULT) {
+  if (raw == SENSOR_FAULT) {
     latchedStatusValue = SENSOR_FAULT;
-    latchedReasonBits = raw.reasonBits;
     releaseCounter = 0;
     return raw;
   }
 
   if (latched == SENSOR_FAULT ||
       (latched != NORMAL && latched != WATCH && latched != WARNING)) {
-    latchedStatusValue = raw.status;
-    latchedReasonBits = raw.reasonBits;
+    latchedStatusValue = raw;
     releaseCounter = 0;
     return raw;
   }
 
-  if (statusSeverity(raw.status) > statusSeverity(latched)) {
-    latchedStatusValue = raw.status;
-    latchedReasonBits = raw.reasonBits;
+  if (statusSeverity(raw) > statusSeverity(latched)) {
+    latchedStatusValue = raw;
     releaseCounter = 0;
     return raw;
   }
 
-  if (raw.status == latched) {
-    latchedReasonBits = raw.reasonBits;
+  if (raw == latched) {
     releaseCounter = 0;
     return raw;
   }
 
   if (releaseCounter < 255) releaseCounter++;
-  if (releaseCounter < STATUS_RELEASE_CYCLES) {
-    return {latched, (uint16_t)(latchedReasonBits | REASON_RECOVERY_HOLD)};
-  }
+  if (releaseCounter < STATUS_RELEASE_CYCLES) return latched;
 
   releaseCounter = 0;
   if (latched == WARNING) {
     // แม้ค่ากลับ NORMAL แล้ว ให้ผ่าน WATCH ก่อนตามกฎฟื้นตัวที่ตกลงไว้
     latchedStatusValue = WATCH;
-    latchedReasonBits = raw.status == WATCH ? raw.reasonBits : REASON_RECOVERY_HOLD;
-    return {WATCH, latchedReasonBits};
+    return WATCH;
   }
 
   latchedStatusValue = NORMAL;
-  latchedReasonBits = REASON_NONE;
-  return {NORMAL, REASON_NONE};
+  return NORMAL;
 }
 
 // evaluateFireStatus: จุดตัดสินสถานะเพียงจุดเดียวของเฟิร์มแวร์
-RiskDecision evaluateFireStatus(const SensorData &data) {
+FireStatus evaluateFireStatus(const SensorData &data) {
   return applyStateLatch(evaluateRawRisk(data));
 }
 
@@ -493,18 +447,17 @@ uint32_t plannedReportIntervalSeconds(FireStatus status) {
 }
 
 // buildJsonPacket: ประกอบข้อมูลวัดเป็น JSON ย่อและเพิ่ม seq หนึ่งครั้งต่อข้อมูลชุดใหม่; คีย์สั้นช่วยประหยัดพื้นที่ LoRa การส่งซ้ำใช้ ข้อความที่จะส่ง เดิมเพื่อระบุว่าเป็นชุดเดียวกัน
-String buildJsonPacket(const SensorData &data, const RiskDecision &decision) {
+String buildJsonPacket(const SensorData &data, FireStatus status) {
   StaticJsonDocument<MAX_JSON_SIZE> doc;
   seq++;
 
-  // pm คืออนุภาคประมาณ µg/m³; rb เป็น bitmask เหตุผลของสถานะ
+  // โหนดตัดสินสถานะแล้วส่งเฉพาะค่าที่วัดได้ สุขภาพเซนเซอร์ และสถานะสุดท้าย
   doc["t"] = "s";
   doc["id"] = NODE_ID;
   doc["q"] = seq;
   doc["sid"] = bootSessionId;
-  doc["ri"] = plannedReportIntervalSeconds(decision.status);
-  doc["st"] = statusToString(decision.status);
-  doc["rb"] = decision.reasonBits;
+  doc["ri"] = plannedReportIntervalSeconds(status);
+  doc["st"] = statusToString(status);
   doc["rv"] = RISK_MODEL_VERSION;
   addFloatOrNull(doc, "at", data.airTemp);
   addFloatOrNull(doc, "h", data.humidity);
@@ -513,26 +466,6 @@ String buildJsonPacket(const SensorData &data, const RiskDecision &decision) {
 
   String payload;
   serializeJson(doc, payload);
-
-  // ฉบับย่อยังคงค่าที่ใช้ตรวจสอบผลการตัดสินครบ
-  if (payload.length() > MAX_SAFE_PAYLOAD_BYTES) {
-    StaticJsonDocument<MAX_JSON_SIZE> mini;
-    mini["t"] = "s";
-    mini["id"] = NODE_ID;
-    mini["q"] = seq;
-    mini["sid"] = bootSessionId;
-    mini["ri"] = plannedReportIntervalSeconds(decision.status);
-    mini["st"] = statusToString(decision.status);
-    mini["rb"] = decision.reasonBits;
-    mini["rv"] = RISK_MODEL_VERSION;
-    addFloatOrNull(mini, "at", data.airTemp);
-    addFloatOrNull(mini, "h", data.humidity);
-    addFloatOrNull(mini, "pm", data.particleUgM3);
-    mini["sh"] = sensorHealthString(data);
-    payload = ""; // serializeJson เติมท้าย String จึงต้องล้างฉบับเต็มก่อน
-    serializeJson(mini, payload);
-  }
-
   return payload;
 }
 
@@ -1026,20 +959,19 @@ void delayWithBackgroundTasks(unsigned long durationMs) {
   }
 }
 
-// printSensorDebug: แสดงค่าที่ใช้ตัดสิน เหตุผลแบบ bitmask และสถานะสุดท้าย
-void printSensorDebug(const SensorData &data, const RiskDecision &decision) {
+// printSensorDebug: แสดงค่าที่ใช้ตัดสินและสถานะสุดท้าย
+void printSensorDebug(const SensorData &data, FireStatus status) {
 #if SERIAL_DEBUG
   Serial.println("========== SENSOR NODE ==========");
   Serial.print("Node: "); Serial.println(NODE_ID);
-  Serial.print("State: "); Serial.println(statusToString(decision.status));
-  Serial.print("Reason Bits: "); Serial.println(decision.reasonBits);
+  Serial.print("State: "); Serial.println(statusToString(status));
   Serial.print("Air Temp: "); Serial.println(data.airTemp);
   Serial.print("Humidity: "); Serial.println(data.humidity);
   Serial.print("Particle ADC mV: "); Serial.println(data.particleAdcMilliVolts);
   Serial.print("Particle Estimated ug/m3: "); Serial.println(data.particleUgM3);
   Serial.print("Release Counter: "); Serial.println(releaseCounter);
   Serial.print("Sensor Health: "); Serial.println(sensorHealthString(data));
-  Serial.print("Next Report Sec: "); Serial.println(plannedReportIntervalSeconds(decision.status));
+  Serial.print("Next Report Sec: "); Serial.println(plannedReportIntervalSeconds(status));
   Serial.println("=================================");
 #endif
 }
@@ -1105,9 +1037,9 @@ void serviceGpsUntilNextMeasurementOrSleep(FireStatus status, unsigned long cycl
 }
 #endif
 
-// sendMeasurement: วัดหนึ่งรอบแล้วส่งค่าพร้อมสถานะและเหตุผลทันที
-void sendMeasurement(const SensorData &current, const RiskDecision &decision) {
-  String payload = buildJsonPacket(current, decision);
+// sendMeasurement: วัดหนึ่งรอบแล้วส่งค่าที่วัดได้พร้อมสถานะทันที
+void sendMeasurement(const SensorData &current, FireStatus status) {
+  String payload = buildJsonPacket(current, status);
   sendSensorPacketWithAck(payload);
 }
 
@@ -1115,28 +1047,28 @@ void sendMeasurement(const SensorData &current, const RiskDecision &decision) {
 void runOneMeasurementCycle() {
   unsigned long cycleStartedMs = millis();
   SensorData current = readSensors();
-  RiskDecision decision = evaluateFireStatus(current);
+  FireStatus status = evaluateFireStatus(current);
 
-  printSensorDebug(current, decision);
-  sendMeasurement(current, decision);
+  printSensorDebug(current, status);
+  sendMeasurement(current, status);
 #if USE_GPS
   serviceOneShotGps();
 #endif
 
 #if TEST_MODE
-  delayWithBackgroundTasks(remainingIntervalMs(decision.status, cycleStartedMs));
+  delayWithBackgroundTasks(remainingIntervalMs(status, cycleStartedMs));
 #else
   // WARNING ทำงานต่อเนื่อง วัดและส่งทุก 20 วินาที; รอบแรกถูกส่งไปแล้วด้านบนทันที
-  if (decision.status == WARNING) {
-    delayWithBackgroundTasks(remainingIntervalMs(decision.status, cycleStartedMs));
+  if (status == WARNING) {
+    delayWithBackgroundTasks(remainingIntervalMs(status, cycleStartedMs));
   }
 #if USE_GPS
   else if (isOneShotGpsActive()) {
-    serviceGpsUntilNextMeasurementOrSleep(decision.status, cycleStartedMs);
+    serviceGpsUntilNextMeasurementOrSleep(status, cycleStartedMs);
   }
 #endif
   else {
-    enterDeepSleepByStatus(decision.status, cycleStartedMs);
+    enterDeepSleepByStatus(status, cycleStartedMs);
   }
 #endif
 }
@@ -1151,7 +1083,6 @@ void resetRuntimeStateForTestMode() {
   } while (bootSessionId == 0);
   rtcRiskStateVersion = RTC_RISK_STATE_VERSION;
   latchedStatusValue = NORMAL;
-  latchedReasonBits = REASON_NONE;
   releaseCounter = 0;
 #endif
 }

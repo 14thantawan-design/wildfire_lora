@@ -20,7 +20,7 @@ import { AdminReadingsPage } from './AdminReadingsPage'
 import type { Alert, NodeState } from './types'
 import { useDashboard } from './useDashboard'
 import type { TimeRangeKey } from './timeRanges'
-import { formatReason, stateLabels } from './nodeStates'
+import { stateLabels } from './nodeStates'
 import { assessLiveSafety } from './liveOverview'
 import './App.css'
 
@@ -166,11 +166,20 @@ function safetyBannerFor(canAssess: boolean, state: NodeState) {
 }
 
 function formatAlertSummary(alert: Alert) {
-  const reasons = alert.last_reading?.risk_reasons?.length
-    ? alert.last_reading.risk_reasons
-    : alert.reasons ?? []
-  if (reasons.length > 0) return [...new Set(reasons)].map(formatReason).join(' · ')
-  return alert.message || 'ตรวจพบค่าสัญญาณผิดปกติ'
+  const reading = alert.last_reading
+  if (!reading) return `โหนดรายงานสถานะ ${stateLabels[alert.level]}`
+
+  const values = [
+    typeof reading.air_temp === 'number' ? `${reading.air_temp.toFixed(1)}°C` : undefined,
+    typeof reading.humidity === 'number' ? `${reading.humidity.toFixed(1)}%RH` : undefined,
+    typeof reading.particle_ug_m3 === 'number'
+      ? `${reading.particle_ug_m3.toFixed(1)} µg/m³`
+      : undefined,
+  ].filter(Boolean)
+
+  return values.length > 0
+    ? `${stateLabels[alert.level]} · ${values.join(' · ')}`
+    : `โหนดรายงานสถานะ ${stateLabels[alert.level]}`
 }
 
 function App() {

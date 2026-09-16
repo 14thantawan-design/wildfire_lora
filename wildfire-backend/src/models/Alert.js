@@ -17,7 +17,6 @@ const alertSchema = new mongoose.Schema(
       enum: ['WATCH', 'WARNING', 'SENSOR_FAULT'],
       index: true
     },
-    reasons: { type: [String], default: [] },
     message: { type: String },
     last_reading: { type: mongoose.Schema.Types.Mixed },
     telegram_notified_level: {

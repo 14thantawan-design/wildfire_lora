@@ -290,13 +290,13 @@
 
 .safety-banner > div span {
   color: #6c8274;
-  font-size: 9px;
+  font-size: 12px;
 }
 
 .safety-banner > div strong {
   margin-top: 1px;
   color: #254d38;
-  font-size: 13px;
+  font-size: 16px;
 }
 
 .danger > div strong {
@@ -306,7 +306,7 @@
 .safety-detail {
   margin-left: auto;
   color: #78817b;
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .safety-detail b {
@@ -314,6 +314,7 @@
   padding: 4px 8px;
   border-radius: 20px;
   background: rgba(255, 255, 255, .64);
+  font-size: 16px;
 }
 
 .text-normal { color: #347654; }

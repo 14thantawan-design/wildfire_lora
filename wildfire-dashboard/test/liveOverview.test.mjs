@@ -24,7 +24,7 @@ test('offline nodes and inactive alerts do not block live assessment', () => {
 
 test('live warning decisions come only from online nodes', () => {
   assert.equal(assessLiveSafety([
-    { node_id: 'NODE02', online: true, state: 'WARNING', risk_reasons: ['particle_above_150'] },
+    { node_id: 'NODE02', online: true, state: 'WARNING' },
   ], health, false).highestState, 'WARNING')
 })
 

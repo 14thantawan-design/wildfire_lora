@@ -1,6 +1,6 @@
 # Codex / Next Developer Notes
 
-The current source uses the research-aligned, threshold-based state model version 7.
+The current source uses the research-aligned, threshold-based state model version 8.
 
 ## Authoritative state rules
 
@@ -9,7 +9,7 @@ The current source uses the research-aligned, threshold-based state model versio
 - `WATCH` (only when not `WARNING`) when `T > 35`, `P > 50`, or `RH < 50`.
 - `NORMAL` otherwise.
 
-The Sensor Node is the only component that calculates the state. The Gateway, backend, database/API, Telegram notifications, and dashboard carry and display the node's state and reason bits; they must not calculate a separate risk score.
+The Sensor Node is the only component that calculates the state. The Gateway, backend, database/API, Telegram notifications, and dashboard carry and display the node's measured values and final state; they must not calculate a separate risk score.
 
 ## Timing and state transitions
 
@@ -21,10 +21,10 @@ The Sensor Node is the only component that calculates the state. The Gateway, ba
 
 ## Protocol constraints
 
-- Packet version is `v=7`.
-- Keep `node_id`, `seq`, `st`, `rb`, `rv`, `at`, `h`, `pm`, `sh`, and `ri`.
-- Keep Gateway multi-node support and the compact payload below `MAX_SAFE_PAYLOAD_BYTES`.
-- See `docs/node-risk-v7.md` for thresholds, boundary cases, reason-bit definitions, limitations, and verification.
+- Packet version is `rv=8`.
+- Keep `id`, `q`, `sid`, `st`, `rv`, `at`, `h`, `pm`, `sh`, and `ri`.
+- Keep Gateway multi-node support and forward the node decision without recalculating it.
+- See `docs/node-risk-v8.md` for thresholds, boundary cases, limitations, and verification.
 
 ## Deployment note
 

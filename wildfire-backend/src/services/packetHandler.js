@@ -12,10 +12,6 @@ const SENSOR_STATES = new Set([
   'SENSOR_FAULT'
 ]);
 const SENSOR_HEALTH_VALUES = new Set(['OK', 'FAULT']);
-const WARNING_REASON_MASK = 0b00000111;
-const WATCH_REASON_MASK = 0b00111000;
-const SENSOR_FAULT_REASON = 0b01000000;
-const RECOVERY_REASON = 0b10000000;
 const REPORT_INTERVAL_BY_STATE = {
   NORMAL: 300,
   WATCH: 120,
@@ -23,7 +19,7 @@ const REPORT_INTERVAL_BY_STATE = {
   SENSOR_FAULT: 300
 };
 const SENSOR_PACKET_FIELDS = new Set([
-  't', 'id', 'q', 'sid', 'ri', 'st', 'rb', 'rv', 'at', 'h', 'pm', 'sh',
+  't', 'id', 'q', 'sid', 'ri', 'st', 'rv', 'at', 'h', 'pm', 'sh',
   'rssi', 'RSSI', 'rs', 'snr', 'SNR'
 ]);
 
@@ -98,28 +94,8 @@ function validateSensorPacket(packet) {
   const health = typeof packet.sh === 'string' ? packet.sh.trim().toUpperCase() : '';
   if (!SENSOR_STATES.has(state)) return 'sensor packet has invalid state';
   if (!SENSOR_HEALTH_VALUES.has(health)) return 'sensor packet has invalid health';
-  if (!Number.isInteger(packet.rb) || packet.rb < 0 || packet.rb > 255) {
-    return 'sensor packet has invalid risk reason bits';
-  }
-  const reasonBits = packet.rb;
   if ((state === 'SENSOR_FAULT') !== (health === 'FAULT')) {
     return 'sensor packet state and health disagree';
-  }
-  if (state === 'NORMAL' && reasonBits !== 0) {
-    return 'NORMAL sensor packet has invalid risk reason bits';
-  }
-  if (state === 'WATCH' &&
-      ((reasonBits & (WARNING_REASON_MASK | SENSOR_FAULT_REASON)) !== 0 ||
-       (reasonBits & (WATCH_REASON_MASK | RECOVERY_REASON)) === 0)) {
-    return 'WATCH sensor packet has invalid risk reason bits';
-  }
-  if (state === 'WARNING' &&
-      ((reasonBits & (WATCH_REASON_MASK | SENSOR_FAULT_REASON)) !== 0 ||
-       (reasonBits & WARNING_REASON_MASK) === 0)) {
-    return 'WARNING sensor packet has invalid risk reason bits';
-  }
-  if (state === 'SENSOR_FAULT' && reasonBits !== SENSOR_FAULT_REASON) {
-    return 'SENSOR_FAULT packet has invalid risk reason bits';
   }
   const expectedInterval = REPORT_INTERVAL_BY_STATE[state];
   if (!isFiniteNumber(packet.ri) ||

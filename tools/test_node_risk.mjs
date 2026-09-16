@@ -34,10 +34,10 @@ for (const sketch of ['sensor_node', 'sensor_node_2']) {
   assert.match(config, /#define NORMAL_REPORT_INTERVAL_SEC 300UL/)
   assert.match(config, /#define WATCH_REPORT_INTERVAL_SEC 120UL/)
   assert.match(config, /#define WARNING_REPORT_INTERVAL_SEC 20UL/)
-  assert.match(config, /#define RISK_MODEL_VERSION 7/)
+  assert.match(config, /#define RISK_MODEL_VERSION 8/)
   assert.match(config, /#define STATUS_RELEASE_CYCLES 3/)
-  assert.match(source, /doc\["rb"\] = decision\.reasonBits/,
-    'Packets must include risk reason bits')
+  assert.doesNotMatch(source, /doc\["rb"\]/,
+    'Packets must not duplicate the decision as reason bits')
   assert.match(source, /doc\["rv"\] = RISK_MODEL_VERSION/,
     'Packets must identify the research-threshold model')
   assert.match(source, /addFloatOrNull\(doc, "pm", data\.particleUgM3\)/,
@@ -51,7 +51,7 @@ for (const sketch of ['sensor_node', 'sensor_node_2']) {
   }
   firstFunctions = functions
 
-  const types = ['FireStatus', 'SensorData', 'RiskReasonBit', 'RiskDecision'].map((name) => {
+  const types = ['FireStatus', 'SensorData'].map((name) => {
     const match = source.match(new RegExp('(?:enum|struct) ' + name + '[^\\{]*\\{[^]*?};'))
     assert.ok(match, 'Missing type: ' + name)
     return match[0]
@@ -68,7 +68,6 @@ ${types}
 uint32_t rtcRiskStateVersion = RTC_RISK_STATE_VERSION;
 int latchedStatusValue = NORMAL;
 uint8_t releaseCounter = 0;
-uint16_t latchedReasonBits = REASON_NONE;
 int reads = 0;
 int particleSamples[3] = {100, 4000, 120};
 int readSharpOnce() { return particleSamples[reads++]; }
@@ -79,7 +78,6 @@ void reset() {
   rtcRiskStateVersion = RTC_RISK_STATE_VERSION;
   latchedStatusValue = NORMAL;
   releaseCounter = 0;
-  latchedReasonBits = REASON_NONE;
 }
 int medianTest() {
   reads = 0;
@@ -89,13 +87,11 @@ int medianTest() {
 float conversionTest(int milliVolts) { return particleUgM3FromMilliVolts(milliVolts); }
 int run(float temp, float humidity, float particle, int healthy) {
   SensorData data = {temp, humidity, 600, particle, healthy != 0, healthy != 0};
-  RiskDecision decision = evaluateFireStatus(data);
-  return ((int)decision.status * 1000) + decision.reasonBits;
+  return (int)evaluateFireStatus(data);
 }
 int raw(float temp, float humidity, float particle, int healthy) {
   SensorData data = {temp, humidity, 600, particle, healthy != 0, healthy != 0};
-  RiskDecision decision = evaluateRawRisk(data);
-  return ((int)decision.status * 1000) + decision.reasonBits;
+  return (int)evaluateRawRisk(data);
 }
 }`
 
@@ -118,30 +114,30 @@ int raw(float temp, float humidity, float particle, int healthy) {
     'Convert 1100 mV using 600 mV clean-air voltage and 5 mV/(ug/m3)')
 
   // Enum: SENSOR_FAULT=0, NORMAL=1, WATCH=2, WARNING=3.
-  assert.equal(raw(35, 50, 50), 1000, 'All inclusive NORMAL boundaries stay NORMAL')
-  assert.equal(raw(35.01, 50, 50), 2008, 'Temperature above 35 enters WATCH')
-  assert.equal(raw(35, 49.99, 50), 2032, 'Humidity below 50 enters WATCH')
-  assert.equal(raw(35, 50, 50.01), 2016, 'Particle above 50 enters WATCH')
-  assert.equal(raw(45, 50, 50), 2008, 'Exactly 45 is WATCH, not WARNING')
-  assert.equal(raw(45.01, 50, 50), 3001, 'Temperature above 45 enters WARNING')
-  assert.equal(raw(30, 50, 150), 2016, 'Exactly 150 is WATCH, not WARNING')
-  assert.equal(raw(30, 50, 150.01), 3002, 'Particle above 150 enters WARNING')
-  assert.equal(raw(30, 30, 20), 3004, '30C together with 30%RH enters WARNING')
-  assert.equal(raw(29.99, 30, 20), 2032, 'Humidity alone stays WATCH')
-  assert.equal(raw(30, 70, 20, 0), 64, 'A failed sensor reports SENSOR_FAULT separately')
+  assert.equal(raw(35, 50, 50), 1, 'All inclusive NORMAL boundaries stay NORMAL')
+  assert.equal(raw(35.01, 50, 50), 2, 'Temperature above 35 enters WATCH')
+  assert.equal(raw(35, 49.99, 50), 2, 'Humidity below 50 enters WATCH')
+  assert.equal(raw(35, 50, 50.01), 2, 'Particle above 50 enters WATCH')
+  assert.equal(raw(45, 50, 50), 2, 'Exactly 45 is WATCH, not WARNING')
+  assert.equal(raw(45.01, 50, 50), 3, 'Temperature above 45 enters WARNING')
+  assert.equal(raw(30, 50, 150), 2, 'Exactly 150 is WATCH, not WARNING')
+  assert.equal(raw(30, 50, 150.01), 3, 'Particle above 150 enters WARNING')
+  assert.equal(raw(30, 30, 20), 3, '30C together with 30%RH enters WARNING')
+  assert.equal(raw(29.99, 30, 20), 2, 'Humidity alone stays WATCH')
+  assert.equal(raw(30, 70, 20, 0), 0, 'A failed sensor reports SENSOR_FAULT separately')
 
   api.reset()
-  assert.equal(run(46, 60, 20), 3001, 'Escalation to WARNING is immediate')
-  assert.equal(run(), 3129, 'First clean sample holds WARNING with recovery bit')
-  assert.equal(run(), 3129, 'Second clean sample still holds WARNING')
-  assert.equal(run(), 2128, 'Third clean sample releases WARNING to WATCH')
-  assert.equal(run(), 2128, 'First WATCH recovery sample holds WATCH')
-  assert.equal(run(), 2128, 'Second WATCH recovery sample holds WATCH')
-  assert.equal(run(), 1000, 'Third WATCH recovery sample releases to NORMAL')
+  assert.equal(run(46, 60, 20), 3, 'Escalation to WARNING is immediate')
+  assert.equal(run(), 3, 'First clean sample holds WARNING')
+  assert.equal(run(), 3, 'Second clean sample still holds WARNING')
+  assert.equal(run(), 2, 'Third clean sample releases WARNING to WATCH')
+  assert.equal(run(), 2, 'First WATCH recovery sample holds WATCH')
+  assert.equal(run(), 2, 'Second WATCH recovery sample holds WATCH')
+  assert.equal(run(), 1, 'Third WATCH recovery sample releases to NORMAL')
 
   api.reset()
-  assert.equal(run(36, 60, 20), 2008, 'Escalation to WATCH is immediate')
-  assert.equal(run(46, 60, 20), 3001, 'WATCH escalates to WARNING immediately')
+  assert.equal(run(36, 60, 20), 2, 'Escalation to WATCH is immediate')
+  assert.equal(run(46, 60, 20), 3, 'WATCH escalates to WARNING immediately')
 
-  console.log(`${sketch}: C++ thresholds, boundaries, reason bits, latch, median and conversion passed`)
+  console.log(`${sketch}: C++ thresholds, boundaries, latch, median and conversion passed`)
 }

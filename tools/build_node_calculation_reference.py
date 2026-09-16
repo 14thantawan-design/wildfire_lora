@@ -1,4 +1,4 @@
-"""Build a Thai DOCX reference for the Sensor Node threshold model (v7).
+"""Build a Thai DOCX reference for the Sensor Node threshold model (v8).
 
 The document is generated from the fixed thresholds used by NODE01/NODE02.
 """
@@ -105,7 +105,12 @@ def configure_document(document: Document) -> None:
         style = document.styles[style_name]
         style.font.name = FONT
         style.font.size = Pt(size)
-        style.font.color.rgb = RGBColor.from_string(NAVY)
+        style.font.color.rgb = RGBColor.from_string("000000")
+        if style_name == "Title":
+            style_properties = style.element.get_or_add_pPr()
+            style_border = style_properties.find(qn("w:pBdr"))
+            if style_border is not None:
+                style_properties.remove(style_border)
 
 
 def build_document() -> Path:
@@ -114,7 +119,11 @@ def build_document() -> Path:
 
     title = document.add_heading("หลักการคำนวณสถานะไฟป่าฝั่ง Sensor Node", 0)
     title.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    subtitle = document.add_paragraph("Risk model version 7 · NODE01 และ NODE02")
+    title_properties = title._p.get_or_add_pPr()
+    title_border = title_properties.find(qn("w:pBdr"))
+    if title_border is not None:
+        title_properties.remove(title_border)
+    subtitle = document.add_paragraph("Risk model version 8 · NODE01 และ NODE02")
     subtitle.alignment = WD_ALIGN_PARAGRAPH.CENTER
     document.add_paragraph(f"ปรับปรุงเอกสาร: {date.today().isoformat()}").alignment = WD_ALIGN_PARAGRAPH.CENTER
 
@@ -190,21 +199,10 @@ def build_document() -> Path:
     add_bullet(document, "WATCH ลดเป็น NORMAL หลังเข้า NORMAL ติดต่อกัน 3 รอบ")
     add_bullet(document, "WARNING ที่กลับปกติจะผ่าน WATCH ก่อนเสมอ")
 
-    document.add_heading("6. รหัสเหตุผลในแพ็กเก็ต", level=1)
-    add_table(
-        document,
-        ["Bit", "ค่า", "ชื่อเหตุผล"],
-        [
-            ["0", "1", "temperature_above_45"],
-            ["1", "2", "particle_above_150"],
-            ["2", "4", "hot_dry_30_30"],
-            ["3", "8", "temperature_above_35"],
-            ["4", "16", "particle_above_50"],
-            ["5", "32", "humidity_below_50"],
-            ["6", "64", "sensor_fault"],
-            ["7", "128", "recovery_confirmation_pending"],
-        ],
-    )
+    document.add_heading("6. ข้อมูลที่ส่งในแพ็กเก็ต", level=1)
+    add_bullet(document, "โหนดส่งค่า T, RH และ P ที่วัดได้")
+    add_bullet(document, "โหนดส่งสถานะสุดท้าย NORMAL, WATCH, WARNING หรือ SENSOR_FAULT")
+    add_bullet(document, "Gateway และ Backend ไม่คำนวณเกณฑ์ซ้ำและไม่มีรหัสเหตุผลแบบบิต")
 
     document.add_heading("7. การเชื่อมโยงแหล่งอ้างอิง", level=1)
     add_table(
@@ -224,14 +222,15 @@ def build_document() -> Path:
         LIGHT_RED,
     )
 
+    document.add_page_break()
     document.add_heading("8. ตำแหน่งใน Source code", level=1)
     add_table(
         document,
         ["หัวข้อ", "ตำแหน่งค้นสอบ"],
         [
             ["แปลงค่า Sharp", source_line("sensor_node/sensor_node.ino", "particleUgM3FromMilliVolts")],
-            ["ตัดสินค่าดิบ", source_line("sensor_node/sensor_node.ino", "RiskDecision evaluateRawRisk")],
-            ["ยืนยันการลดระดับ", source_line("sensor_node/sensor_node.ino", "RiskDecision applyStateLatch")],
+            ["ตัดสินค่าดิบ", source_line("sensor_node/sensor_node.ino", "FireStatus evaluateRawRisk")],
+            ["ยืนยันการลดระดับ", source_line("sensor_node/sensor_node.ino", "FireStatus applyStateLatch")],
             ["สร้างแพ็กเก็ต", source_line("sensor_node/sensor_node.ino", "String buildJsonPacket")],
             ["ค่าคงที่", source_line("sensor_node/config.h", "RISK_MODEL_VERSION")],
             ["ชุดทดสอบ", "tools/test_node_risk.mjs"],

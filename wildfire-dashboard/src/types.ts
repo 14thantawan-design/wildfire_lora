@@ -9,8 +9,6 @@ export interface NodeStatus {
   _id?: string
   node_id: string
   state: NodeState
-  risk_reason_bits?: number
-  risk_reasons?: string[]
   risk_model_version?: number | null
   air_temp?: number | null
   humidity?: number | null
@@ -49,8 +47,6 @@ export interface Reading {
   seq?: number
   timestamp: string
   state: NodeState
-  risk_reason_bits?: number
-  risk_reasons?: string[]
   risk_model_version?: number | null
   air_temp?: number | null
   humidity?: number | null
@@ -81,14 +77,11 @@ export interface Alert {
   ended_at?: string
   active: boolean
   max_state?: NodeState
-  reasons?: string[]
   last_reading?: {
     reading_id?: string
     seq?: number
     timestamp?: string
     state?: NodeState
-    risk_reason_bits?: number
-    risk_reasons?: string[]
     risk_model_version?: number | null
     air_temp?: number | null
     humidity?: number | null

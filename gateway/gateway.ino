@@ -27,7 +27,6 @@ struct ParsedPacket {
   double longitude;
   String gpsError;
   String state;
-  uint16_t riskReasonBits;
   uint8_t riskModelVersion;
   float airTemp;
   float humidity;
@@ -50,7 +49,6 @@ struct NodeStatus {
   String gpsError;
   unsigned long gpsSeenMs;
   String state;
-  uint16_t riskReasonBits;
   float airTemp;
   float humidity;
   float particleUgM3;
@@ -655,7 +653,6 @@ int getOrCreateNodeIndex(const String &nodeId) {
       nodes[i].gpsError = "";
       nodes[i].gpsSeenMs = 0;
       nodes[i].state = "UNKNOWN";
-      nodes[i].riskReasonBits = 0;
       Serial.print("New node registered: ");
       Serial.println(nodeId);
       return i;
@@ -704,7 +701,6 @@ bool parseJsonPacket(const String &payload, ParsedPacket &out) {
   out.longitude = doc["ln"] | 0.0;
   out.gpsError = String((const char *)(doc["er"] | ""));
   out.state = normalizeRiskState(String((const char *)(doc["st"] | "")));
-  out.riskReasonBits = doc["rb"] | 0;
   out.riskModelVersion = doc["rv"] | 0;
   out.airTemp = doc["at"].isNull() ? NAN : doc["at"].as<float>();
   out.humidity = doc["h"].isNull() ? NAN : doc["h"].as<float>();
@@ -723,7 +719,7 @@ bool parseJsonPacket(const String &payload, ParsedPacket &out) {
     Serial.println("ERROR: packet missing session id");
     return false;
   }
-  if (out.packetType == "sensor" && out.riskModelVersion != 7) {
+  if (out.packetType == "sensor" && out.riskModelVersion != 8) {
     Serial.println("ERROR: unsupported risk model version");
     return false;
   }
@@ -760,7 +756,6 @@ void updateNodeStatus(int idx, const ParsedPacket &packet, int rssi, float snr) 
   }
 
   nodes[idx].state = packet.state;
-  nodes[idx].riskReasonBits = packet.riskReasonBits;
   nodes[idx].airTemp = packet.airTemp;
   nodes[idx].humidity = packet.humidity;
   nodes[idx].particleUgM3 = packet.particleUgM3;
@@ -796,10 +791,7 @@ String calculateAreaStatus() {
 
 uint32_t nodeOfflineTimeoutMs(const NodeStatus &node) {
   if (node.reportIntervalSec == 0) return OFFLINE_TIMEOUT_MS;
-  uint64_t adaptive =
-    ((uint64_t)node.reportIntervalSec * 1000ULL * OFFLINE_INTERVAL_NUMERATOR) /
-    OFFLINE_INTERVAL_DENOMINATOR + OFFLINE_JITTER_GRACE_MS;
-  if (adaptive < OFFLINE_TIMEOUT_MS) return OFFLINE_TIMEOUT_MS;
+  uint64_t adaptive = (uint64_t)node.reportIntervalSec * 1000ULL * OFFLINE_MISSED_REPORTS;
   if (adaptive > UINT32_MAX) return UINT32_MAX;
   return (uint32_t)adaptive;
 }
@@ -843,7 +835,6 @@ void printNodeStatus(const NodeStatus &n) {
   Serial.print(n.nodeId);
   Serial.println(n.offline ? " = OFFLINE" : "");
   Serial.print("  State: "); Serial.println(n.offline ? "OFFLINE" : n.state);
-  Serial.print("  Risk Reason Bits: "); Serial.println(n.riskReasonBits);
   Serial.print("  Report Interval: "); Serial.print(n.reportIntervalSec); Serial.println(" sec");
   Serial.print("  Last Seq: "); Serial.println(n.lastSeq);
   Serial.print("  Last Seen: "); Serial.print((millis() - n.lastSeenMs) / 1000); Serial.println(" sec ago");
@@ -896,7 +887,6 @@ void printReceivedPacket(const ParsedPacket &packet, int rssi, float snr) {
   }
 
   Serial.print("State: "); Serial.println(packet.state);
-  Serial.print("Risk Reason Bits: "); Serial.println(packet.riskReasonBits);
   Serial.print("Report Interval: "); Serial.print(packet.reportIntervalSec); Serial.println(" sec");
   printFloatOrNA("Air Temp: ", packet.airTemp);
   printFloatOrNA("Humidity: ", packet.humidity);

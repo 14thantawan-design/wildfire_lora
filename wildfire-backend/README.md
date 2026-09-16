@@ -5,10 +5,10 @@ Node.js API for the Wildfire LoRa project.
 The backend receives packets from the Gateway over Wi-Fi/HTTP, stores node status
 and sensor history in MongoDB, and exposes API endpoints for the dashboard.
 
-Risk is calculated only by sensor firmware. For current risk model 7, the backend
-copies packet `st` and reason bitmask `rb` into `state`, `risk_reason_bits` and
-`risk_reasons`, and stores `risk_model_version: 7`. Sensor packets from any other
-model version are rejected. The dashboard uses current online node states, while
+Risk is calculated only by sensor firmware. For current risk model 8, the backend
+copies packet `st` into `state` and stores `risk_model_version: 8`. It does not
+recalculate the thresholds or store duplicated reason fields. Sensor packets from
+any other model version are rejected. The dashboard uses current online node states, while
 alert records keep the peak state of an event.
 
 ## Requirements
@@ -105,7 +105,7 @@ turns off GPS and persists manual-location mode. `gps_reacquire` clears that mod
 and starts the physical GPS again. GPS acquisition never shortens the sensor's
 normal measurement/report interval.
 
-The Node list keeps known Nodes visible and marks each one online or offline from its heartbeat. The default timeout is 2.5 report intervals plus 30 seconds, so one missed report is tolerated. When a Node sends again, it returns online automatically without configuration changes or deleting history.
+The Node list keeps known Nodes visible and marks each one online or offline from its heartbeat. A Node is offline after no data arrives for two expected report intervals. When a Node sends again, it returns online automatically without configuration changes or deleting history.
 
 ## Test Without Gateway
 
@@ -113,7 +113,7 @@ The Node list keeps known Nodes visible and marks each one online or offline fro
 curl -X POST http://localhost:4000/api/packets ^
   -H "Content-Type: application/json" ^
   -H "X-Gateway-Key: replace-with-your-gateway-key" ^
-  -d "{\"t\":\"s\",\"id\":\"NODE01\",\"q\":12,\"sid\":1234,\"ri\":300,\"st\":\"NORMAL\",\"rb\":0,\"rv\":7,\"at\":31.2,\"h\":55.4,\"pm\":20,\"sh\":\"OK\"}"
+  -d "{\"t\":\"s\",\"id\":\"NODE01\",\"q\":12,\"sid\":1234,\"ri\":300,\"st\":\"NORMAL\",\"rv\":8,\"at\":31.2,\"h\":55.4,\"pm\":20,\"sh\":\"OK\"}"
 ```
 
 GPS test:

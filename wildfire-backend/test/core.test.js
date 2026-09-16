@@ -43,8 +43,7 @@ function validSensorPacket(overrides = {}) {
     q: 10,
     sid: 1234,
     st: 'NORMAL',
-    rb: 0,
-    rv: 7,
+    rv: 8,
     at: 30,
     h: 60,
     pm: 20,
@@ -56,9 +55,8 @@ function validSensorPacket(overrides = {}) {
 
 test('backend preserves a node decision regardless of sensor values', () => {
   for (const values of [{ pm: 0, at: 50, h: 20 }, { pm: 170, at: 30, h: 95 }]) {
-    assert.deepEqual(riskFromPacket(validSensorPacket({ ...values, st: 'WARNING', rb: 2 })), {
-      state: 'WARNING', risk_reason_bits: 2,
-      risk_reasons: ['particle_above_150'], risk_model_version: 7
+    assert.deepEqual(riskFromPacket(validSensorPacket({ ...values, st: 'WARNING' })), {
+      state: 'WARNING', risk_model_version: 8
     });
   }
 });
@@ -168,21 +166,15 @@ test('out-of-order packets in the same boot session cannot overwrite the live no
   assert.equal(isOutOfOrderPacket(node, validSensorPacket({ sid: 5678, q: 1 })), false);
 });
 
-test('adaptive offline timeout tolerates one missed field report', () => {
-  const previousMultiplier = process.env.OFFLINE_INTERVAL_MULTIPLIER;
-  const previousJitter = process.env.OFFLINE_JITTER_GRACE_MS;
+test('offline timeout marks a node offline after two missed reports', () => {
   const previousMinimum = process.env.OFFLINE_TIMEOUT_MS;
-  delete process.env.OFFLINE_INTERVAL_MULTIPLIER;
-  delete process.env.OFFLINE_JITTER_GRACE_MS;
   process.env.OFFLINE_TIMEOUT_MS = '60000';
 
-  assert.equal(offlineTimeoutMs({ report_interval_sec: 300 }), 780000);
-  assert.equal(offlineTimeoutMs({ report_interval_sec: 120 }), 330000);
+  assert.equal(offlineTimeoutMs({ report_interval_sec: 300 }), 600000);
+  assert.equal(offlineTimeoutMs({ report_interval_sec: 120 }), 240000);
+  assert.equal(offlineTimeoutMs({ report_interval_sec: 20 }), 40000);
+  assert.equal(offlineTimeoutMs({}), 60000);
 
-  if (previousMultiplier === undefined) delete process.env.OFFLINE_INTERVAL_MULTIPLIER;
-  else process.env.OFFLINE_INTERVAL_MULTIPLIER = previousMultiplier;
-  if (previousJitter === undefined) delete process.env.OFFLINE_JITTER_GRACE_MS;
-  else process.env.OFFLINE_JITTER_GRACE_MS = previousJitter;
   if (previousMinimum === undefined) delete process.env.OFFLINE_TIMEOUT_MS;
   else process.env.OFFLINE_TIMEOUT_MS = previousMinimum;
 });
@@ -222,7 +214,9 @@ test('WATCH is an alert level so early warning reaches Telegram', () => {
     level: 'WATCH'
   }, {
     state: 'WATCH',
-    risk_reasons: ['humidity_below_50']
+    air_temp: 36,
+    humidity: 45,
+    particle_ug_m3: 20
   }, { timezone: 'Asia/Bangkok' });
 
   assert.match(message, /WATCH \(เฝ้าระวัง\)/);
@@ -237,14 +231,13 @@ test('an unsent Telegram alert is retried without duplicating a delivered level'
   assert.equal(shouldNotifyLevel('WARNING', 'SENSOR_FAULT'), true);
 });
 
-test('Telegram alert uses the existing server state and Thai reason labels', () => {
+test('Telegram alert uses the reported state and measured values', () => {
   const message = buildTelegramMessage('created', {
     node_id: 'NODE01',
     level: 'WARNING',
     started_at: '2026-08-21T07:35:00.000Z'
   }, {
     state: 'WARNING',
-    risk_reasons: ['particle_above_150', 'hot_dry_30_30'],
     air_temp: 39.4,
     humidity: 32,
     particle_ug_m3: 170,
@@ -256,8 +249,9 @@ test('Telegram alert uses the existing server state and Thai reason labels', () 
 
   assert.match(message, /WARNING \(เตือนภัย\)/);
   assert.doesNotMatch(message, /\/100/);
-  assert.match(message, /สูงกว่า 150/);
-  assert.match(message, /ความชื้นไม่เกิน 30/);
+  assert.doesNotMatch(message, /สาเหตุ/);
+  assert.match(message, /39.4°C/);
+  assert.match(message, /32%/);
   assert.match(message, /170 µg\/m³/);
   assert.match(message, /https:\/\/wildfire\.example\.test/);
 });

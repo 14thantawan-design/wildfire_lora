@@ -38,13 +38,8 @@ async function saveTelegramResult(alert, level, notification, now) {
   }
 }
 
-function mergeReasons(...reasonLists) {
-  return [...new Set(reasonLists.flat().filter(Boolean))];
-}
-
-function buildMessage(nodeId, level, reasons = []) {
-  const reasonText = reasons.length ? `: ${reasons.slice(0, 4).join(', ')}` : '';
-  return `${nodeId} event reached ${level}${reasonText}`;
+function buildMessage(nodeId, level) {
+  return `${nodeId} reported ${level}`;
 }
 
 function buildLastReading(reading) {
@@ -55,8 +50,6 @@ function buildLastReading(reading) {
     seq: reading.seq,
     timestamp: reading.timestamp,
     state: reading.state,
-    risk_reason_bits: reading.risk_reason_bits,
-    risk_reasons: reading.risk_reasons,
     risk_model_version: reading.risk_model_version,
     air_temp: reading.air_temp,
     humidity: reading.humidity,
@@ -77,7 +70,6 @@ async function processAlertForReading(reading) {
   const now = reading.timestamp || new Date();
   const nodeId = reading.node_id;
   const state = reading.state;
-  const reasons = reading.risk_reasons?.length ? reading.risk_reasons : ['node_reported'];
 
   if (state === 'NORMAL') {
     const closingAlert = await Alert.findOne({ node_id: nodeId, active: true })
@@ -115,8 +107,7 @@ async function processAlertForReading(reading) {
         started_at: now,
         active: true,
         max_state: state,
-        reasons,
-        message: buildMessage(nodeId, state, reasons),
+        message: buildMessage(nodeId, state),
         last_reading: lastReading
       };
       const alert = await Alert.create(alertData);
@@ -134,8 +125,7 @@ async function processAlertForReading(reading) {
   activeAlert.level = nextLevel;
   activeAlert.max_state =
     severityOf(state) > severityOf(activeAlert.max_state) ? state : activeAlert.max_state || nextLevel;
-  activeAlert.reasons = mergeReasons(activeAlert.reasons || [], reasons);
-  activeAlert.message = buildMessage(nodeId, nextLevel, activeAlert.reasons);
+  activeAlert.message = buildMessage(nodeId, nextLevel);
   activeAlert.last_reading = lastReading;
   await activeAlert.save();
 

@@ -86,9 +86,7 @@
   #define OFFLINE_TIMEOUT_MS 60000UL      // 60 sec for bench testing
   #define SUMMARY_PRINT_INTERVAL_MS 10000UL
 #else
-  #define OFFLINE_TIMEOUT_MS 60000UL      // minimum; adaptive timeout uses report interval
+  #define OFFLINE_TIMEOUT_MS 60000UL      // fallback when a node has not reported its interval yet
   #define SUMMARY_PRINT_INTERVAL_MS 60000UL
 #endif
-#define OFFLINE_INTERVAL_NUMERATOR 5UL    // 2.5 expected report intervals
-#define OFFLINE_INTERVAL_DENOMINATOR 2UL
-#define OFFLINE_JITTER_GRACE_MS 30000UL
+#define OFFLINE_MISSED_REPORTS 2UL        // no data for two expected reports means offline

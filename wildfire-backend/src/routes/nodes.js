@@ -9,17 +9,12 @@ const { requireLocalAdmin } = require('../middleware/security');
 const router = express.Router();
 
 function offlineTimeoutMs(node) {
-  const configuredMinimum = Number(process.env.OFFLINE_TIMEOUT_MS || 60000);
-  const configuredMultiplier = Number(process.env.OFFLINE_INTERVAL_MULTIPLIER || 2.5);
-  const configuredJitter = Number(process.env.OFFLINE_JITTER_GRACE_MS || 30000);
-  const intervalMultiplier = Number.isFinite(configuredMultiplier) && configuredMultiplier >= 1
-    ? configuredMultiplier
-    : 2.5;
-  const jitterGraceMs = Number.isFinite(configuredJitter) && configuredJitter >= 0
-    ? configuredJitter
-    : 30000;
+  const configuredFallback = Number(process.env.OFFLINE_TIMEOUT_MS || 60000);
+  const fallbackMs = Number.isFinite(configuredFallback) && configuredFallback > 0
+    ? configuredFallback
+    : 60000;
   const expectedIntervalMs = Number(node?.report_interval_sec || 0) * 1000;
-  return Math.max(configuredMinimum, expectedIntervalMs * intervalMultiplier + jitterGraceMs);
+  return expectedIntervalMs > 0 ? expectedIntervalMs * 2 : fallbackMs;
 }
 
 function withOnlineStatus(node) {

@@ -10,18 +10,6 @@ const LEVEL_DETAILS = {
   NORMAL: { icon: '🟢', label: 'ปกติ' }
 };
 
-const REASON_LABELS = {
-  node_reported: 'ใช้สถานะที่โหนดประเมินส่งมา',
-  temperature_above_45: 'อุณหภูมิสูงกว่า 45°C',
-  particle_above_150: 'อนุภาคโดยประมาณสูงกว่า 150 µg/m³',
-  hot_dry_30_30: 'อุณหภูมิอย่างน้อย 30°C และความชื้นไม่เกิน 30%RH',
-  temperature_above_35: 'อุณหภูมิสูงกว่า 35°C',
-  particle_above_50: 'อนุภาคโดยประมาณสูงกว่า 50 µg/m³',
-  humidity_below_50: 'ความชื้นต่ำกว่า 50%RH',
-  recovery_confirmation_pending: 'กำลังยืนยันค่าปกติก่อนลดระดับ',
-  sensor_fault: 'เซนเซอร์รายงานข้อขัดข้อง',
-};
-
 function telegramConfig(env = process.env) {
   return {
     botToken: String(env.TELEGRAM_BOT_TOKEN || '').trim(),
@@ -78,12 +66,6 @@ function formatTimestamp(value, timezone = DEFAULT_TIMEZONE) {
   }
 }
 
-function reasonLines(reasons = []) {
-  const uniqueReasons = [...new Set(reasons.filter(Boolean))].slice(0, 4);
-  if (!uniqueReasons.length) return ['• ระบบตรวจพบค่าผิดปกติตามเกณฑ์'];
-  return uniqueReasons.map((reason) => `• ${escapeHtml(REASON_LABELS[reason] || reason)}`);
-}
-
 function readingFrom(alert, reading) {
   return reading || alert?.last_reading || {};
 }
@@ -113,9 +95,6 @@ function buildTelegramMessage(event, alert, reading, options = {}) {
   }
 
   const heading = event === 'escalated' ? 'แจ้งเตือนยกระดับ' : 'แจ้งเตือนจากระบบ Wildfire LoRa';
-  const reasons = reasonLines(current.risk_reasons?.length
-    ? current.risk_reasons
-    : alert?.reasons || ['node_reported']);
   const particleText = formatValue(current.particle_ug_m3, ' µg/m³', 1);
 
   return [
@@ -123,9 +102,6 @@ function buildTelegramMessage(event, alert, reading, options = {}) {
     '',
     `<b>จุดตรวจ:</b> ${nodeId}`,
     `<b>ระดับระบบ:</b> ${escapeHtml(level)} (${escapeHtml(detail.label)})`,
-    '',
-    '<b>สาเหตุ:</b>',
-    ...reasons,
     '',
     `<b>อุณหภูมิ:</b> ${formatValue(current.air_temp, '°C')}`,
     `<b>ความชื้น:</b> ${formatValue(current.humidity, '%')}`,
@@ -184,7 +160,6 @@ async function notifyTelegram(event, alert, reading) {
 
 module.exports = {
   LEVEL_DETAILS,
-  REASON_LABELS,
   buildTelegramMessage,
   escapeHtml,
   isTelegramConfigured,

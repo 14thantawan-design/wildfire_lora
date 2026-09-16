@@ -9,9 +9,7 @@ const nodeSchema = new mongoose.Schema(
       default: 'UNKNOWN',
       index: true
     },
-    risk_reason_bits: { type: Number, min: 0, max: 255 },
-    risk_reasons: { type: [String], default: undefined },
-    risk_model_version: { type: Number, enum: [7] },
+    risk_model_version: { type: Number, enum: [8] },
     air_temp: { type: Number },
     humidity: { type: Number },
     particle_ug_m3: { type: Number },
