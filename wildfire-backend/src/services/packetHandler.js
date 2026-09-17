@@ -11,12 +11,6 @@ const SENSOR_STATES = new Set([
   'SENSOR_FAULT'
 ]);
 const SENSOR_HEALTH_VALUES = new Set(['OK', 'FAULT']);
-const REPORT_INTERVAL_BY_STATE = {
-  NORMAL: 300,
-  WATCH: 120,
-  WARNING: 20,
-  SENSOR_FAULT: 300
-};
 const SENSOR_PACKET_FIELDS = new Set([
   't', 'id', 'q', 'sid', 'ri', 'st', 'rv', 'at', 'h', 'pm', 'sh',
   'rssi', 'RSSI', 'rs', 'snr', 'SNR'
@@ -96,10 +90,8 @@ function validateSensorPacket(packet) {
   if ((state === 'SENSOR_FAULT') !== (health === 'FAULT')) {
     return 'sensor packet state and health disagree';
   }
-  const expectedInterval = REPORT_INTERVAL_BY_STATE[state];
-  if (!isFiniteNumber(packet.ri) ||
-      (packet.ri !== expectedInterval && packet.ri !== 5)) {
-    return 'sensor packet has invalid report interval for state';
+  if (!Number.isInteger(packet.ri) || packet.ri < 1 || packet.ri > 86400) {
+    return 'sensor packet has invalid report interval';
   }
   const hasParticleField = packet.pm !== undefined && packet.pm !== null;
   if (health !== 'FAULT' && !hasParticleField) {
@@ -111,8 +103,7 @@ function validateSensorPacket(packet) {
 
   const ranges = [
     ['at', -80, 100],
-    ['h', 0, 100],
-    ['ri', 1, 86400]
+    ['h', 0, 100]
   ];
 
   for (const [key, minimum, maximum] of ranges) {

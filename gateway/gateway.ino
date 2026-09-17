@@ -34,29 +34,6 @@ struct ParsedPacket {
   String sensorHealth;
 };
 
-struct NodeStatus {
-  bool used;
-  bool offline;
-  String nodeId;
-  uint32_t lastSeq;
-  uint32_t lastSessionId;
-  uint32_t reportIntervalSec;
-  unsigned long lastSeenMs;
-  bool hasLocation;
-  bool gpsFix;
-  double latitude;
-  double longitude;
-  String gpsError;
-  unsigned long gpsSeenMs;
-  String state;
-  float airTemp;
-  float humidity;
-  float particleUgM3;
-  String sensorHealth;
-  int rssi;
-  float snr;
-};
-
 struct PendingCommand {
   bool used;
   String commandId;
@@ -87,11 +64,9 @@ struct CommandReportJob {
 };
 #endif
 
-NodeStatus nodes[MAX_NODES];
 PendingCommand pendingCommands[MAX_PENDING_COMMANDS];
 String acknowledgedCommandIds[MAX_PENDING_COMMANDS];
 uint8_t nextAcknowledgedCommandIndex = 0;
-unsigned long lastSummaryPrintMs = 0;
 unsigned long lastCommandPollMs = 0;
 unsigned long lastLoRaInitAttemptMs = 0;
 bool loraReady = false;
@@ -626,43 +601,6 @@ bool sendPendingCommandForNode(const String &nodeId) {
   return true;
 }
 
-int findNodeIndex(const String &nodeId) {
-  for (int i = 0; i < MAX_NODES; i++) {
-    if (nodes[i].used && nodes[i].nodeId == nodeId) return i;
-  }
-  return -1;
-}
-
-int getOrCreateNodeIndex(const String &nodeId) {
-  int idx = findNodeIndex(nodeId);
-  if (idx >= 0) return idx;
-
-  for (int i = 0; i < MAX_NODES; i++) {
-    if (!nodes[i].used) {
-      nodes[i].used = true;
-      nodes[i].offline = false;
-      nodes[i].nodeId = nodeId;
-      nodes[i].lastSeq = 0;
-      nodes[i].lastSessionId = 0;
-      nodes[i].reportIntervalSec = 0;
-      nodes[i].lastSeenMs = millis();
-      nodes[i].hasLocation = false;
-      nodes[i].gpsFix = false;
-      nodes[i].latitude = 0.0;
-      nodes[i].longitude = 0.0;
-      nodes[i].gpsError = "";
-      nodes[i].gpsSeenMs = 0;
-      nodes[i].state = "UNKNOWN";
-      Serial.print("New node registered: ");
-      Serial.println(nodeId);
-      return i;
-    }
-  }
-
-  Serial.println("ERROR: MAX_NODES reached, cannot register new node");
-  return -1;
-}
-
 String normalizeRiskState(String state) {
   state.trim();
   state.toUpperCase();
@@ -726,144 +664,10 @@ bool parseJsonPacket(const String &payload, ParsedPacket &out) {
   return true;
 }
 
-bool isDuplicatePacket(int idx, const ParsedPacket &packet) {
-  return nodes[idx].used && packet.sessionId != 0 &&
-         nodes[idx].lastSessionId == packet.sessionId &&
-         packet.seq <= nodes[idx].lastSeq;
-}
-
-void updateNodeStatus(int idx, const ParsedPacket &packet, int rssi, float snr) {
-  nodes[idx].offline = false;
-  nodes[idx].lastSeenMs = millis();
-  nodes[idx].lastSeq = packet.seq;
-  nodes[idx].lastSessionId = packet.sessionId;
-  if (packet.reportIntervalSec > 0) nodes[idx].reportIntervalSec = packet.reportIntervalSec;
-  nodes[idx].rssi = rssi;
-  nodes[idx].snr = snr;
-
-  if (packet.packetType == "gps") {
-    nodes[idx].gpsSeenMs = millis();
-    nodes[idx].gpsFix = packet.gpsFix && isGpsCoordinateValid(packet.latitude, packet.longitude);
-    nodes[idx].gpsError = packet.gpsError;
-
-    if (nodes[idx].gpsFix) {
-      nodes[idx].hasLocation = true;
-      nodes[idx].latitude = packet.latitude;
-      nodes[idx].longitude = packet.longitude;
-      nodes[idx].gpsError = "";
-    }
-    return;
-  }
-
-  nodes[idx].state = packet.state;
-  nodes[idx].airTemp = packet.airTemp;
-  nodes[idx].humidity = packet.humidity;
-  nodes[idx].particleUgM3 = packet.particleUgM3;
-  nodes[idx].sensorHealth = packet.sensorHealth;
-}
-
-String calculateAreaStatus() {
-  int activeNodes = 0;
-  bool hasWarning = false;
-  bool hasWatch = false;
-  int faultOrOfflineCount = 0;
-
-  for (int i = 0; i < MAX_NODES; i++) {
-    if (!nodes[i].used) continue;
-    activeNodes++;
-
-    if (nodes[i].offline) {
-      faultOrOfflineCount++;
-      continue;
-    }
-
-    if (nodes[i].state == "WARNING") hasWarning = true;
-    if (nodes[i].state == "WATCH") hasWatch = true;
-    if (nodes[i].state == "SENSOR_FAULT") faultOrOfflineCount++;
-  }
-
-  if (hasWarning) return "WARNING";
-  if (hasWatch) return "WATCH";
-  if (activeNodes > 0 && faultOrOfflineCount == activeNodes) return "NO_HEALTHY_NODES";
-  if (faultOrOfflineCount > 0) return "NORMAL_WITH_NODE_ISSUE";
-  return "NORMAL";
-}
-
-uint32_t nodeOfflineTimeoutMs(const NodeStatus &node) {
-  if (node.reportIntervalSec == 0) return OFFLINE_TIMEOUT_MS;
-  uint64_t adaptive = (uint64_t)node.reportIntervalSec * 1000ULL * OFFLINE_MISSED_REPORTS;
-  if (adaptive > UINT32_MAX) return UINT32_MAX;
-  return (uint32_t)adaptive;
-}
-
-void checkOfflineNodes() {
-  unsigned long now = millis();
-  for (int i = 0; i < MAX_NODES; i++) {
-    if (!nodes[i].used) continue;
-    if (now - nodes[i].lastSeenMs > nodeOfflineTimeoutMs(nodes[i])) nodes[i].offline = true;
-  }
-}
-
 void printFloatOrNA(const char *label, float value, bool available = true) {
   Serial.print(label);
   if (!available || isnan(value)) Serial.println("N/A");
   else Serial.println(value);
-}
-
-void printLocationOrNA(const NodeStatus &n) {
-  Serial.print("  Location: ");
-  if (!n.hasLocation) {
-    Serial.println("N/A");
-    if (n.gpsError.length() > 0) {
-      Serial.print("  GPS Error: ");
-      Serial.println(n.gpsError);
-    }
-    return;
-  }
-
-  Serial.print(n.latitude, 6);
-  Serial.print(", ");
-  Serial.println(n.longitude, 6);
-  if (n.gpsSeenMs > 0) {
-    Serial.print("  GPS Last Seen: ");
-    Serial.print((millis() - n.gpsSeenMs) / 1000);
-    Serial.println(" sec ago");
-  }
-}
-
-void printNodeStatus(const NodeStatus &n) {
-  Serial.print(n.nodeId);
-  Serial.println(n.offline ? " = OFFLINE" : "");
-  Serial.print("  State: "); Serial.println(n.offline ? "OFFLINE" : n.state);
-  Serial.print("  Report Interval: "); Serial.print(n.reportIntervalSec); Serial.println(" sec");
-  Serial.print("  Last Seq: "); Serial.println(n.lastSeq);
-  Serial.print("  Last Seen: "); Serial.print((millis() - n.lastSeenMs) / 1000); Serial.println(" sec ago");
-  printLocationOrNA(n);
-  printFloatOrNA("  Air Temp: ", n.airTemp);
-  printFloatOrNA("  Humidity: ", n.humidity);
-  Serial.print("  Particle Estimated ug/m3: "); Serial.println(n.particleUgM3);
-  Serial.print("  Sensor Health: "); Serial.println(n.sensorHealth);
-  Serial.print("  RSSI: "); Serial.println(n.rssi);
-  Serial.print("  SNR: "); Serial.println(n.snr);
-}
-
-void printAllNodeStatus() {
-  checkOfflineNodes();
-  Serial.println("========== AREA SUMMARY ==========");
-  Serial.print("Area Status: ");
-  Serial.println(calculateAreaStatus());
-  Serial.println("----------------------------------");
-
-  bool any = false;
-  for (int i = 0; i < MAX_NODES; i++) {
-    if (!nodes[i].used) continue;
-    any = true;
-    printNodeStatus(nodes[i]);
-    Serial.println("----------------------------------");
-  }
-
-  if (!any) Serial.println("No nodes received yet.");
-  Serial.println("==================================");
 }
 
 void printReceivedPacket(const ParsedPacket &packet, int rssi, float snr) {
@@ -988,27 +792,10 @@ void handleIncomingLoRa() {
     return;
   }
 
-  int idx = getOrCreateNodeIndex(parsed.nodeId);
-  if (idx < 0) {
-    LoRa.receive();
-    return;
-  }
-
   // The node opens a short receive window immediately after every uplink.
   // A sensor ACK is sent first; any queued command follows in the same window.
   sendSensorUplinkAck(parsed);
   sendPendingCommandForNode(parsed.nodeId);
-
-  if (isDuplicatePacket(idx, parsed)) {
-    Serial.print("Duplicate packet ignored from ");
-    Serial.print(parsed.nodeId);
-    Serial.print(" seq=");
-    Serial.println(parsed.seq);
-    LoRa.receive();
-    return;
-  }
-
-  updateNodeStatus(idx, parsed, rssi, snr);
   printReceivedPacket(parsed, rssi, snr);
 
 #if WIFI_HTTP_ENABLED
@@ -1024,16 +811,6 @@ void setup() {
   delay(1000);
   disableUnusedRadios();
 
-  for (int i = 0; i < MAX_NODES; i++) {
-    nodes[i].used = false;
-    nodes[i].offline = false;
-    nodes[i].hasLocation = false;
-    nodes[i].gpsFix = false;
-    nodes[i].latitude = 0.0;
-    nodes[i].longitude = 0.0;
-    nodes[i].gpsError = "";
-    nodes[i].gpsSeenMs = 0;
-  }
   for (int i = 0; i < MAX_PENDING_COMMANDS; i++) pendingCommands[i].used = false;
   for (int i = 0; i < MAX_PENDING_COMMANDS; i++) acknowledgedCommandIds[i] = "";
 
@@ -1056,8 +833,4 @@ void loop() {
   unsigned long now = millis();
   if (!loraReady && now - lastLoRaInitAttemptMs >= LORA_INIT_RETRY_MS) initLoRa();
   if (loraReady) handleIncomingLoRa();
-  if (now - lastSummaryPrintMs > SUMMARY_PRINT_INTERVAL_MS) {
-    lastSummaryPrintMs = now;
-    printAllNodeStatus();
-  }
 }

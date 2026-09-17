@@ -169,6 +169,7 @@ test('offline timeout marks a node offline after two missed reports', () => {
   assert.equal(offlineTimeoutMs({ report_interval_sec: 300 }), 600000);
   assert.equal(offlineTimeoutMs({ report_interval_sec: 120 }), 240000);
   assert.equal(offlineTimeoutMs({ report_interval_sec: 20 }), 40000);
+  assert.equal(offlineTimeoutMs({ report_interval_sec: 60 }), 120000);
   assert.equal(offlineTimeoutMs({}), 60000);
 
   if (previousMinimum === undefined) delete process.env.OFFLINE_TIMEOUT_MS;

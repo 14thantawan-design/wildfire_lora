@@ -71,7 +71,7 @@ Particle_est (µg/m³) = max(0, (Vo_mV - 600) / 5)
 
 - `st`: สถานะที่เฟิร์มแวร์ตัดสิน
 - `rv`: รุ่นกฎความเสี่ยง ปัจจุบันคือ 8
-- `ri`: รอบรายงานตามสถานะ หน่วยวินาที
+- `ri`: รอบรายงานที่โหนดกำหนด หน่วยวินาที โดย Backend รับจำนวนเต็ม 1–86,400
 - `at`, `h`, `pm`: อุณหภูมิ ความชื้น และอนุภาคโดยประมาณ
 - `sh`: `OK` หรือ `FAULT`
 
@@ -83,7 +83,7 @@ Backend ตรวจรูปแบบและเก็บผลจากโห
 ```text
 sensor_node/          เฟิร์มแวร์ NODE01
 sensor_node_2/        เฟิร์มแวร์ NODE02
-gateway/              รับ LoRa จาก 2 โหนดและส่ง HTTP ไป Backend
+gateway/              รับ LoRa จากโหนดและส่ง HTTP ไป Backend
 wildfire-backend/     API, MongoDB, Alert และ Telegram
 wildfire-dashboard/   หน้าเว็บสถานะ แผนที่ และกราฟ
 tools/test_node_risk.mjs  ทดสอบฟังก์ชัน C++ จริงของทั้งสองโหนด
@@ -93,6 +93,7 @@ tools/test_node_risk.mjs  ทดสอบฟังก์ชัน C++ จริ�
 
 - LoRa by Sandeep Mistry
 - ArduinoJson
+- WiFiManager 2.0.17 (ใช้เฉพาะ Gateway)
 - Adafruit SHT31 Library
 - Adafruit BusIO
 - TinyGPSPlus

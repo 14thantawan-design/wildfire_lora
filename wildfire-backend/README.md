@@ -105,7 +105,7 @@ turns off GPS and persists manual-location mode. `gps_reacquire` clears that mod
 and starts the physical GPS again. GPS acquisition never shortens the sensor's
 normal measurement/report interval.
 
-The Node list keeps known Nodes visible and marks each one online or offline from its heartbeat. A Node is offline after no data arrives for two expected report intervals. When a Node sends again, it returns online automatically without configuration changes or deleting history.
+The Node list keeps known Nodes visible and marks each one online or offline from its heartbeat. The backend accepts the whole-second report interval sent by firmware instead of assigning one by risk state. A Node is offline after no data arrives for two expected report intervals. When a Node sends again, it returns online automatically without configuration changes or deleting history.
 
 ## Test Without Gateway
 

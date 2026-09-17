@@ -14,7 +14,6 @@
 */
 
 #define TEST_MODE 0
-#define MAX_NODES 2
 #define MAX_JSON_SIZE 512
 
 // LoRa config - must match sensor nodes. You said your module is 433 MHz.
@@ -60,12 +59,8 @@
 #define WIFI_CONFIG_BUTTON_PIN 0
 #define WIFI_CONFIG_BUTTON_HOLD_MS 5000UL
 #define WIFI_SETUP_AP_PREFIX "Wildfire-Gateway"
-#define WIFI_SETUP_AP_PASSWORD "12345678"
 #define WIFI_PORTAL_AUTO_START_MS 120000UL
 #define WIFI_PORTAL_TIMEOUT_MS 600000UL
-#define WIFI_PORTAL_SUCCESS_CLOSE_DELAY_MS 5000UL
-#define WIFI_RECONNECT_INITIAL_DELAY_MS 2000UL
-#define WIFI_RECONNECT_MAX_DELAY_MS 60000UL
 #define WIFI_CONNECT_TIMEOUT_MS 15000UL
 #define HTTP_POST_TIMEOUT_MS 5000UL
 #define HTTP_POST_RETRY_COUNT 2
@@ -76,17 +71,8 @@
 
 // Downlink commands are held until the target node sends its next LoRa packet.
 #define MAX_PENDING_COMMANDS 10
-#define COMMAND_POLL_INTERVAL_MS 2000UL
+#define COMMAND_POLL_INTERVAL_MS 30000UL
 #define COMMAND_REPEAT_COUNT 1  // Retry on the node's next uplink instead of blocking its ACK with back-to-back downlinks.
 #define COMMAND_REPEAT_DELAY_MS 80UL
 #define COMMAND_HTTP_JSON_SIZE 2048
 #define SENSOR_UPLINK_ACK_ENABLED 1
-
-#if TEST_MODE
-  #define OFFLINE_TIMEOUT_MS 60000UL      // 60 sec for bench testing
-  #define SUMMARY_PRINT_INTERVAL_MS 10000UL
-#else
-  #define OFFLINE_TIMEOUT_MS 60000UL      // fallback when a node has not reported its interval yet
-  #define SUMMARY_PRINT_INTERVAL_MS 60000UL
-#endif
-#define OFFLINE_MISSED_REPORTS 2UL        // no data for two expected reports means offline

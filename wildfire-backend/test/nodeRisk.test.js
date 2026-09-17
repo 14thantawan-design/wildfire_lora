@@ -35,10 +35,6 @@ test('risk model 8 accepts a state without duplicated reason fields', () => {
   assert.match(validateSensorPacket(packet({ sh: 'INVALID' })), /health/);
   assert.match(validateSensorPacket(packet({ rb: 1 })), /unsupported field/);
   assert.match(validateSensorPacket(packet({ st: 'SENSOR_FAULT' })), /disagree/);
-  assert.match(validateSensorPacket(packet({ st: 'WARNING', ri: 120 })), /interval/);
-  assert.equal(validateSensorPacket(packet({ st: 'WATCH', ri: 120 })), null);
-  assert.equal(validateSensorPacket(packet({ st: 'WARNING', ri: 20 })), null);
-  assert.equal(validateSensorPacket(packet({ st: 'WARNING', ri: 5 })), null);
   assert.equal(validateSensorPacket(packet({
     st: 'SENSOR_FAULT', sh: 'FAULT', at: null, h: null, pm: null
   })), null);
@@ -46,6 +42,15 @@ test('risk model 8 accepts a state without duplicated reason fields', () => {
   assert.deepEqual(riskFromPacket(packet({ st: 'WARNING' })), {
     state: 'WARNING'
   });
+});
+
+test('sensor report interval comes from firmware and uses whole seconds', () => {
+  assert.equal(validateSensorPacket(packet({ st: 'WARNING', ri: 120 })), null);
+  assert.equal(validateSensorPacket(packet({ st: 'WATCH', ri: 20 })), null);
+  assert.equal(validateSensorPacket(packet({ st: 'NORMAL', ri: 5 })), null);
+  assert.match(validateSensorPacket(packet({ ri: 0 })), /interval/);
+  assert.match(validateSensorPacket(packet({ ri: 20.5 })), /interval/);
+  assert.match(validateSensorPacket(packet({ ri: 86401 })), /interval/);
 });
 
 test('current schema stores only the firmware state', () => {
