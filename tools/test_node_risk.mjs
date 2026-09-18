@@ -10,6 +10,17 @@ const compiler = process.env.CLANGXX || 'C:/Users/14tha/AppData/Local/Android/Sd
 const output = resolve(root, 'tmp/risk-tests')
 mkdirSync(output, { recursive: true })
 
+// Decision logic now lives in one shared module set used by both sensor sketches.
+// Read those headers directly so this test always exercises the deployed C++ functions.
+const sharedSource = [
+  'node_state.h',
+  'sensor_reading.h',
+  'risk_rules.h',
+  'lora_transport.h',
+  'node_app.h'
+].map((file) => readFileSync(resolve(root, 'sensor_common', file), 'utf8')).join('\n')
+const sharedConfig = readFileSync(resolve(root, 'sensor_common', 'sensor_config.h'), 'utf8')
+
 const names = [
   'median3',
   'readParticleMedianMilliVolts',
@@ -27,10 +38,22 @@ function extract(source, name) {
   return match[0]
 }
 
-let firstFunctions
 for (const sketch of ['sensor_node', 'sensor_node_2']) {
-  const source = readFileSync(resolve(root, sketch, sketch + '.ino'), 'utf8')
-  const config = readFileSync(resolve(root, sketch, 'config.h'), 'utf8')
+  const entrySource = readFileSync(resolve(root, sketch, sketch + '.ino'), 'utf8')
+  const source = sharedSource
+  const nodeConfig = readFileSync(resolve(root, sketch, 'config.h'), 'utf8')
+  const config = nodeConfig + '\n' + sharedConfig
+  assert.match(entrySource, /sensor_common\/node_app\.h/,
+    'Each node must load the shared application modules')
+  assert.match(entrySource, /void setup\(\)\s*\{\s*setupNode\(\);\s*\}/,
+    'Each Arduino sketch must show setup() and delegate to setupNode()')
+  assert.match(entrySource, /void loop\(\)\s*\{\s*runOneMeasurementCycle\(\);\s*\}/,
+    'Each Arduino sketch must show loop() and one measurement cycle')
+  assert.match(sharedSource, /void setupNode\(\)/,
+    'Shared application module must provide setupNode()')
+  assert.match(nodeConfig, new RegExp('#define NODE_ID "NODE0[12]"'))
+  assert.match(nodeConfig, /sensor_common\/sensor_config\.h/,
+    'Each node must load the shared sensor configuration')
   assert.match(config, /#define NORMAL_REPORT_INTERVAL_SEC 300UL/)
   assert.match(config, /#define WATCH_REPORT_INTERVAL_SEC 120UL/)
   assert.match(config, /#define WARNING_REPORT_INTERVAL_SEC 20UL/)
@@ -46,10 +69,6 @@ for (const sketch of ['sensor_node', 'sensor_node_2']) {
     'Current packets must not include score or baseline fields')
 
   const functions = names.map((name) => extract(source, name)).join('\n')
-  if (firstFunctions) {
-    assert.equal(functions, firstFunctions, 'Both nodes must use identical decision functions')
-  }
-  firstFunctions = functions
 
   const types = ['FireStatus', 'SensorData'].map((name) => {
     const match = source.match(new RegExp('(?:enum|struct) ' + name + '[^\\{]*\\{[^]*?};'))

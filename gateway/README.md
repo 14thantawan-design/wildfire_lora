@@ -2,6 +2,20 @@
 
 The sensor nodes use LoRa to reach the gateway.
 
+## Code structure
+
+`gateway.ino` keeps `setup()` and `loop()` visible. The remaining code is split
+by responsibility, and every function has a short explanation above it:
+
+- `gateway_state.h` - packet structures, queues, and shared runtime state
+- `gateway_helpers.h` - small general helpers
+- `backend_http.h` - Wi-Fi/HTTPS requests to the Backend
+- `lora_radio.h` - LoRa initialization
+- `gateway_commands.h` - pending command queue and node downlinks
+- `network_task.h` - background FreeRTOS HTTP work
+- `packet_processing.h` - parsing, ACK, Serial output, and packet forwarding
+- `wifi_provisioning.h/.cpp` - WiFiManager setup portal and reconnection
+
 LoRa is only the local radio link:
 
 ```text
