@@ -46,7 +46,6 @@ bool parseJsonPacket(const String &payload, ParsedPacket &out) {
   out.longitude = doc["ln"] | 0.0;
   out.gpsError = String((const char *)(doc["er"] | ""));
   out.state = normalizeRiskState(String((const char *)(doc["st"] | "")));
-  out.riskModelVersion = doc["rv"] | 0;
   out.airTemp = doc["at"].isNull() ? NAN : doc["at"].as<float>();
   out.humidity = doc["h"].isNull() ? NAN : doc["h"].as<float>();
   out.particleUgM3 = doc["pm"].isNull() ? NAN : doc["pm"].as<float>();
@@ -62,10 +61,6 @@ bool parseJsonPacket(const String &payload, ParsedPacket &out) {
   }
   if (out.sessionId == 0) {
     Serial.println("ERROR: packet missing session id");
-    return false;
-  }
-  if (out.packetType == "sensor" && out.riskModelVersion != 8) {
-    Serial.println("ERROR: unsupported risk model version");
     return false;
   }
   return true;

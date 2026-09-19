@@ -1,5 +1,3 @@
-const RISK_MODEL_VERSION = 8;
-
 function normalizeRiskState(value) {
   const state = typeof value === 'string' ? value.trim().toUpperCase() : '';
   if (['NORMAL', 'WATCH', 'WARNING', 'SENSOR_FAULT'].includes(state)) return state;
@@ -20,7 +18,6 @@ function normalizeNodeRisk(record) {
 }
 
 module.exports = {
-  RISK_MODEL_VERSION,
   normalizeNodeRisk,
   normalizeRiskState,
   riskFromPacket

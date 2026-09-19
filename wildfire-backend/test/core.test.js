@@ -43,7 +43,6 @@ function validSensorPacket(overrides = {}) {
     q: 10,
     sid: 1234,
     st: 'NORMAL',
-    rv: 8,
     at: 30,
     h: 60,
     pm: 20,
@@ -66,7 +65,6 @@ test('sensor validation rejects incomplete or impossible packets', () => {
   assert.match(validateSensorPacket({ t: 's', id: 'NODE01' }), /sequence/);
   assert.match(validateSensorPacket(validSensorPacket({ pm: 2001 })), /particle/);
   assert.match(validateSensorPacket(validSensorPacket({ obsolete: true })), /unsupported field/);
-  assert.match(validateSensorPacket(validSensorPacket({ rv: 6 })), /unsupported risk model/);
   assert.match(validateSensorPacket(validSensorPacket({ sh: 'OK', at: null })), /missing/);
 });
 

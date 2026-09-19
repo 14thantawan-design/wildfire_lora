@@ -57,12 +57,9 @@ for (const sketch of ['sensor_node', 'sensor_node_2']) {
   assert.match(config, /#define NORMAL_REPORT_INTERVAL_SEC 300UL/)
   assert.match(config, /#define WATCH_REPORT_INTERVAL_SEC 120UL/)
   assert.match(config, /#define WARNING_REPORT_INTERVAL_SEC 20UL/)
-  assert.match(config, /#define RISK_MODEL_VERSION 8/)
   assert.match(config, /#define STATUS_RELEASE_CYCLES 3/)
   assert.doesNotMatch(source, /doc\["rb"\]/,
     'Packets must not duplicate the decision as reason bits')
-  assert.match(source, /doc\["rv"\] = RISK_MODEL_VERSION/,
-    'Packets must identify the research-threshold model')
   assert.match(source, /addFloatOrNull\(doc, "pm", data\.particleUgM3\)/,
     'Packets must include estimated particle concentration')
   assert.doesNotMatch(source, /doc\["(?:c|pd|sr|ar|hr|bc|bt)"\]/,
@@ -84,7 +81,6 @@ typedef unsigned int uint32_t;
 #define NAN (__builtin_nanf(""))
 bool isnan(float value) { return value != value; }
 ${types}
-uint32_t rtcRiskStateVersion = RTC_RISK_STATE_VERSION;
 int latchedStatusValue = NORMAL;
 uint8_t releaseCounter = 0;
 int reads = 0;
@@ -94,7 +90,6 @@ void delay(int) {}
 ${functions}
 extern "C" {
 void reset() {
-  rtcRiskStateVersion = RTC_RISK_STATE_VERSION;
   latchedStatusValue = NORMAL;
   releaseCounter = 0;
 }

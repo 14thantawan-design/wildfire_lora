@@ -16,7 +16,6 @@ struct ParsedPacket {
   double longitude;
   String gpsError;
   String state;
-  uint8_t riskModelVersion;
   float airTemp;
   float humidity;
   float particleUgM3;

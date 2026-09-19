@@ -59,7 +59,6 @@ String buildJsonPacket(const SensorData &data, FireStatus status) {
   doc["sid"] = bootSessionId;
   doc["ri"] = plannedReportIntervalSeconds(status);
   doc["st"] = statusToString(status);
-  doc["rv"] = RISK_MODEL_VERSION;
   addFloatOrNull(doc, "at", data.airTemp);
   addFloatOrNull(doc, "h", data.humidity);
   addFloatOrNull(doc, "pm", data.particleUgM3);
@@ -130,4 +129,3 @@ bool sendSensorPacketWithAck(const String &payload) {
   return sendLoRaPacket(payload, true);
 #endif
 }
-

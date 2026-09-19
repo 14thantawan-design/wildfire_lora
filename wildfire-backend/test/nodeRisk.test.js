@@ -4,7 +4,7 @@ const NodeModel = require('../src/models/Node');
 const Reading = require('../src/models/Reading');
 const Alert = require('../src/models/Alert');
 const { handleSensorPacket, validateSensorPacket } = require('../src/services/packetHandler');
-const { RISK_MODEL_VERSION, riskFromPacket } = require('../src/services/nodeRisk');
+const { riskFromPacket } = require('../src/services/nodeRisk');
 const { serializeReading } = require('../src/routes/readings');
 const { withOnlineStatus } = require('../src/routes/nodes');
 const { buildTelegramMessage } = require('../src/services/telegramService');
@@ -12,7 +12,7 @@ const { buildTelegramMessage } = require('../src/services/telegramService');
 function packet(overrides = {}) {
   return {
     t: 's', id: 'NODE01', sid: 10, q: 1,
-    st: 'NORMAL', rv: RISK_MODEL_VERSION,
+    st: 'NORMAL',
     at: 30, h: 70, pm: 20, sh: 'OK', ri: 300,
     ...overrides
   };
@@ -28,7 +28,7 @@ function query(value) {
   };
 }
 
-test('risk model 8 accepts a state without duplicated reason fields', () => {
+test('sensor packet accepts a state without duplicated reason fields', () => {
   assert.equal(validateSensorPacket(packet()), null);
   assert.match(validateSensorPacket(packet({ st: 'INVALID' })), /state/);
   assert.match(validateSensorPacket(packet({ t: 'invalid' })), /type/);
@@ -60,13 +60,12 @@ test('current schema stores only the firmware state', () => {
 
   for (const obj of [node, reading]) {
     assert.equal(obj.state, 'WATCH');
-    assert.equal(Object.hasOwn(obj, 'risk_model_version'), false);
     assert.equal(Object.hasOwn(obj, 'risk_reason_bits'), false);
     assert.equal(Object.hasOwn(obj, 'risk_reasons'), false);
   }
 });
 
-test('ingestion, storage, live API, alerts and Telegram use firmware v8 end to end', async (t) => {
+test('ingestion, storage, live API, alerts and Telegram use firmware state end to end', async (t) => {
   const previousToken = process.env.TELEGRAM_BOT_TOKEN;
   const previousChat = process.env.TELEGRAM_CHAT_ID;
   delete process.env.TELEGRAM_BOT_TOKEN;

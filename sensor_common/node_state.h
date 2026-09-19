@@ -81,6 +81,5 @@ RTC_DATA_ATTR uint32_t seq = 0;
 RTC_DATA_ATTR uint32_t bootSessionId = 0;
 
 // จำสถานะและจำนวนรอบลดระดับข้าม deep sleep
-RTC_DATA_ATTR uint32_t rtcRiskStateVersion = 0;
 RTC_DATA_ATTR int latchedStatusValue = NORMAL;
 RTC_DATA_ATTR uint8_t releaseCounter = 0;

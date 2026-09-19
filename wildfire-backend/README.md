@@ -5,11 +5,10 @@ Node.js API for the Wildfire LoRa project.
 The backend receives packets from the Gateway over Wi-Fi/HTTP, stores node status
 and sensor history in MongoDB, and exposes API endpoints for the dashboard.
 
-Risk is calculated only by sensor firmware. For current risk model 8, the backend
-copies packet `st` into `state`. It validates packet version `rv: 8` but does not
-recalculate the thresholds or store duplicated reason fields. Sensor packets from
-any other model version are rejected. The dashboard uses current online node states, while
-alert records keep the peak state of an event.
+Risk is calculated only by sensor firmware. The backend copies packet `st` into
+`state`; it does not recalculate the thresholds or store duplicated reason fields.
+The dashboard uses current online node states, while alert records keep the peak
+state of an event.
 
 ## Requirements
 
@@ -113,7 +112,7 @@ The Node list keeps known Nodes visible and marks each one online or offline fro
 curl -X POST http://localhost:4000/api/packets ^
   -H "Content-Type: application/json" ^
   -H "X-Gateway-Key: replace-with-your-gateway-key" ^
-  -d "{\"t\":\"s\",\"id\":\"NODE01\",\"q\":12,\"sid\":1234,\"ri\":300,\"st\":\"NORMAL\",\"rv\":8,\"at\":31.2,\"h\":55.4,\"pm\":20,\"sh\":\"OK\"}"
+  -d "{\"t\":\"s\",\"id\":\"NODE01\",\"q\":12,\"sid\":1234,\"ri\":300,\"st\":\"NORMAL\",\"at\":31.2,\"h\":55.4,\"pm\":20,\"sh\":\"OK\"}"
 ```
 
 GPS test:

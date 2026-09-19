@@ -190,10 +190,6 @@
 #define HOT_DRY_MIN_AIR_TEMP_C 30.0f
 #define HOT_DRY_MAX_HUMIDITY_RH 30.0f
 
-// รุ่นกฎ 8: โหนดตัดสินจากเกณฑ์อ้างอิงและส่งค่าที่วัดได้พร้อมสถานะ
-#define RISK_MODEL_VERSION 8
-#define RTC_RISK_STATE_VERSION 8
-
 // ลด WARNING เป็น WATCH เมื่อไม่เข้า WARNING 3 รอบ และลด WATCH เป็น NORMAL
 // เมื่อเข้า NORMAL 3 รอบ; การยกระดับเกิดทันที
 #define STATUS_RELEASE_CYCLES 3

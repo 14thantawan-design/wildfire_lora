@@ -1,7 +1,7 @@
 const NodeModel = require('../models/Node');
 const Reading = require('../models/Reading');
 const { processAlertForReading } = require('./alertService');
-const { RISK_MODEL_VERSION, riskFromPacket } = require('./nodeRisk');
+const { riskFromPacket } = require('./nodeRisk');
 
 const NODE_ID_PATTERN = /^[A-Za-z0-9_-]{1,32}$/;
 const SENSOR_STATES = new Set([
@@ -12,7 +12,7 @@ const SENSOR_STATES = new Set([
 ]);
 const SENSOR_HEALTH_VALUES = new Set(['OK', 'FAULT']);
 const SENSOR_PACKET_FIELDS = new Set([
-  't', 'id', 'q', 'sid', 'ri', 'st', 'rv', 'at', 'h', 'pm', 'sh',
+  't', 'id', 'q', 'sid', 'ri', 'st', 'at', 'h', 'pm', 'sh',
   'rssi', 'RSSI', 'rs', 'snr', 'SNR'
 ]);
 
@@ -81,8 +81,6 @@ function validateSensorPacket(packet) {
   if (!isValidNodeId(packet.id)) return 'sensor packet has invalid id';
   if (!isValidSequence(packet.q)) return 'sensor packet has invalid sequence';
   if (!isValidSessionId(packet.sid)) return 'sensor packet has invalid session id';
-  if (packet.rv !== RISK_MODEL_VERSION) return 'sensor packet has unsupported risk model version';
-
   const state = typeof packet.st === 'string' ? packet.st.trim().toUpperCase() : '';
   const health = typeof packet.sh === 'string' ? packet.sh.trim().toUpperCase() : '';
   if (!SENSOR_STATES.has(state)) return 'sensor packet has invalid state';

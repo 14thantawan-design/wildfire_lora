@@ -50,7 +50,6 @@ void resetRuntimeStateForTestMode() {
   do {
     bootSessionId = esp_random();
   } while (bootSessionId == 0);
-  rtcRiskStateVersion = RTC_RISK_STATE_VERSION;
   latchedStatusValue = NORMAL;
   releaseCounter = 0;
 #endif

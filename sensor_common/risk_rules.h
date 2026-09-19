@@ -13,15 +13,14 @@ bool hasSensorFault(const SensorData &data) {
   return false;
 }
 
-// ensureRtcRiskState: ตรวจรูปแบบสถานะ RTC ให้ตรงกับเฟิร์มแวร์รุ่นปัจจุบัน
+// ensureRtcRiskState: คืนสถานะ RTC เป็น NORMAL เมื่อค่าที่จำไว้ไม่ใช่สถานะที่ระบบรู้จัก
 void ensureRtcRiskState() {
   bool validStatus = latchedStatusValue == NORMAL ||
                      latchedStatusValue == WATCH ||
                      latchedStatusValue == WARNING ||
                      latchedStatusValue == SENSOR_FAULT;
-  if (rtcRiskStateVersion == RTC_RISK_STATE_VERSION && validStatus) return;
+  if (validStatus) return;
 
-  rtcRiskStateVersion = RTC_RISK_STATE_VERSION;
   latchedStatusValue = NORMAL;
   releaseCounter = 0;
 }
