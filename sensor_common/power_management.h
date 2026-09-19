@@ -27,8 +27,7 @@ void printSensorDebug(const SensorData &data, FireStatus status) {
   Serial.print("State: "); Serial.println(statusToString(status));
   Serial.print("Air Temp: "); Serial.println(data.airTemp);
   Serial.print("Humidity: "); Serial.println(data.humidity);
-  Serial.print("Particle ADC mV: "); Serial.println(data.particleAdcMilliVolts);
-  Serial.print("Particle Estimated ug/m3: "); Serial.println(data.particleUgM3);
+  Serial.print("Particle ADC: "); Serial.println(data.particleAdc);
   Serial.print("Release Counter: "); Serial.println(releaseCounter);
   Serial.print("Sensor Health: "); Serial.println(sensorHealthString(data));
   Serial.print("Next Report Sec: "); Serial.println(plannedReportIntervalSeconds(status));

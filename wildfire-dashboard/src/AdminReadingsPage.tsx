@@ -28,7 +28,7 @@ type EditDraft = {
   timestamp: string
   air_temp: string
   humidity: string
-  particle_ug_m3: string
+  particle_adc: string
   sensor_health: string
   rssi: string
   snr: string
@@ -81,7 +81,7 @@ function toEditDraft(reading: AdminReading): EditDraft {
     timestamp: toDateTimeInput(reading.timestamp),
     air_temp: asInput(reading.air_temp),
     humidity: asInput(reading.humidity),
-    particle_ug_m3: asInput(reading.particle_ug_m3),
+    particle_adc: asInput(reading.particle_adc),
     sensor_health: reading.sensor_health ?? '',
     rssi: asInput(reading.rssi),
     snr: asInput(reading.snr),
@@ -203,7 +203,7 @@ export function AdminReadingsPage({ onDataChanged }: AdminReadingsPageProps) {
           timestamp: new Date(draft.timestamp).toISOString(),
           air_temp: nullableNumber(draft.air_temp),
           humidity: nullableNumber(draft.humidity),
-          particle_ug_m3: nullableNumber(draft.particle_ug_m3),
+          particle_adc: nullableNumber(draft.particle_adc),
           sensor_health: draft.sensor_health || null,
           rssi: nullableNumber(draft.rssi),
           snr: nullableNumber(draft.snr),
@@ -376,7 +376,7 @@ export function AdminReadingsPage({ onDataChanged }: AdminReadingsPageProps) {
                 <th>Node</th>
                 <th>อุณหภูมิ</th>
                 <th>ความชื้น</th>
-                <th>อนุภาคโดยประมาณ</th>
+                <th>ค่าควัน ADC</th>
                 <th>สถานะระบบ</th>
                 <th>เซนเซอร์</th>
                 <th>RSSI / SNR</th>
@@ -400,7 +400,7 @@ export function AdminReadingsPage({ onDataChanged }: AdminReadingsPageProps) {
                     <td><strong className="reading-node-id">{reading.node_id}</strong></td>
                     <td>{displayNumber(reading.air_temp, '°C')}</td>
                     <td>{displayNumber(reading.humidity, '%')}</td>
-                    <td>{displayNumber(reading.particle_ug_m3, ' µg/m³', 1)}</td>
+                    <td>{displayNumber(reading.particle_adc, ' ADC', 0)}</td>
                     <td><span className={`reading-state state-${state.toLowerCase()}`}>{stateLabels[state]}</span></td>
                     <td>{reading.sensor_health || '—'}</td>
                     <td>{displayNumber(reading.rssi, ' dBm', 0)} <small>/ {displayNumber(reading.snr, ' dB')}</small></td>
@@ -507,8 +507,8 @@ export function AdminReadingsPage({ onDataChanged }: AdminReadingsPageProps) {
                   <input max="100" min="0" onChange={(event) => setDraft({ ...draft, humidity: event.target.value })} step="0.1" type="number" value={draft.humidity} />
                 </label>
                 <label>
-                  <span>อนุภาคโดยประมาณ (µg/m³)</span>
-                  <input max="2000" min="0" onChange={(event) => setDraft({ ...draft, particle_ug_m3: event.target.value })} step="0.1" type="number" value={draft.particle_ug_m3} />
+                  <span>ค่าควัน ADC</span>
+                  <input max="4095" min="0" onChange={(event) => setDraft({ ...draft, particle_adc: event.target.value })} step="1" type="number" value={draft.particle_adc} />
                 </label>
                 <label>
                   <span>สถานะเซนเซอร์</span>

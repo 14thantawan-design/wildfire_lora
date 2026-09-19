@@ -11,7 +11,7 @@ export interface NodeStatus {
   state: NodeState
   air_temp?: number | null
   humidity?: number | null
-  particle_ug_m3?: number | null
+  particle_adc?: number | null
   sensor_health?: string
   lat?: number
   lng?: number
@@ -48,7 +48,7 @@ export interface Reading {
   state: NodeState
   air_temp?: number | null
   humidity?: number | null
-  particle_ug_m3?: number | null
+  particle_adc?: number | null
   sensor_health?: string
   rssi?: number
   snr?: number
@@ -82,7 +82,7 @@ export interface Alert {
     state?: NodeState
     air_temp?: number | null
     humidity?: number | null
-    particle_ug_m3?: number | null
+    particle_adc?: number | null
     sensor_health?: string
     rssi?: number
     snr?: number

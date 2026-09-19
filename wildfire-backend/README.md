@@ -112,7 +112,7 @@ The Node list keeps known Nodes visible and marks each one online or offline fro
 curl -X POST http://localhost:4000/api/packets ^
   -H "Content-Type: application/json" ^
   -H "X-Gateway-Key: replace-with-your-gateway-key" ^
-  -d "{\"t\":\"s\",\"id\":\"NODE01\",\"q\":12,\"sid\":1234,\"ri\":300,\"st\":\"NORMAL\",\"at\":31.2,\"h\":55.4,\"pm\":20,\"sh\":\"OK\"}"
+  -d "{\"t\":\"s\",\"id\":\"NODE01\",\"q\":12,\"sid\":1234,\"ri\":300,\"st\":\"NORMAL\",\"at\":31.2,\"h\":55.4,\"adc\":180,\"sh\":\"OK\"}"
 ```
 
 GPS test:

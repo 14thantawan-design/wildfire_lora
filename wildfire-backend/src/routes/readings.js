@@ -60,7 +60,7 @@ function buildReadingUpdate(input) {
   const numericFields = {
     air_temp: [-80, 100],
     humidity: [0, 100],
-    particle_ug_m3: [0, 2000],
+    particle_adc: [0, 4095],
     rssi: [-200, 50],
     snr: [-50, 50]
   };
@@ -68,6 +68,9 @@ function buildReadingUpdate(input) {
   for (const [field, [minimum, maximum]] of Object.entries(numericFields)) {
     if (!Object.hasOwn(input, field)) continue;
     const value = editableNumber(input[field], field, minimum, maximum);
+    if (field === 'particle_adc' && value !== null && !Number.isInteger(value)) {
+      throw validationError('particle_adc must be an integer');
+    }
     set[field] = value;
   }
 
@@ -232,7 +235,7 @@ router.get('/:node_id', async (req, res, next) => {
             state: { $last: '$state' },
             air_temp: { $avg: '$air_temp' },
             humidity: { $avg: '$humidity' },
-            particle_ug_m3: { $avg: '$particle_ug_m3' },
+            particle_adc: { $avg: '$particle_adc' },
             sensor_health: { $last: '$sensor_health' },
             rssi: { $last: '$rssi' },
             snr: { $last: '$snr' }

@@ -11,7 +11,7 @@ const nodeSchema = new mongoose.Schema(
     },
     air_temp: { type: Number },
     humidity: { type: Number },
-    particle_ug_m3: { type: Number },
+    particle_adc: { type: Number, min: 0, max: 4095 },
     sensor_health: { type: String },
     lat: { type: Number },
     lng: { type: Number },

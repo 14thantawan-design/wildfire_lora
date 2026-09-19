@@ -172,8 +172,8 @@ function formatAlertSummary(alert: Alert) {
   const values = [
     typeof reading.air_temp === 'number' ? `${reading.air_temp.toFixed(1)}°C` : undefined,
     typeof reading.humidity === 'number' ? `${reading.humidity.toFixed(1)}%RH` : undefined,
-    typeof reading.particle_ug_m3 === 'number'
-      ? `${reading.particle_ug_m3.toFixed(1)} µg/m³`
+    typeof reading.particle_adc === 'number'
+      ? `${reading.particle_adc.toFixed(0)} ADC`
       : undefined,
   ].filter(Boolean)
 
@@ -231,7 +231,7 @@ function App() {
   const liveNodeIds = new Set(onlineNodes.map((node) => node.node_id))
   const gatewayConnected = !backendUnavailable && Boolean(health?.gateway.connected)
   const selectedLiveNode = gatewayConnected && selectedNode?.online ? selectedNode : undefined
-  const selectedParticle = selectedLiveNode?.particle_ug_m3
+  const selectedParticleAdc = selectedLiveNode?.particle_adc
   const selectedMetricMeta = selectedLiveNode?.last_seen
     ? `${selectedLiveNode.node_id} · ${timeAgo(selectedLiveNode.last_seen)}`
     : 'ยังไม่มีข้อมูลสดจากโหนดที่เลือก'
@@ -516,7 +516,7 @@ function App() {
             </article>
             <article>
               <span className="stat-icon amber"><Wind size={19} /></span>
-              <div><span>อนุภาคล่าสุด</span><strong><Value value={selectedParticle} suffix=" µg/m³" fractionDigits={1} /></strong></div>
+              <div><span>ค่าควันล่าสุด</span><strong><Value value={selectedParticleAdc} suffix=" ADC" fractionDigits={0} /></strong></div>
               <em>{selectedMetricMeta}</em>
             </article>
           </section>

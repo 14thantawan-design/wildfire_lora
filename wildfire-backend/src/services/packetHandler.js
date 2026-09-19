@@ -12,7 +12,7 @@ const SENSOR_STATES = new Set([
 ]);
 const SENSOR_HEALTH_VALUES = new Set(['OK', 'FAULT']);
 const SENSOR_PACKET_FIELDS = new Set([
-  't', 'id', 'q', 'sid', 'ri', 'st', 'at', 'h', 'pm', 'sh',
+  't', 'id', 'q', 'sid', 'ri', 'st', 'at', 'h', 'adc', 'sh',
   'rssi', 'RSSI', 'rs', 'snr', 'SNR'
 ]);
 
@@ -91,12 +91,12 @@ function validateSensorPacket(packet) {
   if (!Number.isInteger(packet.ri) || packet.ri < 1 || packet.ri > 86400) {
     return 'sensor packet has invalid report interval';
   }
-  const hasParticleField = packet.pm !== undefined && packet.pm !== null;
+  const hasParticleField = packet.adc !== undefined && packet.adc !== null;
   if (health !== 'FAULT' && !hasParticleField) {
-    return 'sensor packet has invalid particle value';
+    return 'sensor packet has invalid particle ADC';
   }
-  if (hasParticleField && (!isFiniteNumber(packet.pm) || packet.pm < 0 || packet.pm > 2000)) {
-    return 'sensor packet has invalid particle value';
+  if (hasParticleField && (!Number.isInteger(packet.adc) || packet.adc < 0 || packet.adc > 4095)) {
+    return 'sensor packet has invalid particle ADC';
   }
 
   const ranges = [
@@ -196,7 +196,7 @@ async function handleSensorPacket(packet, meta = {}) {
   const risk = riskFromPacket(packet);
   const airTemp = packetNumber(packet, 'at');
   const humidity = packetNumber(packet, 'h');
-  const particleUgM3 = packetNumber(packet, 'pm');
+  const particleAdc = packetNumber(packet, 'adc');
   const sensorHealth = packet.sh.trim().toUpperCase();
 
   const readingData = {
@@ -208,7 +208,7 @@ async function handleSensorPacket(packet, meta = {}) {
     ...risk,
     air_temp: airTemp,
     humidity,
-    particle_ug_m3: particleUgM3,
+    particle_adc: particleAdc,
     sensor_health: sensorHealth,
     rssi,
     snr
@@ -231,7 +231,7 @@ async function handleSensorPacket(packet, meta = {}) {
     ...risk,
     air_temp: airTemp,
     humidity,
-    particle_ug_m3: particleUgM3,
+    particle_adc: particleAdc,
     sensor_health: sensorHealth,
     last_seen: now,
     session_id: identity.session_id,

@@ -48,7 +48,7 @@ bool parseJsonPacket(const String &payload, ParsedPacket &out) {
   out.state = normalizeRiskState(String((const char *)(doc["st"] | "")));
   out.airTemp = doc["at"].isNull() ? NAN : doc["at"].as<float>();
   out.humidity = doc["h"].isNull() ? NAN : doc["h"].as<float>();
-  out.particleUgM3 = doc["pm"].isNull() ? NAN : doc["pm"].as<float>();
+  out.particleAdc = doc["adc"].isNull() ? -1 : doc["adc"].as<int>();
   out.sensorHealth = String((const char *)(doc["sh"] | ""));
 
   if (out.nodeId.length() == 0) {
@@ -98,7 +98,9 @@ void printReceivedPacket(const ParsedPacket &packet, int rssi, float snr) {
   Serial.print("Report Interval: "); Serial.print(packet.reportIntervalSec); Serial.println(" sec");
   printFloatOrNA("Air Temp: ", packet.airTemp);
   printFloatOrNA("Humidity: ", packet.humidity);
-  Serial.print("Particle Estimated ug/m3: "); Serial.println(packet.particleUgM3);
+  Serial.print("Particle ADC: ");
+  if (packet.particleAdc < 0) Serial.println("N/A");
+  else Serial.println(packet.particleAdc);
   Serial.print("Sensor Health: "); Serial.println(packet.sensorHealth);
   Serial.print("RSSI: "); Serial.println(rssi);
   Serial.print("SNR: "); Serial.println(snr);

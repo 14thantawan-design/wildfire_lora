@@ -95,7 +95,7 @@ function buildTelegramMessage(event, alert, reading, options = {}) {
   }
 
   const heading = event === 'escalated' ? 'แจ้งเตือนยกระดับ' : 'แจ้งเตือนจากระบบ Wildfire LoRa';
-  const particleText = formatValue(current.particle_ug_m3, ' µg/m³', 1);
+  const particleText = formatValue(current.particle_adc, ' ADC', 0);
 
   return [
     `${detail.icon} <b>${heading}: ${escapeHtml(detail.label)}</b>`,
@@ -105,7 +105,7 @@ function buildTelegramMessage(event, alert, reading, options = {}) {
     '',
     `<b>อุณหภูมิ:</b> ${formatValue(current.air_temp, '°C')}`,
     `<b>ความชื้น:</b> ${formatValue(current.humidity, '%')}`,
-    `<b>อนุภาคโดยประมาณ:</b> ${particleText}`,
+    `<b>ค่าควัน:</b> ${particleText}`,
     `<b>เวลา:</b> ${escapeHtml(formatTimestamp(timestamp, config.timezone))}`,
     '',
     `<a href="${dashboardUrl}">ดูตำแหน่งและข้อมูลเพิ่มเติม</a>`

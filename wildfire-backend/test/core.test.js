@@ -45,7 +45,7 @@ function validSensorPacket(overrides = {}) {
     st: 'NORMAL',
     at: 30,
     h: 60,
-    pm: 20,
+    adc: 200,
     sh: 'OK',
     ri: 300,
     ...overrides
@@ -53,7 +53,7 @@ function validSensorPacket(overrides = {}) {
 }
 
 test('backend preserves a node decision regardless of sensor values', () => {
-  for (const values of [{ pm: 0, at: 50, h: 20 }, { pm: 170, at: 30, h: 95 }]) {
+  for (const values of [{ adc: 0, at: 50, h: 20 }, { adc: 1200, at: 30, h: 95 }]) {
     assert.deepEqual(riskFromPacket(validSensorPacket({ ...values, st: 'WARNING' })), {
       state: 'WARNING'
     });
@@ -63,7 +63,7 @@ test('backend preserves a node decision regardless of sensor values', () => {
 test('sensor validation rejects incomplete or impossible packets', () => {
   assert.equal(validateSensorPacket(validSensorPacket()), null);
   assert.match(validateSensorPacket({ t: 's', id: 'NODE01' }), /sequence/);
-  assert.match(validateSensorPacket(validSensorPacket({ pm: 2001 })), /particle/);
+  assert.match(validateSensorPacket(validSensorPacket({ adc: 4096 })), /particle/);
   assert.match(validateSensorPacket(validSensorPacket({ obsolete: true })), /unsupported field/);
   assert.match(validateSensorPacket(validSensorPacket({ sh: 'OK', at: null })), /missing/);
 });
@@ -109,7 +109,7 @@ test('admin reading edits only accept measured fields in sensor ranges', () => {
     timestamp: '2026-08-25T08:30:00.000Z',
     air_temp: 34.5,
     humidity: 48,
-    particle_ug_m3: 104,
+    particle_adc: 104,
     sensor_health: 'ok',
     rssi: -76,
     snr: 7.5
@@ -117,7 +117,7 @@ test('admin reading edits only accept measured fields in sensor ranges', () => {
 
   assert.equal(update.$set.air_temp, 34.5);
   assert.equal(update.$set.sensor_health, 'OK');
-  assert.equal(update.$set.particle_ug_m3, 104);
+  assert.equal(update.$set.particle_adc, 104);
   assert.equal(update.$set.timestamp.toISOString(), '2026-08-25T08:30:00.000Z');
   assert.throws(() => buildReadingUpdate({ humidity: 101 }), /out of range/);
   assert.throws(() => buildReadingUpdate({ timestamp: null }), /timestamp is invalid/);
@@ -211,7 +211,7 @@ test('WATCH is an alert level so early warning reaches Telegram', () => {
     state: 'WATCH',
     air_temp: 36,
     humidity: 45,
-    particle_ug_m3: 20
+    particle_adc: 200
   }, { timezone: 'Asia/Bangkok' });
 
   assert.match(message, /WATCH \(เฝ้าระวัง\)/);
@@ -235,7 +235,7 @@ test('Telegram alert uses the reported state and measured values', () => {
     state: 'WARNING',
     air_temp: 39.4,
     humidity: 32,
-    particle_ug_m3: 170,
+    particle_adc: 1200,
     timestamp: '2026-08-21T07:35:00.000Z'
   }, {
     dashboardUrl: 'https://wildfire.example.test',
@@ -247,7 +247,7 @@ test('Telegram alert uses the reported state and measured values', () => {
   assert.doesNotMatch(message, /สาเหตุ/);
   assert.match(message, /39.4°C/);
   assert.match(message, /32%/);
-  assert.match(message, /170 µg\/m³/);
+  assert.match(message, /1,200 ADC/);
   assert.match(message, /https:\/\/wildfire\.example\.test/);
 });
 

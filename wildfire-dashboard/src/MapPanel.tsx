@@ -136,8 +136,8 @@ export function MapPanel({ focusRequest, nodes, selectedNodeId, onSelect }: MapP
                     <strong>{formatSensorValue(node.online ? node.humidity : undefined, '%')}</strong>
                   </div>
                   <div>
-                    <span>อนุภาคโดยประมาณ</span>
-                    <strong>{formatSensorValue(node.online ? node.particle_ug_m3 : undefined, ' µg/m³')}</strong>
+                    <span>ค่าควัน</span>
+                    <strong>{formatSensorValue(node.online ? node.particle_adc : undefined, ' ADC')}</strong>
                   </div>
                 </div>
               </Tooltip>

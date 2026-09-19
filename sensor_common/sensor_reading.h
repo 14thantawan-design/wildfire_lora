@@ -24,37 +24,27 @@ int median3(int a, int b, int c) {
   return c;
 }
 
-// readSharpOnce: อ่านแรงดัน Sharp หนึ่งครั้งเป็น mV ที่คาลิเบรตโดย ESP32 ตามจังหวะใน datasheet
+// readSharpOnce: อ่านค่า ADC ดิบของ Sharp หนึ่งครั้งตามจังหวะใน datasheet
 int readSharpOnce() {
   // จังหวะอ่าน GP2Y1014: เปิดแอลอีดี รอ 280 ไมโครวินาที อ่าน ADC รอ 40 ไมโครวินาที แล้วปิดแอลอีดี
   // วงจร Sharp ส่วนมากใช้ LOW เพื่อเปิดแอลอีดี และ HIGH เพื่อปิดแอลอีดี
   digitalWrite(SHARP_LED_PIN, LOW);
   delayMicroseconds(280);
-  int milliVolts = (int)analogReadMilliVolts(SHARP_ANALOG_PIN);
+  int adc = analogRead(SHARP_ANALOG_PIN);
   delayMicroseconds(40);
   digitalWrite(SHARP_LED_PIN, HIGH);
   delayMicroseconds(9680);
-  return milliVolts;
+  return adc;
 }
 
-// readParticleMedianMilliVolts: อ่าน Sharp สามครั้งแล้วคืนแรงดันค่ากลาง; ช่วยตัดค่ากระโดดหนึ่งครั้ง
-int readParticleMedianMilliVolts() {
+// readParticleMedianAdc: อ่าน Sharp สามครั้งแล้วคืน ADC ค่ากลาง; ช่วยตัดค่ากระโดดหนึ่งครั้ง
+int readParticleMedianAdc() {
   int a = readSharpOnce();
   delay(5);
   int b = readSharpOnce();
   delay(5);
   int c = readSharpOnce();
   return median3(a, b, c);
-}
-
-// particleUgM3FromMilliVolts: ชดเชยวงจรและแรงดันศูนย์ก่อนแปลงด้วย sensitivity ทั่วไปของผู้ผลิต
-// ค่านี้เป็นค่าประมาณอนุภาค ไม่ใช่ PM2.5 ที่ผ่านการสอบเทียบกับเครื่องอ้างอิง
-float particleUgM3FromMilliVolts(int adcMilliVolts) {
-  if (adcMilliVolts < 0) return NAN;
-  float sensorOutputMilliVolts = adcMilliVolts * SHARP_VOLTAGE_DIVIDER_GAIN;
-  float estimated = (sensorOutputMilliVolts - SHARP_ZERO_OUTPUT_MV) /
-                    SHARP_SENSITIVITY_MV_PER_UG_M3;
-  return estimated > 0.0f ? estimated : 0.0f;
 }
 
 // isShtReadingSane: รับ t (องศาเซลเซียส) และ h (%RH) แล้วคืน true เมื่อไม่ใช่ NaN และอยู่ในช่วงที่ตั้งไว้; เป็นการตรวจความสมเหตุสมผล ไม่ใช่การสอบเทียบ
@@ -90,7 +80,7 @@ void initSensors() {
 
   pinMode(SHARP_LED_PIN, OUTPUT);
   digitalWrite(SHARP_LED_PIN, HIGH);
-  // ใช้ ADC 12 บิตและ attenuation สูงสุดเพื่ออ่านแรงดัน Sharp แล้วให้ analogReadMilliVolts คาลิเบรตเป็น mV
+  // ใช้ ADC 12 บิต ค่าดิบจึงอยู่ในช่วง 0–4095
   analogReadResolution(12);
   analogSetPinAttenuation(SHARP_ANALOG_PIN, ADC_11db);
 
@@ -114,8 +104,7 @@ SensorData readSensors() {
   SensorData data;
   data.airTemp = NAN;
   data.humidity = NAN;
-  data.particleAdcMilliVolts = -1;
-  data.particleUgM3 = NAN;
+  data.particleAdc = -1;
   data.shtOk = false;
   data.sharpOk = false;
 
@@ -136,12 +125,10 @@ SensorData readSensors() {
     data.shtOk = true;
   }
 
-  int particleMilliVolts = readParticleMedianMilliVolts();
-  data.particleAdcMilliVolts = particleMilliVolts;
-  data.particleUgM3 = particleUgM3FromMilliVolts(particleMilliVolts);
-  // ตรวจช่วงแรงดันและผลแปลงเท่านั้น; การทดสอบว่าค่าตอบสนองต่อควันจริงยังต้องทำกับฮาร์ดแวร์
-  data.sharpOk = particleMilliVolts >= 0 && particleMilliVolts <= SHARP_ADC_MAX_MV &&
-                 !isnan(data.particleUgM3);
+  int particleAdc = readParticleMedianAdc();
+  data.particleAdc = particleAdc;
+  // ตรวจเพียงว่าค่าอยู่ในช่วง ADC 12 บิต; การทดสอบว่าตอบสนองต่อควันจริงยังต้องทำกับฮาร์ดแวร์
+  data.sharpOk = particleAdc >= 0 && particleAdc <= SHARP_ADC_MAX;
 
   return data;
 }

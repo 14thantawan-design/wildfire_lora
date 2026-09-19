@@ -18,7 +18,7 @@ struct ParsedPacket {
   String state;
   float airTemp;
   float humidity;
-  float particleUgM3;
+  int particleAdc;
   String sensorHealth;
 };
 

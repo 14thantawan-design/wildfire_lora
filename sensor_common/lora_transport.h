@@ -61,7 +61,8 @@ String buildJsonPacket(const SensorData &data, FireStatus status) {
   doc["st"] = statusToString(status);
   addFloatOrNull(doc, "at", data.airTemp);
   addFloatOrNull(doc, "h", data.humidity);
-  addFloatOrNull(doc, "pm", data.particleUgM3);
+  if (data.particleAdc < 0) doc["adc"] = nullptr;
+  else doc["adc"] = data.particleAdc;
   doc["sh"] = sensorHealthString(data);
 
   String payload;

@@ -40,14 +40,14 @@ FireStatus evaluateRawRisk(const SensorData &data) {
   if (hasSensorFault(data)) return SENSOR_FAULT;
 
   if (data.airTemp > WARNING_AIR_TEMP_GT_C ||
-      data.particleUgM3 > WARNING_PARTICLE_GT_UG_M3 ||
+      data.particleAdc > WARNING_PARTICLE_ADC_GT ||
       (data.airTemp >= HOT_DRY_MIN_AIR_TEMP_C &&
        data.humidity <= HOT_DRY_MAX_HUMIDITY_RH)) {
     return WARNING;
   }
 
   if (data.airTemp > NORMAL_MAX_AIR_TEMP_C ||
-      data.particleUgM3 > NORMAL_MAX_PARTICLE_UG_M3 ||
+      data.particleAdc > NORMAL_MAX_PARTICLE_ADC ||
       data.humidity < NORMAL_MIN_HUMIDITY_RH) {
     return WATCH;
   }

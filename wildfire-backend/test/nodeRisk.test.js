@@ -13,7 +13,7 @@ function packet(overrides = {}) {
   return {
     t: 's', id: 'NODE01', sid: 10, q: 1,
     st: 'NORMAL',
-    at: 30, h: 70, pm: 20, sh: 'OK', ri: 300,
+    at: 30, h: 70, adc: 200, sh: 'OK', ri: 300,
     ...overrides
   };
 }
@@ -36,7 +36,7 @@ test('sensor packet accepts a state without duplicated reason fields', () => {
   assert.match(validateSensorPacket(packet({ rb: 1 })), /unsupported field/);
   assert.match(validateSensorPacket(packet({ st: 'SENSOR_FAULT' })), /disagree/);
   assert.equal(validateSensorPacket(packet({
-    st: 'SENSOR_FAULT', sh: 'FAULT', at: null, h: null, pm: null
+    st: 'SENSOR_FAULT', sh: 'FAULT', at: null, h: null, adc: null
   })), null);
 
   assert.deepEqual(riskFromPacket(packet({ st: 'WARNING' })), {
@@ -108,7 +108,7 @@ test('ingestion, storage, live API, alerts and Telegram use firmware state end t
     return { modifiedCount: count };
   });
 
-  const warning = packet({ st: 'WARNING', pm: 170, at: 30, h: 30, ri: 20 });
+  const warning = packet({ st: 'WARNING', adc: 1200, at: 30, h: 30, ri: 20 });
   const first = await handleSensorPacket(warning);
   assert.equal(first.alert.action, 'created');
   assert.equal(readings[0].state, 'WARNING');
@@ -120,11 +120,11 @@ test('ingestion, storage, live API, alerts and Telegram use firmware state end t
   const message = buildTelegramMessage('created', active, active.last_reading);
   assert.match(message, /30°C/);
   assert.match(message, /30%/);
-  assert.match(message, /170 µg\/m³/);
+  assert.match(message, /1,200 ADC/);
   assert.doesNotMatch(message, /สาเหตุ/);
 
   // Backend trusts the firmware state and does not calculate thresholds again.
-  const normal = await handleSensorPacket(packet({ q: 2, st: 'NORMAL', at: 50, h: 20, pm: 360 }));
+  const normal = await handleSensorPacket(packet({ q: 2, st: 'NORMAL', at: 50, h: 20, adc: 1600 }));
   assert.equal(normal.alert.action, 'closed');
   assert.equal(closes, 1);
   assert.equal(snapshot.state, 'NORMAL');

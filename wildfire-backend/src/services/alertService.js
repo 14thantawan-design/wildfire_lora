@@ -52,7 +52,7 @@ function buildLastReading(reading) {
     state: reading.state,
     air_temp: reading.air_temp,
     humidity: reading.humidity,
-    particle_ug_m3: reading.particle_ug_m3,
+    particle_adc: reading.particle_adc,
     sensor_health: reading.sensor_health,
     rssi: reading.rssi,
     snr: reading.snr

@@ -17,12 +17,11 @@ enum FireStatus {
   WARNING
 };
 
-// struct รวมค่าที่อ่านหนึ่งรอบ: ค่าอนุภาคเป็นค่าประมาณ µg/m³ ส่วนแรงดัน ADC เก็บไว้ตรวจใน Serial เท่านั้น
+// struct รวมค่าที่อ่านหนึ่งรอบ: ค่าควันใช้ ADC ดิบ 12 บิตช่วง 0–4095
 struct SensorData {
   float airTemp;
   float humidity;
-  int particleAdcMilliVolts;
-  float particleUgM3;
+  int particleAdc;
   bool shtOk;
   bool sharpOk;
 };

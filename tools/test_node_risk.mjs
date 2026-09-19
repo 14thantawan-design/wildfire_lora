@@ -23,8 +23,7 @@ const sharedConfig = readFileSync(resolve(root, 'sensor_common', 'sensor_config.
 
 const names = [
   'median3',
-  'readParticleMedianMilliVolts',
-  'particleUgM3FromMilliVolts',
+  'readParticleMedianAdc',
   'hasSensorFault',
   'statusSeverity',
   'evaluateRawRisk',
@@ -60,8 +59,8 @@ for (const sketch of ['sensor_node', 'sensor_node_2']) {
   assert.match(config, /#define STATUS_RELEASE_CYCLES 3/)
   assert.doesNotMatch(source, /doc\["rb"\]/,
     'Packets must not duplicate the decision as reason bits')
-  assert.match(source, /addFloatOrNull\(doc, "pm", data\.particleUgM3\)/,
-    'Packets must include estimated particle concentration')
+  assert.match(source, /doc\["adc"\] = data\.particleAdc/,
+    'Packets must include the raw particle ADC value')
   assert.doesNotMatch(source, /doc\["(?:c|pd|sr|ar|hr|bc|bt)"\]/,
     'Current packets must not include score or baseline fields')
 
@@ -95,16 +94,15 @@ void reset() {
 }
 int medianTest() {
   reads = 0;
-  int value = readParticleMedianMilliVolts();
+  int value = readParticleMedianAdc();
   return value * 10 + reads;
 }
-float conversionTest(int milliVolts) { return particleUgM3FromMilliVolts(milliVolts); }
-int run(float temp, float humidity, float particle, int healthy) {
-  SensorData data = {temp, humidity, 600, particle, healthy != 0, healthy != 0};
+int run(float temp, float humidity, int particle, int healthy) {
+  SensorData data = {temp, humidity, particle, healthy != 0, healthy != 0};
   return (int)evaluateFireStatus(data);
 }
-int raw(float temp, float humidity, float particle, int healthy) {
-  SensorData data = {temp, humidity, 600, particle, healthy != 0, healthy != 0};
+int raw(float temp, float humidity, int particle, int healthy) {
+  SensorData data = {temp, humidity, particle, healthy != 0, healthy != 0};
   return (int)evaluateRawRisk(data);
 }
 }`
@@ -123,19 +121,17 @@ int raw(float temp, float humidity, float particle, int healthy) {
   const raw = (t = 30, h = 70, p = 20, healthy = 1) => api.raw(t, h, p, healthy)
   const run = (t = 30, h = 70, p = 20, healthy = 1) => api.run(t, h, p, healthy)
 
-  assert.equal(api.medianTest(), 1203, 'Read exactly three samples and reject the 4000 mV spike')
-  assert.equal(api.conversionTest(1100), 100,
-    'Convert 1100 mV using 600 mV clean-air voltage and 5 mV/(ug/m3)')
+  assert.equal(api.medianTest(), 1203, 'Read exactly three samples and reject the 4000 ADC spike')
 
   // Enum: SENSOR_FAULT=0, NORMAL=1, WATCH=2, WARNING=3.
-  assert.equal(raw(35, 50, 50), 1, 'All inclusive NORMAL boundaries stay NORMAL')
-  assert.equal(raw(35.01, 50, 50), 2, 'Temperature above 35 enters WATCH')
-  assert.equal(raw(35, 49.99, 50), 2, 'Humidity below 50 enters WATCH')
-  assert.equal(raw(35, 50, 50.01), 2, 'Particle above 50 enters WATCH')
-  assert.equal(raw(45, 50, 50), 2, 'Exactly 45 is WATCH, not WARNING')
-  assert.equal(raw(45.01, 50, 50), 3, 'Temperature above 45 enters WARNING')
-  assert.equal(raw(30, 50, 150), 2, 'Exactly 150 is WATCH, not WARNING')
-  assert.equal(raw(30, 50, 150.01), 3, 'Particle above 150 enters WARNING')
+  assert.equal(raw(35, 50, 300), 1, 'All inclusive NORMAL boundaries stay NORMAL')
+  assert.equal(raw(35.01, 50, 300), 2, 'Temperature above 35 enters WATCH')
+  assert.equal(raw(35, 49.99, 300), 2, 'Humidity below 50 enters WATCH')
+  assert.equal(raw(35, 50, 301), 2, 'Particle ADC above 300 enters WATCH')
+  assert.equal(raw(45, 50, 300), 2, 'Exactly 45 is WATCH, not WARNING')
+  assert.equal(raw(45.01, 50, 300), 3, 'Temperature above 45 enters WARNING')
+  assert.equal(raw(30, 50, 1100), 2, 'Exactly 1100 ADC is WATCH, not WARNING')
+  assert.equal(raw(30, 50, 1101), 3, 'Particle ADC above 1100 enters WARNING')
   assert.equal(raw(30, 30, 20), 3, '30C together with 30%RH enters WARNING')
   assert.equal(raw(29.99, 30, 20), 2, 'Humidity alone stays WATCH')
   assert.equal(raw(30, 70, 20, 0), 0, 'A failed sensor reports SENSOR_FAULT separately')
@@ -153,5 +149,5 @@ int raw(float temp, float humidity, float particle, int healthy) {
   assert.equal(run(36, 60, 20), 2, 'Escalation to WATCH is immediate')
   assert.equal(run(46, 60, 20), 3, 'WATCH escalates to WARNING immediately')
 
-  console.log(`${sketch}: C++ thresholds, boundaries, latch, median and conversion passed`)
+  console.log(`${sketch}: C++ ADC thresholds, boundaries, latch and median passed`)
 }
