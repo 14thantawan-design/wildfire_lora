@@ -1,3 +1,4 @@
+/** ชนิดข้อมูลร่วมระหว่าง Backend API และ Dashboard */
 export type NodeState =
   | 'NORMAL'
   | 'WATCH'

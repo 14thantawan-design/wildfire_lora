@@ -1,0 +1,250 @@
+/* รายการแจ้งเตือน กราฟย้อนหลัง และป้ายสถานะ */
+
+.alert-list {
+  max-height: 347px;
+  overflow-y: auto;
+}
+
+.alert-row {
+  display: grid;
+  width: 100%;
+  min-height: 69px;
+  border-bottom: 1px solid #eeeeea;
+  background: #fff;
+  grid-template-columns: minmax(0, 1fr) 38px;
+}
+
+.alert-row.resolved {
+  background: #f8f8f5;
+  opacity: .72;
+}
+
+.alert-main {
+  display: grid;
+  width: 100%;
+  padding: 11px 0 11px 14px;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 10px;
+}
+
+.alert-level {
+  display: grid;
+  width: 31px;
+  height: 31px;
+  place-items: center;
+  border-radius: 9px;
+}
+
+.alert-main > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.alert-main strong {
+  color: #354139;
+  font-size: 10px;
+}
+
+.alert-main strong .resolved-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 5px;
+  overflow: visible;
+  color: #6f7771;
+  font-size: 7px;
+  font-weight: 600;
+  border-radius: 8px;
+  background: #e7e9e6;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.alert-main span,
+.alert-main small {
+  overflow: hidden;
+  color: #8b918c;
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.alert-main .alert-summary {
+  display: -webkit-box;
+  margin-top: 2px;
+  overflow: hidden;
+  color: #626d66;
+  font-size: 9px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.alert-main small {
+  margin-top: 3px;
+  color: #a1a5a1;
+}
+
+.alert-delete {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  align-self: center;
+  justify-self: center;
+  place-items: center;
+  color: #b36a61;
+  border: 1px solid #f0d6d0;
+  border-radius: 8px;
+  background: #fff8f6;
+  cursor: pointer;
+}
+
+.alert-delete:hover {
+  color: #9f3f35;
+  border-color: #eeb9ae;
+  background: #fff0ec;
+}
+
+.alert-delete:disabled {
+  opacity: .45;
+  cursor: wait;
+}
+
+.empty-alerts {
+  display: flex;
+  height: 260px;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  color: #6c9a7b;
+}
+
+.empty-alerts strong {
+  margin-top: 7px;
+  color: #526159;
+  font-size: 11px;
+}
+
+.empty-alerts span {
+  margin-top: 3px;
+  color: #9ba09c;
+  font-size: 8px;
+}
+
+.state-normal { color: #347755; background: #e4f2e8; }
+.state-watch { color: #ad6c13; background: #fff0d7; }
+.state-warning { color: #c55d31; background: #fbe5d9; }
+.state-sensor_fault { color: #7c4db4; background: #eee3fa; }
+.state-unknown { color: #68716c; background: #e9ece9; }
+.state-offline { color: #6b736f; background: #e8ebe9; }
+
+.trend-panel {
+  margin-bottom: 22px;
+}
+
+.trend-panel .panel-head label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #818984;
+  font-size: 8px;
+}
+
+.trend-panel select {
+  min-width: 110px;
+  padding: 7px 25px 7px 9px;
+  color: #38483f;
+  font-size: 9px;
+  border: 1px solid #dcded8;
+  border-radius: 8px;
+  outline: none;
+  background: #fafaf7;
+}
+
+.trend {
+  position: relative;
+  padding: 13px 17px 10px;
+}
+
+.trend-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.trend-tabs,
+.range-tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.range-tabs {
+  padding: 3px;
+  border: 1px solid #e1e3dc;
+  border-radius: 9px;
+  background: #fafaf7;
+}
+
+.trend-tabs button,
+.range-tabs button {
+  padding: 6px 10px;
+  color: #808883;
+  font-size: 9px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.range-tabs button {
+  min-width: 46px;
+  padding-inline: 8px;
+}
+
+.trend-tabs button.active,
+.range-tabs button.active {
+  color: #365f49;
+  border-color: #d8e5dc;
+  background: #edf5ef;
+}
+
+.chart-wrap {
+  position: relative;
+  width: 100%;
+  height: 215px;
+}
+
+.chart-empty {
+  display: grid;
+  height: 100%;
+  place-items: center;
+  align-content: center;
+  gap: 5px;
+  color: #7d8781;
+  text-align: center;
+}
+
+.chart-empty strong {
+  color: #3f5046;
+  font-size: 12px;
+}
+
+.chart-empty span {
+  max-width: 280px;
+  font-size: 9px;
+}
+
+.status-tag {
+  padding: 4px 7px;
+  font-size: 8px;
+  font-weight: 600;
+  border-radius: 20px;
+}
+

@@ -1,8 +1,9 @@
+/** แผนที่ Leaflet สำหรับตำแหน่งโหนดออนไลน์ */
 import { useEffect, useMemo, useRef } from 'react'
 import { Circle, MapContainer, TileLayer, Tooltip, useMap } from 'react-leaflet'
 import type { LatLngBoundsExpression } from 'leaflet'
-import type { NodeStatus } from './types'
-import { stateColors, stateLabels } from './nodeStates'
+import type { NodeStatus } from '../types'
+import { stateColors, stateLabels } from '../nodeStates'
 
 interface MapPanelProps {
   focusRequest?: { nodeId: string; requestId: number }
@@ -11,12 +12,14 @@ interface MapPanelProps {
   onSelect: (nodeId: string) => void
 }
 
+/** จัดรูปแบบค่าเซนเซอร์ที่แสดงใน popup ของ marker */
 function formatSensorValue(value?: number | null, suffix = '') {
   if (value === undefined || value === null) return '—'
   const displayValue = Number.isInteger(value) ? value : value.toFixed(1)
   return `${displayValue}${suffix}`
 }
 
+/** ตรวจว่าโหนดมีพิกัดที่วาง marker ได้ */
 function hasValidCoordinates(node: NodeStatus) {
   return typeof node.lat === 'number' && Number.isFinite(node.lat) &&
     typeof node.lng === 'number' && Number.isFinite(node.lng) &&
@@ -25,6 +28,7 @@ function hasValidCoordinates(node: NodeStatus) {
     (Math.abs(node.lat) >= 0.000001 || Math.abs(node.lng) >= 0.000001)
 }
 
+/** ปรับขอบเขตแผนที่ให้เห็น marker ของทุกโหนด */
 function FitNodes({ nodes }: { nodes: NodeStatus[] }) {
   const map = useMap()
   const lastFittedBoundsKey = useRef('')
@@ -50,6 +54,7 @@ function FitNodes({ nodes }: { nodes: NodeStatus[] }) {
   return null
 }
 
+/** เลื่อนและซูมแผนที่ไปยังโหนดเมื่อผู้ใช้กดดูตำแหน่ง */
 function FocusNode({
   latitude,
   longitude,
@@ -72,6 +77,7 @@ function FocusNode({
   return null
 }
 
+/** วาดแผนที่ marker popup และคำอธิบายสีของสถานะ */
 export function MapPanel({ focusRequest, nodes, selectedNodeId, onSelect }: MapPanelProps) {
   const locatedNodes = nodes.filter(hasValidCoordinates)
   const focusedNode = locatedNodes.find((node) => node.node_id === focusRequest?.nodeId)

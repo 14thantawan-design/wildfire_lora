@@ -1,7 +1,9 @@
+// Collection alerts: เก็บช่วงเหตุการณ์ WATCH, WARNING และ SENSOR_FAULT
 const mongoose = require('mongoose');
 
 const alertSchema = new mongoose.Schema(
   {
+    // ระดับ เหตุการณ์ และ Reading ล่าสุดที่ทำให้ Alert เปลี่ยน
     node_id: { type: String, required: true, trim: true },
     level: {
       type: String,
@@ -19,6 +21,7 @@ const alertSchema = new mongoose.Schema(
     },
     message: { type: String },
     last_reading: { type: mongoose.Schema.Types.Mixed },
+    // สถานะการส่ง Telegram เพื่อไม่แจ้งระดับเดิมซ้ำ
     telegram_notified_level: {
       type: String,
       enum: ['WATCH', 'WARNING', 'SENSOR_FAULT']
@@ -34,6 +37,7 @@ const alertSchema = new mongoose.Schema(
   }
 );
 
+// หนึ่งโหนดมี Alert ที่ active ได้ครั้งละหนึ่งเอกสาร
 alertSchema.index(
   { node_id: 1 },
   { unique: true, partialFilterExpression: { active: true } }

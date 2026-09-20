@@ -1,7 +1,9 @@
+// Collection commands: คิวคำสั่ง GPS ที่รอ Gateway นำไปส่งให้โหนด
 const mongoose = require('mongoose');
 
 const commandSchema = new mongoose.Schema(
   {
+    // ตัวตน คำสั่ง และสถานะการส่ง
     command_id: { type: String, required: true, unique: true, index: true },
     node_id: { type: String, required: true, index: true, trim: true },
     command: {
@@ -16,6 +18,7 @@ const commandSchema = new mongoose.Schema(
       default: 'pending',
       index: true
     },
+    // เวลา ผลลัพธ์ และอายุของคำสั่ง
     sent_at: { type: Date },
     acknowledged_at: { type: Date },
     completed_at: { type: Date },
@@ -30,6 +33,7 @@ const commandSchema = new mongoose.Schema(
   }
 );
 
+// ช่วยค้นหาคำสั่งค้างส่ง และให้ MongoDB ลบคำสั่งเมื่อหมดอายุ
 commandSchema.index({ status: 1, expires_at: 1, created_at: 1 });
 commandSchema.index({ expires_at: 1 }, { expireAfterSeconds: 0 });
 

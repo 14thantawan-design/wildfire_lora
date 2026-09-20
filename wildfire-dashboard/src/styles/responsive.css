@@ -1,0 +1,257 @@
+/* การปรับหน้าจอสำหรับแท็บเล็ตและโทรศัพท์ */
+
+@media (max-width: 1000px) {
+  .stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-side-column {
+    height: auto;
+  }
+
+  .alert-list {
+    display: grid;
+    max-height: none;
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 760px) {
+  .app-shell > main {
+    width: 100%;
+  }
+
+  .topbar {
+    display: grid;
+    height: auto;
+    min-height: 0;
+    padding: 9px 16px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px 12px;
+  }
+
+  .brand {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .brand-mark {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px 10px 10px 4px;
+  }
+
+  .brand strong {
+    font-size: 12px;
+  }
+
+  .brand small {
+    font-size: 7px;
+    letter-spacing: 1px;
+  }
+
+  .gateway-card {
+    min-height: 38px;
+    margin-left: 0;
+    padding: 4px 8px;
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-self: start;
+  }
+
+  .gateway-icon {
+    width: 28px;
+    height: 28px;
+  }
+
+  .topbar-actions {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .admin-data-link span {
+    display: none;
+  }
+
+  .admin-data-link {
+    width: 34px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .content {
+    padding: 24px 16px 20px;
+  }
+
+  .panel {
+    scroll-margin-top: 112px;
+  }
+
+  .date-chip {
+    display: none;
+  }
+
+  .page-heading h1 {
+    font-size: 28px;
+  }
+
+  .admin-data-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 13px;
+  }
+
+  .admin-record-count {
+    width: 100%;
+  }
+
+  .admin-table-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .admin-table-filters {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  }
+
+  .admin-table-filters select,
+  .admin-table-filters label:nth-child(2) select {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .admin-delete-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .bulk-delete-button,
+  .node-delete-all-button {
+    width: 100%;
+  }
+
+  .safety-banner {
+    align-items: flex-start;
+  }
+
+  .safety-detail {
+    display: none;
+  }
+
+  .stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 9px;
+  }
+
+  .stat-grid article {
+    min-height: 102px;
+    padding: 12px;
+    grid-template-columns: 34px minmax(0, 1fr);
+  }
+
+  .stat-icon {
+    width: 34px;
+    height: 34px;
+  }
+
+  .map-shell {
+    height: 320px;
+  }
+
+  .map-panel .panel-head {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .panel-head > .map-head-actions {
+    width: 100%;
+    align-items: center;
+    flex-direction: row;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .alert-list {
+    display: block;
+  }
+
+  .trend-panel .panel-head label span {
+    display: none;
+  }
+
+  .admin-table-pagination {
+    align-items: flex-start;
+  }
+}
+
+@media (max-width: 440px) {
+  .stat-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .stat-grid article {
+    min-height: 84px;
+  }
+
+  .panel-head {
+    padding-inline: 13px;
+  }
+
+  .map-panel .panel-head {
+    flex-direction: column;
+  }
+
+  .panel-head > .map-head-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .gps-state {
+    max-width: none;
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .map-node-picker {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .map-node-picker > span {
+    display: none;
+  }
+
+  .panel-head > .map-head-actions > .location-action-buttons {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .location-action-buttons button {
+    width: 34px;
+    min-width: 34px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .location-action-buttons button > span {
+    display: none;
+  }
+
+  .coordinate-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .reading-editor-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .reading-editor-grid .wide-field {
+    grid-column: auto;
+  }
+}

@@ -1,3 +1,4 @@
+// จัดการวงจรชีวิต Alert ตั้งแต่เริ่มเหตุการณ์ ยกระดับ จนกลับสู่ปกติ
 const Alert = require('../models/Alert');
 const { notifyTelegram } = require('./telegramService');
 const { normalizeNodeRisk } = require('./nodeRisk');
@@ -10,18 +11,22 @@ const SEVERITY = {
   WARNING: 3
 };
 
+// ตรวจว่าสถานะนี้ต้องเปิดหรืออัปเดต Alert หรือไม่
 function isAlertLevel(state) {
   return ALERT_LEVELS.includes(state);
 }
 
+// คืนลำดับความรุนแรงเพื่อใช้เปรียบเทียบระดับ Alert
 function severityOf(level) {
   return SEVERITY[level] || 0;
 }
 
+// แจ้ง Telegram เฉพาะเมื่อระดับใหม่สูงกว่าระดับที่เคยแจ้งไปแล้ว
 function shouldNotifyLevel(level, notifiedLevel) {
   return severityOf(level) > severityOf(notifiedLevel);
 }
 
+// บันทึกผลส่ง Telegram ลง Alert เพื่อป้องกันการส่งระดับเดิมซ้ำ
 async function saveTelegramResult(alert, level, notification, now) {
   if (!alert || !notification) return;
 
@@ -38,10 +43,12 @@ async function saveTelegramResult(alert, level, notification, now) {
   }
 }
 
+// สร้างข้อความสั้นที่เก็บอยู่ใน Alert document
 function buildMessage(nodeId, level) {
   return `${nodeId} reported ${level}`;
 }
 
+// คัดลอกเฉพาะค่าที่จำเป็นจาก Reading ไปเก็บเป็น snapshot ใน Alert
 function buildLastReading(reading) {
   if (!reading) return undefined;
 
@@ -59,6 +66,7 @@ function buildLastReading(reading) {
   };
 }
 
+// เปิด อัปเดต หรือปิด Alert ตามสถานะของ Reading ล่าสุด
 async function processAlertForReading(reading) {
   if (!reading || !reading.node_id) {
     return { action: 'ignored' };

@@ -1,3 +1,4 @@
+/* CSS พื้นฐานทั้งเว็บไซต์: โหลด Leaflet กำหนดฟอนต์ สีพื้นหลัง และค่าเริ่มต้นของ element */
 @import 'leaflet/dist/leaflet.css';
 
 :root {

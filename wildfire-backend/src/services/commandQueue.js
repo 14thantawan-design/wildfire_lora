@@ -1,12 +1,15 @@
+// จัดคิวและติดตามสถานะคำสั่ง GPS ที่ Backend รอส่งผ่าน Gateway
 const crypto = require('crypto');
 const Command = require('../models/Command');
 
 const COMMAND_TTL_MS = 24 * 60 * 60 * 1000;
 
+// สร้างรหัสคำสั่งที่ไม่ซ้ำจากเวลาและข้อมูลสุ่ม
 function createCommandId() {
   return `cmd_${Date.now().toString(36)}_${crypto.randomBytes(4).toString('hex')}`;
 }
 
+// เลือกเฉพาะ field ที่ Gateway และ API ต้องใช้จาก Command document
 function serializeCommand(command) {
   const value = command?.toObject ? command.toObject() : command;
   if (!value) return null;
@@ -24,6 +27,7 @@ function serializeCommand(command) {
   };
 }
 
+// เพิ่มคำสั่งใหม่ หรือคืนคำสั่งเดิมเมื่อมีคำสั่งชนิดเดียวกันรออยู่แล้ว
 async function enqueueCommand(nodeId, commandName) {
   const now = new Date();
   const existing = await Command.findOne({
@@ -48,12 +52,14 @@ async function enqueueCommand(nodeId, commandName) {
   return { command: serialized, duplicate: false };
 }
 
+// คืนชื่อคำสั่ง GPS ที่ให้ผลตรงข้ามกับคำสั่งใหม่
 function oppositeGpsCommand(commandName) {
   if (commandName === 'gps_manual') return 'gps_reacquire';
   if (commandName === 'gps_reacquire') return 'gps_manual';
   return null;
 }
 
+// ยกเลิกคำสั่ง GPS เดิมที่ขัดแย้ง แล้วเก็บคำสั่งล่าสุดไว้เพียงชนิดเดียว
 async function enqueueLatestGpsCommand(nodeId, commandName) {
   const supersededCommand = oppositeGpsCommand(commandName);
   if (!supersededCommand) {
@@ -81,6 +87,7 @@ async function enqueueLatestGpsCommand(nodeId, commandName) {
   return enqueueCommand(nodeId, commandName);
 }
 
+// คืนคำสั่งที่ยังไม่หมดอายุและยังรอ Gateway ดำเนินการ
 async function listPendingCommands() {
   const commands = await Command.find({
     command: { $in: ['gps_reacquire', 'gps_manual'] },
@@ -91,6 +98,7 @@ async function listPendingCommands() {
   return commands.map(serializeCommand);
 }
 
+// เปลี่ยนสถานะเป็น sent และนับจำนวนครั้งที่ Gateway พยายามส่ง
 async function markCommandSent(commandId) {
   const command = await Command.findOneAndUpdate(
     {
@@ -108,6 +116,7 @@ async function markCommandSent(commandId) {
   return serializeCommand(command);
 }
 
+// ปิดคำสั่งด้วยผล acknowledged หรือ rejected จากโหนด
 async function completeCommand(commandId, accepted = true, reason = '') {
   const status = accepted ? 'acknowledged' : 'rejected';
   const command = await Command.findOneAndUpdate(

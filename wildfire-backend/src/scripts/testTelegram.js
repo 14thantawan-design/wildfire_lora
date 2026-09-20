@@ -1,3 +1,4 @@
+// สคริปต์ทดสอบส่งข้อความ Telegram จากค่าที่กำหนดใน .env
 require('dotenv').config();
 
 const {
@@ -5,6 +6,7 @@ const {
   sendTelegramMessage
 } = require('../services/telegramService');
 
+// ตรวจการตั้งค่า แล้วส่งข้อความทดสอบหนึ่งครั้งพร้อมรายงานผลใน Terminal
 async function main() {
   if (!isTelegramConfigured()) {
     console.error('Telegram is not configured. Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in .env.');

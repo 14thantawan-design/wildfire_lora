@@ -1,3 +1,4 @@
+/** Hook กลางสำหรับโหลดข้อมูล Dashboard และส่งคำสั่งที่ผู้ใช้กดกลับไปยัง Backend */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { getTimeRange, type TimeRangeKey } from './timeRanges'
 import { selectLiveOverview } from './liveOverview'
@@ -12,6 +13,7 @@ import type {
 
 const API_BASE = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '')
 
+/** เรียก GET API และคืน JSON ตามชนิดข้อมูลที่ผู้เรียกระบุ */
 async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
     headers: { Accept: 'application/json' },
@@ -25,6 +27,7 @@ async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
   return response.json() as Promise<T>
 }
 
+/** เรียก DELETE API สำหรับลบ Alert */
 async function deleteJson(path: string): Promise<void> {
   const response = await fetch(`${API_BASE}${path}`, {
     headers: { Accept: 'application/json' },
@@ -36,6 +39,7 @@ async function deleteJson(path: string): Promise<void> {
   }
 }
 
+/** เรียก POST API สำหรับคำสั่ง GPS และพิกัดที่กรอกเอง */
 async function postJson<T>(path: string, body?: unknown): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
     headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
@@ -53,6 +57,7 @@ async function postJson<T>(path: string, body?: unknown): Promise<T> {
   return response.json() as Promise<T>
 }
 
+/** จัดการข้อมูลสด การรีเฟรชทุก 5 วินาที และ action ทั้งหมดของหน้าภาพรวม */
 export function useDashboard(selectedNodeId: string, timeRange: TimeRangeKey) {
   const [nodes, setNodes] = useState<NodeStatus[]>([])
   const [alerts, setAlerts] = useState<Alert[]>([])
@@ -62,6 +67,7 @@ export function useDashboard(selectedNodeId: string, timeRange: TimeRangeKey) {
   const activeRequestRef = useRef<AbortController | undefined>(undefined)
   const requestIdRef = useRef(0)
 
+  /** โหลด Node, Alert, Health และ Reading ของโหนดที่เลือกพร้อมกัน */
   const load = useCallback(async () => {
     const requestId = ++requestIdRef.current
     activeRequestRef.current?.abort()
@@ -78,8 +84,8 @@ export function useDashboard(selectedNodeId: string, timeRange: TimeRangeKey) {
         getJson<Alert[]>('/alerts/active', controller.signal),
         getJson<ApiHealth>('/health', controller.signal),
       ])
-      // History remains available through the readings API and Admin page.
-      // Only currently online nodes participate in the live overview.
+      // ประวัติย้อนหลังยังอ่านได้จาก Readings API และหน้า Admin
+      // ส่วนภาพรวมข้อมูลสดใช้เฉพาะโหนดที่ออนไลน์อยู่ในขณะนี้
       const { liveNodes, effectiveNodeId } = selectLiveOverview(nodeData, selectedNodeId)
       const bucketQuery = selectedRange.bucketMs ? `&bucket_ms=${selectedRange.bucketMs}` : ''
       const readingData = effectiveNodeId

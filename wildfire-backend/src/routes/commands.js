@@ -1,3 +1,4 @@
+// API ระหว่าง Gateway กับคิวคำสั่ง GPS ใน Backend
 const express = require('express');
 const {
   completeCommand,
@@ -9,8 +10,10 @@ const { markGatewayPacket } = require('../services/gatewayStatus');
 
 const router = express.Router();
 
+// ทุก endpoint ในไฟล์นี้ต้องยืนยันตัวตนด้วย Gateway API key
 router.use(requireGatewayKey);
 
+// GET /api/commands/pending คืนคำสั่งที่ยังรอ Gateway นำไปส่งให้โหนด
 router.get('/pending', async (req, res, next) => {
   try {
     markGatewayPacket('http');
@@ -20,6 +23,7 @@ router.get('/pending', async (req, res, next) => {
   }
 });
 
+// POST /api/commands/:command_id/sent บันทึกว่า Gateway ส่งคำสั่งแล้ว
 router.post('/:command_id/sent', async (req, res, next) => {
   try {
     markGatewayPacket('http');
@@ -30,6 +34,7 @@ router.post('/:command_id/sent', async (req, res, next) => {
   }
 });
 
+// POST /api/commands/:command_id/ack บันทึกผลตอบรับจากโหนด
 router.post('/:command_id/ack', async (req, res, next) => {
   try {
     markGatewayPacket('http');

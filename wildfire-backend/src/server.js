@@ -1,3 +1,4 @@
+// จุดเริ่มต้นของ Backend: โหลดค่าตั้งต้น ประกอบ Express routes และเปิด HTTP server
 require('dotenv').config();
 
 const fs = require('fs');
@@ -22,9 +23,11 @@ const dashboardAvailable = fs.existsSync(dashboardIndex);
 const port = Number(process.env.PORT || 4000);
 let httpServer = null;
 
+// เปิด CORS และแปลง request body รูปแบบ JSON โดยจำกัดขนาดข้อมูล
 app.use(cors(corsOptions()));
 app.use(express.json({ limit: '256kb' }));
 
+// GET /api/health สรุปสถานะ Backend, MongoDB, Gateway และ Telegram
 app.get('/api/health', (req, res) => {
   const mongoReady = mongoose.connection.readyState === 1;
   res.status(mongoReady ? 200 : 503).json({
@@ -39,11 +42,13 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// เชื่อมกลุ่ม URL หลักเข้ากับ Router ที่รับผิดชอบแต่ละข้อมูล
 app.use('/api/nodes', nodesRouter);
 app.use('/api/readings', readingsRouter);
 app.use('/api/alerts', alertsRouter);
 app.use('/api/commands', commandsRouter);
 
+// POST /api/packets รับแพ็กเก็ตจาก Gateway แล้วส่งไปยัง handler ตามชนิดข้อมูล
 app.post('/api/packets', requireGatewayKey, async (req, res, next) => {
   try {
     const result = await handlePacket(req.body);
@@ -58,10 +63,12 @@ app.post('/api/packets', requireGatewayKey, async (req, res, next) => {
   }
 });
 
+// ตอบ 404 สำหรับ URL ใต้ /api ที่ไม่มีอยู่
 app.use('/api', (req, res) => {
   res.status(404).json({ error: 'not found' });
 });
 
+// ให้ Express เสิร์ฟไฟล์ Dashboard ที่ build แล้วเมื่อพบโฟลเดอร์ dist
 if (dashboardAvailable) {
   app.use(express.static(dashboardDirectory, {
     dotfiles: 'ignore',
@@ -71,10 +78,12 @@ if (dashboardAvailable) {
   app.get('*', (req, res) => res.sendFile(dashboardIndex));
 }
 
+// แจ้งให้รู้ว่าเครื่องนี้ยังไม่มี Dashboard build สำหรับ URL ที่เหลือ
 app.use((req, res) => {
   res.status(404).json({ error: 'dashboard build not found' });
 });
 
+// Error middleware กลาง แปลงข้อผิดพลาดเป็น JSON โดยไม่เปิดเผยรายละเอียดภายใน
 app.use((error, req, res, next) => {
   console.error(`api error: ${error.message}`);
   res.status(error.status || 500).json({
@@ -82,6 +91,7 @@ app.use((error, req, res, next) => {
   });
 });
 
+// เชื่อม MongoDB ให้สำเร็จก่อนเปิดรับ HTTP request
 async function start() {
   try {
     await connectDB();
@@ -97,6 +107,7 @@ async function start() {
   }
 }
 
+// ปิด server และฐานข้อมูลอย่างเป็นระเบียบเมื่อ container ถูกหยุด
 function shutdown(signal) {
   console.log(`${signal} received, shutting down`);
   if (httpServer) httpServer.close();

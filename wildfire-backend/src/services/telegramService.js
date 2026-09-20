@@ -1,3 +1,4 @@
+// สร้างข้อความและส่งการแจ้งเตือนเหตุการณ์ไปยัง Telegram Bot API
 const TELEGRAM_API_BASE = 'https://api.telegram.org';
 const DEFAULT_DASHBOARD_URL = 'https://wildfire.nattaphat.me';
 const DEFAULT_TIMEZONE = 'Asia/Bangkok';
@@ -10,6 +11,7 @@ const LEVEL_DETAILS = {
   NORMAL: { icon: '🟢', label: 'ปกติ' }
 };
 
+// อ่านค่าตั้งต้น Telegram จาก environment variables
 function telegramConfig(env = process.env) {
   return {
     botToken: String(env.TELEGRAM_BOT_TOKEN || '').trim(),
@@ -19,11 +21,13 @@ function telegramConfig(env = process.env) {
   };
 }
 
+// ตรวจว่ามี Bot token และ Chat ID พร้อมส่งข้อความหรือไม่
 function isTelegramConfigured(env = process.env) {
   const config = telegramConfig(env);
   return Boolean(config.botToken && config.chatId);
 }
 
+// ป้องกันอักขระพิเศษทำให้ข้อความ HTML ของ Telegram ผิดรูปแบบ
 function escapeHtml(value) {
   return String(value ?? '')
     .replaceAll('&', '&amp;')
@@ -32,12 +36,14 @@ function escapeHtml(value) {
     .replaceAll('"', '&quot;');
 }
 
+// แปลงค่าเป็นตัวเลขจำกัด และคืน undefined เมื่อใช้เป็นตัวเลขไม่ได้
 function finiteNumber(value) {
   if (value === undefined || value === null || value === '') return undefined;
   const number = Number(value);
   return Number.isFinite(number) ? number : undefined;
 }
 
+// จัดรูปแบบค่าตรวจวัดพร้อมหน่วยสำหรับข้อความแจ้งเตือน
 function formatValue(value, suffix = '', digits = 1) {
   const number = finiteNumber(value);
   if (number === undefined) return 'ไม่มีข้อมูล';
@@ -47,6 +53,7 @@ function formatValue(value, suffix = '', digits = 1) {
   })}${suffix}`;
 }
 
+// จัดรูปแบบเวลาไทย และใช้เขตเวลาตั้งต้นเมื่อค่าที่กำหนดไม่ถูกต้อง
 function formatTimestamp(value, timezone = DEFAULT_TIMEZONE) {
   const date = value ? new Date(value) : new Date();
   const safeDate = Number.isNaN(date.getTime()) ? new Date() : date;
@@ -66,10 +73,12 @@ function formatTimestamp(value, timezone = DEFAULT_TIMEZONE) {
   }
 }
 
+// เลือก Reading ที่ส่งเข้ามา หรือใช้ snapshot ล่าสุดจาก Alert แทน
 function readingFrom(alert, reading) {
   return reading || alert?.last_reading || {};
 }
 
+// สร้างข้อความ Telegram สำหรับเหตุการณ์ใหม่ การยกระดับ และการสิ้นสุด
 function buildTelegramMessage(event, alert, reading, options = {}) {
   const config = { ...telegramConfig(), ...options };
   const current = readingFrom(alert, reading);
@@ -112,6 +121,7 @@ function buildTelegramMessage(event, alert, reading, options = {}) {
   ].join('\n');
 }
 
+// เรียก Telegram Bot API พร้อม timeout และคืนผล sent, skipped หรือ failed
 async function sendTelegramMessage(text, options = {}) {
   const config = { ...telegramConfig(), ...options };
   if (!config.botToken || !config.chatId) {
@@ -153,6 +163,7 @@ async function sendTelegramMessage(text, options = {}) {
   }
 }
 
+// รวมขั้นตอนสร้างข้อความและส่ง Telegram สำหรับ Alert หนึ่งเหตุการณ์
 async function notifyTelegram(event, alert, reading) {
   const text = buildTelegramMessage(event, alert, reading);
   return sendTelegramMessage(text);

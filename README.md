@@ -136,3 +136,7 @@ cd C:\wildfire_lora
 ```
 
 รายละเอียด Gateway และการตั้ง Wi-Fi อยู่ใน [`gateway/README.md`](gateway/README.md)
+
+คำอธิบายโฟลเดอร์ ไฟล์ และฟังก์ชันสำคัญอยู่ใน [`docs/code-structure.md`](docs/code-structure.md)
+
+โครงสร้าง Collection, field และ index ของ MongoDB อยู่ใน [`docs/database-schema.md`](docs/database-schema.md)

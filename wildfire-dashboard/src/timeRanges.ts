@@ -1,3 +1,4 @@
+/** รายการช่วงเวลาที่กราฟรองรับและค่าที่ใช้ขอข้อมูลจาก Backend */
 export type TimeRangeKey = '1h' | '8h' | '1d' | '1w' | '1m' | '1y'
 
 export const timeRangeOptions: Array<{
@@ -15,6 +16,7 @@ export const timeRangeOptions: Array<{
   { key: '1y', label: '1 ปี', hours: 24 * 365, apiLimit: 1000, bucketMs: 43_200_000 },
 ]
 
+/** คืนค่าตั้งต้นของช่วงเวลาตาม key ที่ผู้ใช้เลือก */
 export function getTimeRange(key: TimeRangeKey) {
   return timeRangeOptions.find((option) => option.key === key) ?? timeRangeOptions[0]
 }

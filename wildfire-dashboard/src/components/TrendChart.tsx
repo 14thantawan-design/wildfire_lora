@@ -1,3 +1,4 @@
+/** กราฟ Recharts สำหรับอุณหภูมิ ความชื้น และค่าควัน ADC ย้อนหลัง */
 import { useMemo, useState } from 'react'
 import {
   Area,
@@ -8,8 +9,8 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { getTimeRange, timeRangeOptions, type TimeRangeKey } from './timeRanges'
-import type { Reading } from './types'
+import { getTimeRange, timeRangeOptions, type TimeRangeKey } from '../timeRanges'
+import type { Reading } from '../types'
 
 type MetricKey = 'air_temp' | 'humidity' | 'particle_adc'
 
@@ -19,6 +20,7 @@ const metrics: Record<MetricKey, { label: string; unit: string; color: string }>
   particle_adc: { label: 'ค่าควัน', unit: ' ADC', color: '#ee7548' },
 }
 
+/** เลือกรูปแบบเวลาบนแกน X ตามช่วงเวลาที่ผู้ใช้เลือก */
 function formatChartTime(timestamp: string, range: TimeRangeKey) {
   const value = new Date(timestamp)
   const rangeHours = getTimeRange(range).hours
@@ -38,6 +40,7 @@ function formatChartTime(timestamp: string, range: TimeRangeKey) {
   }).format(value)
 }
 
+/** วาดแท็บเลือกช่วงเวลาและเส้นกราฟของ Reading */
 export function TrendChart({
   readings,
   selectedRange,
