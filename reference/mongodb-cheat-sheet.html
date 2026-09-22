@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>เอกสารอ้างอิง: คลังโครงสร้าง MongoDB (Cheat Sheet)</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <style>
+    .ref-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1rem 0 2rem;
+      font-size: 0.9rem;
+    }
+    .ref-table th, .ref-table td {
+      border: 1px solid var(--border-color);
+      padding: 0.6rem 0.8rem;
+    }
+    .ref-table th {
+      background: #f1f3f5;
+      font-family: var(--font-sans);
+    }
+    .badge {
+      display: inline-block;
+      padding: 0.15rem 0.4rem;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      font-family: var(--font-mono);
+    }
+    .badge-primary { background: #e7f5ff; color: #1971c2; }
+    .badge-success { background: #ebfbee; color: #2f9e44; }
+    .badge-danger { background: #fff5f5; color: #e03131; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="course-tag">Wildfire LoRa • Quick Reference Material</div>
+    <h1>สรุปโครงสร้างคอลเลกชัน MongoDB ฉบับพกพา</h1>
+  </header>
+
+  <main>
+    <h2>1. แฟ้มประวัติเซนเซอร์: <code>readings</code></h2>
+    <p><strong>หน้าที่:</strong> เก็บทุกแพ็กเก็ตที่ส่งมาเพื่อวาดกราฟเส้นย้อนหลัง (ห้ามลบ)</p>
+    <table class="ref-table">
+      <thead>
+        <tr><th>ชื่อฟิลด์</th><th>ชนิดข้อมูล</th><th>ความหมายภาษาคน</th><th>กฎพิเศษ</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>node_id</code></td><td>String</td><td>รหัสประจำตัวของเสา เช่น "NODE01"</td><td><span class="badge badge-danger">required</span> ตัดช่องว่างหัวท้าย</td></tr>
+        <tr><td><code>session_id</code></td><td>Number</td><td>รหัสรอบเปิดเครื่อง (เปลี่ยนทุกครั้งที่เปิดใหม่)</td><td>ใช้คู่กับ seq</td></tr>
+        <tr><td><code>seq</code></td><td>Number</td><td>ลำดับรอบการส่ง (1, 2, 3...)</td><td>ทำ index ค้นหาเร็ว</td></tr>
+        <tr><td><code>timestamp</code></td><td>Date</td><td>วันเวลาที่ข้อมูลมาถึง Backend</td><td>default: เวลาปัจจุบัน</td></tr>
+        <tr><td><code>state</code></td><td>String</td><td>สถานะความเสี่ยงที่เฟิร์มแวร์ตัดสินมา</td><td><span class="badge badge-primary">enum</span> NORMAL, WATCH, WARNING, SENSOR_FAULT</td></tr>
+        <tr><td><code>air_temp</code></td><td>Number</td><td>อุณหภูมิอากาศ (°C)</td><td>-</td></tr>
+        <tr><td><code>humidity</code></td><td>Number</td><td>ความชื้นสัมพัทธ์ (%RH)</td><td>-</td></tr>
+        <tr><td><code>particle_adc</code></td><td>Number</td><td>สัญญาณไฟฟ้าควันจาก Sharp GP2Y</td><td>min: 0, max: 4095</td></tr>
+        <tr><td><code>sensor_health</code></td><td>String</td><td>สุขภาพเซนเซอร์ ("OK" หรือ "FAULT")</td><td>-</td></tr>
+        <tr><td><code>rssi</code> / <code>snr</code></td><td>Number</td><td>ความแรงและคุณภาพสัญญาณ LoRa</td><td>-</td></tr>
+      </tbody>
+    </table>
+
+    <h2>2. แฟ้มสถานะปัจจุบัน: <code>nodes</code></h2>
+    <p><strong>หน้าที่:</strong> ป้ายไวท์บอร์ดแสดงสถานะเสาบนแผนที่ (มี 1 แผ่นต่อ 1 เสาเสมอ)</p>
+    <table class="ref-table">
+      <thead>
+        <tr><th>ชื่อฟิลด์</th><th>ชนิดข้อมูล</th><th>ความหมายภาษาคน</th><th>กฎพิเศษ</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>node_id</code></td><td>String</td><td>รหัสประจำตัวของเสา</td><td><span class="badge badge-danger">unique: true</span> ห้ามซ้ำ</td></tr>
+        <tr><td><code>lat</code> / <code>lng</code></td><td>Number</td><td>พิกัดละติจูด และลองจิจูด</td><td>ใช้ปักหมุดบนแผนที่</td></tr>
+        <tr><td><code>gps_fixed</code></td><td>Boolean</td><td>ชิป GPS ล็อกสัญญาณดาวเทียมได้หรือยัง</td><td>true / false</td></tr>
+        <tr><td><code>location_source</code></td><td>String</td><td>ที่มาของพิกัด</td><td><span class="badge badge-primary">enum</span> 'gps' หรือ 'manual'</td></tr>
+        <tr><td><code>last_seen</code></td><td>Date</td><td>เวลาล่าสุดที่เสาส่งสัญญาณมา</td><td>ใช้ตรวจจับ Offline / Online</td></tr>
+        <tr><td><code>report_interval_sec</code></td><td>Number</td><td>รอบเวลารายงานผล (วินาที)</td><td>เช่น 300 (5 นาที)</td></tr>
+      </tbody>
+    </table>
+
+    <h2>3. แฟ้มแจ้งเตือนไฟป่า: <code>alerts</code></h2>
+    <p><strong>หน้าที่:</strong> ติดตามเหตุการณ์ไฟป่าตั้งแต่เริ่มจนถึงคลี่คลาย ป้องกันการส่งสแปมเข้า Telegram</p>
+    <table class="ref-table">
+      <thead>
+        <tr><th>ชื่อฟิลด์</th><th>ชนิดข้อมูล</th><th>ความหมายภาษาคน</th><th>กฎพิเศษ</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>node_id</code></td><td>String</td><td>เสาที่พบเหตุการณ์ไฟป่า</td><td>-</td></tr>
+        <tr><td><code>level</code></td><td>String</td><td>ระดับความเสี่ยงปัจจุบันของเหตุการณ์</td><td><span class="badge badge-primary">enum</span> WATCH, WARNING, SENSOR_FAULT</td></tr>
+        <tr><td><code>active</code></td><td>Boolean</td><td>เหตุการณ์ยังดำเนินอยู่หรือไม่</td><td>true = ยังไม่ดับ, false = ดับแล้ว</td></tr>
+        <tr><td><code>started_at</code> / <code>ended_at</code></td><td>Date</td><td>เวลาเริ่มเกิดเหตุ และเวลาที่สถานะกลับสู่ NORMAL</td><td>-</td></tr>
+        <tr><td><code>telegram_notified_level</code></td><td>String</td><td>ระดับล่าสุดที่เคยส่งแจ้งเตือน Telegram ไปแล้ว</td><td>กันส่งซ้ำถ้าระดับไม่เปลี่ยน</td></tr>
+      </tbody>
+    </table>
+
+    <h2>4. แฟ้มคิวคำสั่งโหนด: <code>commands</code></h2>
+    <p><strong>หน้าที่:</strong> เก็บคำสั่งรอดาวน์ลิงก์ตอนเสาตื่น และทำลายตัวเองอัตโนมัติเมื่อหมดอายุ</p>
+    <table class="ref-table">
+      <thead>
+        <tr><th>ชื่อฟิลด์</th><th>ชนิดข้อมูล</th><th>ความหมายภาษาคน</th><th>กฎพิเศษ</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>command_id</code></td><td>String</td><td>รหัสกำกับคำสั่งแบบไม่ซ้ำ</td><td><span class="badge badge-danger">unique: true</span></td></tr>
+        <tr><td><code>command</code></td><td>String</td><td>ชนิดคำสั่ง</td><td><span class="badge badge-primary">enum</span> 'gps_reacquire', 'gps_manual'</td></tr>
+        <tr><td><code>status</code></td><td>String</td><td>สถานะคำสั่ง</td><td>'pending', 'sent', 'acknowledged', 'rejected'</td></tr>
+        <tr><td><code>expires_at</code></td><td>Date</td><td>เวลาหมดอายุของคำสั่ง</td><td><span class="badge badge-success">TTL Index</span> ลบตัวเองทิ้งเมื่อถึงเวลา</td></tr>
+      </tbody>
+    </table>
+  </main>
+</body>
+</html>

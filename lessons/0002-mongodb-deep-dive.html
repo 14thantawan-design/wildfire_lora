@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>บทเรียนที่ 2: ผ่าโครงสร้าง MongoDB แบบละเอียดทุกบรรทัด</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <style>
+    .code-explain-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1.5rem 0;
+      font-size: 0.95rem;
+    }
+    .code-explain-table th, .code-explain-table td {
+      border: 1px solid var(--border-color);
+      padding: 0.75rem 0.9rem;
+      vertical-align: top;
+    }
+    .code-explain-table th {
+      background-color: #f1f3f5;
+      font-family: var(--font-sans);
+      font-weight: 600;
+      text-align: left;
+    }
+    .code-col {
+      width: 45%;
+      font-family: var(--font-mono);
+      font-size: 0.88em;
+      background: #fafafa;
+      color: #2b3a42;
+    }
+    .explain-col {
+      width: 55%;
+      font-family: var(--font-sans);
+      color: #333;
+    }
+    .tag {
+      display: inline-block;
+      font-size: 0.75rem;
+      font-weight: 700;
+      padding: 0.15rem 0.4rem;
+      border-radius: 4px;
+      margin-right: 0.3rem;
+    }
+    .tag-blue { background: #e7f5ff; color: #1971c2; }
+    .tag-green { background: #ebfbee; color: #2f9e44; }
+    .tag-orange { background: #fff4e6; color: #d9480f; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="course-tag">Wildfire LoRa • Fullstack Architecture Course</div>
+    <h1>บทเรียนที่ 2: ผ่าโครงสร้าง MongoDB แบบละเอียดทุกบรรทัด<br><small style="font-size: 0.6em; color: #666; font-weight: 400;">ทำความเข้าใจตู้เซฟข้อมูล และแบบฟอร์ม Reading vs Node</small></h1>
+  </header>
+
+  <main>
+    <div class="callout">
+      <strong>🎯 เป้าหมายของบทเรียนนี้:</strong> ให้คุณเข้าใจโครงสร้างฐานข้อมูลทั้งหมดของโปรเจกต์นี้แบบคำต่อคำ บรรทัดต่อบรรทัด รู้ว่าทำไมต้องแยกเป็น <code>readings</code> และ <code>nodes</code> และเข้าใจความหมายของศัพท์เทคนิคทั้งหมดด้วยภาษาคนปกติ
+    </div>
+
+    <h2>1. แปลงศัพท์เทคนิคเป็น "ภาษาคนปกติ"</h2>
+    <p>ก่อนจะเริ่มดูโค้ดจริง ให้จำภาพ 4 คำนี้ไว้ก่อน:</p>
+    <ul>
+      <li><strong>Database (ฐานข้อมูล)</strong> = ตู้เซฟเอกสารทั้งตู้</li>
+      <li><strong>Collection (คอลเลกชัน)</strong> = ลิ้นชักแต่ละชั้นในตู้ (ในโปรเจกต์นี้มีลิ้นชักหลักคือ <code>readings</code> และ <code>nodes</code>)</li>
+      <li><strong>Document (ด็อกคิวเมนต์)</strong> = กระดาษบันทึกข้อมูล 1 แผ่นที่อยู่ในลิ้นชัก</li>
+      <li><strong>Schema (สกีมา)</strong> = แบบฟอร์มกระดาษเปล่า ที่พิมพ์หัวข้อไว้ว่า "ต้องกรอกอะไรบ้าง ช่องไหนต้องเป็นตัวเลข"</li>
+    </ul>
+
+    <div class="callout" style="background-color: #f8f9fa; border-left-color: #495057;">
+      📖 สามารถเปิดดูพจนานุกรมฉบับเต็มได้ที่ <a href="../GLOSSARY.md">GLOSSARY.md</a>
+    </div>
+
+    <h2>2. ทำไมต้องมีทั้ง <code>readings</code> และ <code>nodes</code>?</h2>
+    <p>นี่คือคำถามที่คนส่วนใหญ่สงสัยที่สุดเวลาเริ่มดูโค้ด:</p>
+    <div class="card-grid">
+      <div class="card">
+        <h4>สมุดบันทึกประวัติ (readings)</h4>
+        <p><strong>เก็บทุกรอบที่ส่งมา:</strong> เสาวัดค่าส่งมา 10,000 ครั้ง ก็จะเพิ่มกระดาษเข้าไป 10,000 แผ่น ไม่มีการลบของเก่าทิ้ง เอาไว้ให้เราย้อนดูได้ว่าเมื่อ 3 ชั่วโมงก่อน อุณหภูมิเท่าไหร่ เพื่อเอาไป <strong>วาดกราฟเส้น</strong></p>
+        <div class="file-pill">src/models/Reading.js</div>
+      </div>
+      <div class="card">
+        <h4>ป้ายสถานะล่าสุด (nodes)</h4>
+        <p><strong>เก็บเฉพาะค่าปัจจุบัน:</strong> ในป่ามีเสา 2 ต้น ในลิ้นชักนี้ก็จะมีกระดาษแค่ 2 แผ่นเสมอ พอเสาส่งค่าใหม่มา มันจะ <strong>เขียนลบทับค่าเดิม</strong> เพื่อบอกว่า "ตอนนี้เสายังมีชีวิตอยู่ไหม พิกัดล่าสุดอยู่ตรงไหน" เอาไว้ <strong>ปักหมุดบนแผนที่</strong></p>
+        <div class="file-pill">src/models/Node.js</div>
+      </div>
+    </div>
+
+    <h2>3. ชำแหละไฟล์เชื่อมต่อ: <code>src/db.js</code> (15 บรรทัด)</h2>
+    <p>ไฟล์นี้คือตัวเสียบปลั๊กไฟ เพื่อบอกโปรแกรมว่า <em>"ตู้เซฟ MongoDB อยู่ที่ไหน และเริ่มเปิดประตูเชื่อมต่อ"</em></p>
+
+    <table class="code-explain-table">
+      <thead>
+        <tr>
+          <th class="code-col">โค้ดจริง</th>
+          <th class="explain-col">คำอธิบายภาษาคน</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="code-col"><code>const mongoose = require('mongoose');</code></td>
+          <td class="explain-col">เรียกใช้งานเครื่องมือ <strong>Mongoose</strong> (ผู้ช่วยจัดการตู้เซฟ) เข้ามาในไฟล์</td>
+        </tr>
+        <tr>
+          <td class="code-col"><code>async function connectDB() {</code></td>
+          <td class="explain-col">สร้างฟังก์ชันชื่อ <code>connectDB</code> โดยมีคำว่า <code>async</code> แปลว่า "งานนี้ต้องใช้เวลารอเชื่อมต่อนะ อย่าเพิ่งรีบข้ามไปทำอย่างอื่น"</td>
+        </tr>
+        <tr>
+          <td class="code-col"><code>const uri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/wildfire_lora';</code></td>
+          <td class="explain-col">กำหนดที่อยู่ของตู้เซฟ: ถ้ามีตั้งไว้ในไฟล์ <code>.env</code> ให้ใช้ค่านั้น แต่ถ้าไม่มี ให้เชื่อมต่อไปที่เครื่องของเราเอง (<code>127.0.0.1</code> พอร์ต <code>27017</code>) ชื่อตู้เซฟว่า <code>wildfire_lora</code></td>
+        </tr>
+        <tr>
+          <td class="code-col"><code>mongoose.set('strictQuery', true);</code></td>
+          <td class="explain-col">สั่งให้ตั้งค่าการค้นหาแบบเข้มงวด ฟิลด์ไหนไม่มีในแบบฟอร์ม ห้ามค้นหา เพื่อความปลอดภัย</td>
+        </tr>
+        <tr>
+          <td class="code-col"><code>await mongoose.connect(uri);</code></td>
+          <td class="explain-col">คำสั่งเสียบปลั๊กจริง! หมุนกุญแจเปิดตู้เซฟตามที่อยู่ <code>uri</code> โดย <code>await</code> สั่งให้รอจนกว่าจะต่อติดเรียบร้อย</td>
+        </tr>
+        <tr>
+          <td class="code-col"><code>console.log(`connected MongoDB: ...`);</code></td>
+          <td class="explain-col">พิมพ์ข้อความบอกในหน้าจอดำ (Terminal) ว่าต่อสำเร็จแล้วนะ</td>
+        </tr>
+        <tr>
+          <td class="code-col"><code>module.exports = connectDB;</code></td>
+          <td class="explain-col">ส่งฟังก์ชันนี้ออกไปให้ไฟล์ <code>server.js</code> เรียกใช้งานตอนเปิดเครื่อง</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>4. ชำแหละไฟล์สมุดประวัติ: <code>src/models/Reading.js</code></h2>
+    <p>ไฟล์นี้กำหนด <strong>แบบฟอร์มกระดาษ</strong> ที่จะบันทึกค่าที่เซนเซอร์ส่งมาทุกรอบ:</p>
+
+    <table class="code-explain-table">
+      <thead>
+        <tr>
+          <th class="code-col">โค้ดจริง</th>
+          <th class="explain-col">คำอธิบายภาษาคน</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="code-col"><code>node_id: { type: String, required: true, index: true, trim: true }</code></td>
+          <td class="explain-col"><span class="tag tag-blue">รหัสเสา</span> ชื่อเสา เช่น <code>"NODE01"</code> ต้องเป็นตัวหนังสือ (<code>String</code>), <strong>ห้ามเว้นว่าง</strong> (<code>required: true</code>), ตัดช่องว่างหัวท้ายออก (<code>trim</code>), และทำแถบคั่นหน้าค้นหาไว้ (<code>index</code>)</td>
+        </tr>
+        <tr>
+          <td class="code-col"><code>session_id: { type: Number }</code></td>
+          <td class="explain-col"><span class="tag tag-blue">รหัสรอบเปิดเครื่อง</span> เลขสุ่มตอนบอร์ดเริ่มทำงาน เพื่อแยกว่าบอร์ดถูกรีสตาร์ทใหม่หรือยัง</td>
+        </tr>
+        <tr>
+          <td class="code-col"><code>seq: { type: Number, index: true }</code></td>
+          <td class="explain-col"><span class="tag tag-blue">ลำดับรอบส่ง</span> เลข 1, 2, 3... นับไปเรื่อยๆ เพื่อให้รู้ว่าส่งเป็นรอบที่เท่าไหร่แล้ว</td>
+        </tr>
+        <tr>
+          <td class="code-col"><code>timestamp: { type: Date, default: Date.now, index: true }</code></td>
+          <td class="explain-col"><span class="tag tag-blue">วันเวลา</span> เวลาที่บันทึก ถ้าไม่ระบุ ให้เอาเวลา ณ วินาทีนั้น (<code>Date.now</code>)</td>
+        </tr>
+        <tr>
+          <td class="code-col"><code>state: { type: String, enum: ['NORMAL', 'WATCH', 'WARNING', 'SENSOR_FAULT'] }</code></td>
+          <td class="explain-col"><span class="tag tag-orange">ระดับความเสี่ยง</span> มีคำว่า <code>enum</code> แปลว่า <strong>บังคับเลือกได้แค่ 4 คำนี้เท่านั้น!</strong> ถ้าส่งคำอื่นมา ตู้เซฟจะไม่ยอมให้บันทึกเด็ดขาด</td>
+        </tr>
+        <tr>
+          <td class="code-col"><code>air_temp: { type: Number }</code></td>
+          <td class="explain-col"><span class="tag tag-green">อุณหภูมิ</span> ตัวเลของศาเซลเซียส เช่น <code>32.5</code></td>
+        </tr>
+        <tr>
+          <td class="code-col"><code>humidity: { type: Number }</code></td>
+          <td class="explain-col"><span class="tag tag-green">ความชื้น</span> ตัวเลขเปอร์เซ็นต์ความชื้นในอากาศ เช่น <code>45.0</code></td>
+        </tr>
+        <tr>
+          <td class="code-col"><code>particle_adc: { type: Number, min: 0, max: 4095 }</code></td>
+          <td class="explain-col"><span class="tag tag-green">ค่าควัน</span> สัญญาณไฟฟ้าเซนเซอร์ Sharp มีค่าได้ตั้งแต่ <code>0</code> ถึง <code>4095</code> เท่านั้น ถ้าส่งนอกช่วงนี้จะถูกปฏิเสธ</td>
+        </tr>
+        <tr>
+          <td class="code-col"><code>readingSchema.index({ node_id: 1, session_id: 1, seq: 1 }, { unique: true });</code></td>
+          <td class="explain-col"><span class="tag tag-orange">ไม้ตายป้องกันข้อมูลซ้ำ!</span> บรรทัดที่ 34 สำคัญมาก! มันบอกตู้เซฟว่า <strong>"ถ้าเสาเดิม รอบเปิดเครื่องเดิม รอบส่งเดิม ห้ามมีแผ่นกระดาษซ้ำในตู้เด็ดขาด!"</strong> คลื่นวิทยุ LoRa ส่งมาซ้ำกี่ครั้ง ตู้เซฟก็จะไม่บันทึกเบิ้ล</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>5. ตรวจสอบความเข้าใจ (Interactive Checkpoint)</h2>
+    <div class="interactive-box">
+      <p><strong>คำถาม:</strong> ในไฟล์ <code>Reading.js</code> มีการกำหนด <code>state: { enum: ['NORMAL', 'WATCH', 'WARNING', 'SENSOR_FAULT'] }</code> หากฮาร์ดแวร์ส่งค่าคำว่า <code>"DANGER"</code> เข้ามาในตู้เซฟ จะเกิดอะไรขึ้น?</p>
+      
+      <button class="quiz-option" onclick="checkAnswer(1)">ก. บันทึกลงได้ตามปกติ เพราะเป็นตัวหนังสือ (String) เหมือนกัน</button>
+      <button class="quiz-option" onclick="checkAnswer(2)">ข. ถูกปฏิเสธทันที เพราะคำว่า enum บังคับให้เป็นได้แค่ 4 คำที่กำหนดไว้</button>
+      <button class="quiz-option" onclick="checkAnswer(3)">ค. ระบบจะแปลงคำว่า DANGER ให้กลายเป็นคำว่า WARNING อัตโนมัติ</button>
+
+      <div id="feedback" class="quiz-feedback"></div>
+    </div>
+  </main>
+
+  <footer>
+    <p>⏮️ กลับไปดู <a href="0001-the-big-picture-map.html">บทเรียนที่ 1 (ภาพรวม)</a> | 📖 ดู <a href="../GLOSSARY.md">พจนานุกรมคำศัพท์</a></p>
+  </footer>
+
+  <script>
+    function checkAnswer(choice) {
+      const feedback = document.getElementById('feedback');
+      if (choice === 2) {
+        feedback.className = 'quiz-feedback correct';
+        feedback.innerHTML = '🎉 <strong>ถูกต้อง 100%!</strong> คำสั่ง <code>enum</code> คือการตีกรอบกฎเหล็ก ว่าต้องเป็นค่าใดค่าหนึ่งในลิสต์เท่านั้น ถ้าส่งค่าแปลกปลอมอย่าง "DANGER" เข้ามา Mongoose จะฟ้อง Error ทันที';
+      } else {
+        feedback.className = 'quiz-feedback wrong';
+        feedback.innerHTML = '❌ <strong>ยังไม่ถูกต้องครับ</strong> ลองดูที่คำว่า <code>enum</code> อีกครั้ง คำนี้ย่อมาจาก Enumeration หมายถึงการระบุตัวเลือกที่อนุญาตไว้ล่วงหน้าครับ';
+      }
+    }
+  </script>
+</body>
+</html>

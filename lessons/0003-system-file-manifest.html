@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>บทเรียนที่ 3: แผนที่โครงสร้างไฟล์ทั้งระบบ (System File Manifest)</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <style>
+    .filter-bar {
+      display: flex;
+      gap: 0.5rem;
+      margin: 1.5rem 0;
+      flex-wrap: wrap;
+    }
+    .filter-btn {
+      padding: 0.5rem 1rem;
+      border: 1px solid var(--border-color);
+      background: #f8f9fa;
+      border-radius: 6px;
+      cursor: pointer;
+      font-family: var(--font-sans);
+      font-size: 0.9rem;
+      font-weight: 600;
+      transition: all 0.2s;
+    }
+    .filter-btn.active {
+      background: var(--accent-color);
+      color: white;
+      border-color: var(--accent-color);
+    }
+    .file-card {
+      background: white;
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 1.25rem;
+      margin-bottom: 1.25rem;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+    }
+    .file-card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      border-bottom: 1px solid #f1f3f5;
+      padding-bottom: 0.5rem;
+      margin-bottom: 0.75rem;
+    }
+    .file-path {
+      font-family: var(--font-mono);
+      font-size: 1rem;
+      font-weight: 700;
+      color: #1a1a1a;
+    }
+    .lang-badge {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+      font-weight: 700;
+    }
+    .lang-js { background: #fff9db; color: #f59f00; }
+    .lang-ts { background: #e7f5ff; color: #1971c2; }
+    .lang-cpp { background: #ebfbee; color: #2b8a3e; }
+    .prop-row {
+      margin-bottom: 0.45rem;
+      font-size: 0.92rem;
+      font-family: var(--font-sans);
+    }
+    .prop-label {
+      font-weight: 700;
+      color: #495057;
+      display: inline-block;
+      width: 140px;
+    }
+    .impact-danger {
+      color: #c92a2a;
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="course-tag">Wildfire LoRa • System Blueprint</div>
+    <h1>บทเรียนที่ 3: ผ่าโครงสร้างทุกไฟล์ในระบบ<br><small style="font-size: 0.6em; color: #666; font-weight: 400;">หน้าที่, ภาษา, ถ้าไม่มีจะเกิดอะไรขึ้น และการเชื่อมโยงจากต้นน้ำถึงหน้าจอ</small></h1>
+  </header>
+
+  <main>
+    <div class="callout">
+      <strong>🎯 ภาพรวมการไหลของข้อมูล (Pipeline):</strong><br>
+      <code>Sensor Node (C++)</code> ➔ <code>Gateway (C++)</code> ➔ <code>Backend HTTP Ingestion (JS)</code> ➔ <code>MongoDB Models (JS)</code> ➔ <code>Backend API Routes (JS)</code> ➔ <code>Dashboard React Hooks (TS)</code> ➔ <code>UI Components (TSX)</code>
+    </div>
+
+    <div class="filter-bar">
+      <button class="filter-btn active" onclick="filterFiles('all')">ทั้งหมด</button>
+      <button class="filter-btn" onclick="filterFiles('backend')">Backend (22 ไฟล์)</button>
+      <button class="filter-btn" onclick="filterFiles('dashboard')">Dashboard (18 ไฟล์)</button>
+      <button class="filter-btn" onclick="filterFiles('hardware')">Hardware & Firmware (3 โฟลเดอร์)</button>
+    </div>
+
+    <div id="file-container">
+      <!-- File Cards are loaded below -->
+    </div>
+  </main>
+
+  <footer>
+    <p>⏮️ กลับไปดู <a href="0002-mongodb-deep-dive.html">บทเรียนที่ 2 (MongoDB)</a> | 📖 ดู <a href="../reference/mongodb-cheat-sheet.html">Cheat Sheet</a></p>
+  </footer>
+
+  <script>
+    const files = [
+      // HARDWARE
+      {
+        path: "sensor_node/ (และ sensor_node_2/)",
+        category: "hardware",
+        lang: "C++ (Arduino)",
+        langClass: "lang-cpp",
+        desc: "เฟิร์มแวร์รันบนบอร์ด ESP32 ประจำเสาเซนเซอร์ ทำหน้าที่อ่านอุณหภูมิ ความชื้น ควัน ตัดสินสถานะความเสี่ยง (NORMAL, WATCH, WARNING) แล้วส่งคลื่น LoRa",
+        impact: "ไม่มีเซนเซอร์วัดค่าในป่า ระบบทั้งระบบจะไม่มีข้อมูลส่งเข้ามาเลย",
+        input: "ค่าจากเซนเซอร์ SHT31 (I2C) และ Sharp GP2Y (ADC อนาล็อก)",
+        output: "แพ็กเก็ตคลื่นวิทยุ LoRa ยิงไปหา Gateway",
+        ui: "เป็นต้นกำเนิดของตัวเลขอุณหภูมิ ความชื้น และค่าควันทั้งหมดบนหน้าเว็บ"
+      },
+      {
+        path: "gateway/",
+        category: "hardware",
+        lang: "C++ (Arduino)",
+        langClass: "lang-cpp",
+        desc: "เฟิร์มแวร์รันบนบอร์ด ESP32 ของเกตเวย์ คอยดักฟังคลื่นวิทยุ LoRa แปลงเป็นคำสั่ง HTTP แล้วส่งต่อเข้า Backend ผ่าน Wi-Fi",
+        impact: "คลื่นวิทยุจากป่าจะไม่สามารถแปลงเป็นอินเทอร์เน็ตได้ ข้อมูลติดค้างอยู่ที่เกตเวย์",
+        input: "คลื่นวิทยุ LoRa จาก Sensor Node",
+        output: "HTTP POST /api/packets ไปหาเซิร์ฟเวอร์ Backend",
+        ui: "ทำให้สถานะ Gateway ขึ้นว่า 'ONLINE' ในกล่องสุขภาพระบบ"
+      },
+      // BACKEND CORE
+      {
+        path: "wildfire-backend/src/server.js",
+        category: "backend",
+        lang: "JavaScript (Node.js)",
+        langClass: "lang-js",
+        desc: "จุดเริ่มต้น (Entry point) ของระบบหลังบ้าน เปิดพอร์ต 4000 เชื่อมต่อ MongoDB และต่อท่อเส้นทาง API ทุกเส้น",
+        impact: "เซิร์ฟเวอร์ไม่ทำงานเลย หน้าเว็บจะขึ้นข้อความ Network Error ทันที",
+        input: "คำสั่งเปิดโปรแกรม (npm run dev) และ Request ทาง HTTP ทั้งหมด",
+        output: "เปิดพอร์ต 4000 รับส่งข้อมูล และเรียก db.js, routes ต่างๆ",
+        ui: "ทำให้หน้าเว็บโหลดข้อมูลได้ทั้งหน้า (ถ้าตัวนี้ดับ หน้าเว็บจะโหลดหมุนติ้วๆ)"
+      },
+      {
+        path: "wildfire-backend/src/db.js",
+        category: "backend",
+        lang: "JavaScript (Node.js)",
+        langClass: "lang-js",
+        desc: "คำสั่งเชื่อมต่อไปยังฐานข้อมูล MongoDB ผ่านไลบรารี Mongoose",
+        impact: "Backend จะหยุดทำงานทันทีตอนเริ่มเปิดเครื่อง เพราะเชื่อมฐานข้อมูลไม่ได้",
+        input: "ที่อยู่ MONGODB_URI จากไฟล์ .env",
+        output: "การเชื่อมต่อกับ MongoDB ที่พร้อมใช้คำสั่ง CRUD",
+        ui: "แสดงสถานะ mongo_state: 1 ในหน้าต่าง Health ของระบบ"
+      },
+      {
+        path: "wildfire-backend/src/middleware/security.js",
+        category: "backend",
+        lang: "JavaScript (Node.js)",
+        langClass: "lang-js",
+        desc: "ระบบรักษาความปลอดภัย ตรวจ API Key ของ Gateway และตรวจยืนยันสิทธิ์ Admin ผ่าน Cloudflare Access",
+        impact: "ใครก็ได้บนอินเทอร์เน็ตจะสามารถยิงข้อมูลปลอมเข้าเซิร์ฟเวอร์ หรือสั่งลบฐานข้อมูลได้",
+        input: "HTTP Header: x-gateway-key และ cf-access-jwt-assertion",
+        output: "อนุญาตให้คำขอผ่านไปทำงานต่อ หรือตอบกลับ Error 401/403",
+        ui: "ควบคุมการเปิด/ปิดปุ่มแก้ไขข้อมูล และปุ่มลบในตาราง Admin บนหน้าเว็บ"
+      },
+      // BACKEND INGESTION
+      {
+        path: "wildfire-backend/src/services/packetHandler.js",
+        category: "backend",
+        lang: "JavaScript (Node.js)",
+        langClass: "lang-js",
+        desc: "ชุมสายแยกประเภทข้อมูล ตรวจว่าแพ็กเก็ตที่ส่งมาเป็นค่าเซนเซอร์ (t='s') หรือพิกัดดาวเทียม (t='gps')",
+        impact: "Backend ไม่รู้ว่าต้องส่งแพ็กเก็ตไปให้ใครประมวลผล ข้อมูลจะถูกโยนทิ้ง",
+        input: "JSON ก้อนดิบที่ Gateway ส่งมาทาง POST /api/packets",
+        output: "ส่งต่อให้ sensorPacketHandler.js หรือ gpsPacketHandler.js",
+        ui: "จุดเริ่มต้นที่ทำให้ข้อมูลอุณหภูมิหรือพิกัดเดินทางเข้าสู่ระบบ"
+      },
+      {
+        path: "wildfire-backend/src/services/packets/sensorPacketHandler.js",
+        category: "backend",
+        lang: "JavaScript (Node.js)",
+        langClass: "lang-js",
+        desc: "ประมวลผลแพ็กเก็ตเซนเซอร์: ตรวจข้อมูลซ้ำ (Deduplication), บันทึกลง Reading.js, อัปเดต Node.js และสั่งเปิด Alert",
+        impact: "ค่าอุณหภูมิ ความชื้น ควัน จะไม่ถูกบันทึกลงฐานข้อมูล กราฟจะนิ่งสนิท",
+        input: "แพ็กเก็ตชนิดเซนเซอร์",
+        output: "บันทึก Reading ใหม่, อัปเดตสถานะ Node, ส่งต่อให้ alertService",
+        ui: "ส่งข้อมูลไปให้กราฟเส้น และตัวเลขสภาพอากาศในการ์ดหน้าแรก"
+      },
+      {
+        path: "wildfire-backend/src/services/packets/gpsPacketHandler.js",
+        category: "backend",
+        lang: "JavaScript (Node.js)",
+        langClass: "lang-js",
+        desc: "ประมวลผลแพ็กเก็ตพิกัดดาวเทียม: ตรวจสอบความถูกต้องของ ละติจูด/ลองจิจูด แล้วอัปเดตลง Node.js",
+        impact: "พิกัดเสาจะไม่ขยับตามจริง หมุดบนแผนที่จะไม่แสดงตำแหน่งดาวเทียม",
+        input: "แพ็กเก็ตชนิด GPS (มีฟิลด์ la, ln, gf)",
+        output: "อัปเดต lat, lng, gps_fixed ลงในโมเดล Node",
+        ui: "หมุดของเสาเซนเซอร์บนแผนที่โลกในหน้า Dashboard"
+      },
+      // BACKEND SERVICES
+      {
+        path: "wildfire-backend/src/services/alertService.js",
+        category: "backend",
+        lang: "JavaScript (Node.js)",
+        langClass: "lang-js",
+        desc: "สมองกลควบคุมวงจรชีวิตไฟป่า: เปิด Alert ใหม่เมื่อพบ WATCH/WARNING, ป้องกันการส่ง Telegram ซ้ำ และปิด Alert เมื่อปกติ",
+        impact: "จะไม่มีการแจ้งเตือนไฟป่าเลย ทั้งบนหน้าเว็บและใน Telegram",
+        input: "สถานะความเสี่ยง (state) จาก Reading",
+        output: "สร้าง/อัปเดตโมเดล Alert และเรียก telegramService ส่งข้อความ",
+        ui: "กล่องข้อความเตือนภัยสีส้ม/แดงในส่วน EVENTS บนหน้าเว็บ"
+      },
+      {
+        path: "wildfire-backend/src/services/telegramService.js",
+        category: "backend",
+        lang: "JavaScript (Node.js)",
+        langClass: "lang-js",
+        desc: "ประกอบข้อความภาษาไทยพร้อมไอคอนเตือนภัย ยิงส่งเข้า Telegram Bot API",
+        impact: "ระบบทำงานได้แต่ไม่มีการแจ้งเตือนเข้ามือถือเจ้าหน้าที่",
+        input: "ข้อมูล Alert และ Reading",
+        output: "HTTP POST ยิงไปที่ https://api.telegram.org",
+        ui: "ข้อความแจ้งเตือนในแอปพลิเคชัน Telegram บนสมาร์ตโฟน"
+      },
+      // BACKEND ROUTES
+      {
+        path: "wildfire-backend/src/routes/nodes.js",
+        category: "backend",
+        lang: "JavaScript (Node.js)",
+        langClass: "lang-js",
+        desc: "API แจกรายชื่อเสาทั้งหมด คำนวณสถานะ Online/Offline และรับคำสั่งปักหมุดเอง",
+        impact: "หน้าเว็บไม่สามารถโหลดรายชื่อเสาได้ แผนที่จะว่างเปล่า",
+        input: "GET /api/nodes หรือ POST /api/nodes/:id/location/manual",
+        output: "JSON รายชื่อเสา พร้อมสถานะ online และพิกัด",
+        ui: "หมุดทุกหมุดบนแผนที่ และการ์ดแสดงรายชื่อเสาทุกต้น"
+      },
+      {
+        path: "wildfire-backend/src/routes/readings.js",
+        category: "backend",
+        lang: "JavaScript (Node.js)",
+        langClass: "lang-js",
+        desc: "API แจกค่าเซนเซอร์ย้อนหลัง และรองรับการคิดค่าเฉลี่ยตามช่วงเวลา (bucket_ms)",
+        impact: "กราฟเส้นแสดงแนวโน้มอุณหภูมิ/ความชื้นจะวาดไม่ได้เลย",
+        input: "GET /api/readings/:node_id?limit=100&bucket_ms=60000",
+        output: "JSON อาร์เรย์ของค่าอุณหภูมิ ความชื้น ควัน ย้อนหลัง",
+        ui: "กราฟเส้นในคอมโพเนนต์ TrendChart บนหน้าเว็บ"
+      },
+      // DASHBOARD
+      {
+        path: "wildfire-dashboard/src/App.tsx",
+        category: "dashboard",
+        lang: "TypeScript (React JSX)",
+        langClass: "lang-ts",
+        desc: "จุดรวมหน้าจอหลัก ประกอบ Header, แผนที่, กราฟ, และแถบเตือนภัยเข้าด้วยกัน",
+        impact: "หน้าเว็บแสดงผลไม่ได้เลย จะเห็นเป็นหน้าจอสีขาวว่างเปล่า",
+        input: "ข้อมูลจาก useDashboard hook",
+        output: "HTML/CSS สำหรับแสดงผลในเบราว์เซอร์",
+        ui: "เค้าโครงหน้าจอทั้งหมดที่ผู้ใช้งานมองเห็น"
+      },
+      {
+        path: "wildfire-dashboard/src/useDashboard.ts",
+        category: "dashboard",
+        lang: "TypeScript (React Hook)",
+        langClass: "lang-ts",
+        desc: "หัวใจการดึงข้อมูลฝั่งหน้าบ้าน: ยิงคำขอไปถาม Backend ทุกๆ ไม่กี่วินาทีเพื่ออัปเดตหน้าจออัตโนมัติ",
+        impact: "หน้าเว็บจะเป็นหน้าเว็บนิ่งๆ ไม่มีการอัปเดตตัวเลขสดจากเซนเซอร์",
+        input: "API จาก Backend (/nodes, /alerts, /readings, /health)",
+        output: "ตัวแปร State ให้คอมโพเนนต์ต่างๆ เอาไปวาดหน้าจอ",
+        ui: "ทำให้ตัวเลขอุณหภูมิและพิกัดบนหน้าจอเปลี่ยนเองอัตโนมัติเมื่อมีค่าใหม่"
+      },
+      {
+        path: "wildfire-dashboard/src/components/MonitoringMap.tsx",
+        category: "dashboard",
+        lang: "TypeScript (React JSX)",
+        langClass: "lang-ts",
+        desc: "วาดแผนที่ภูมิศาสตร์ Leaflet ปักหมุดตามพิกัด lat/lng และเปลี่ยนสีหมุดตามระดับความเสี่ยง",
+        impact: "ไม่มีแผนที่บนหน้าเว็บ เจ้าหน้าที่จะไม่รู้ว่าเสาอยู่จุดไหนในป่า",
+        input: "รายการโหนดที่มีพิกัด lat, lng และสถานะความเสี่ยง",
+        output: "แผนที่ Interactive ที่ซูมเข้าออกและคลิกดูเสาได้",
+        ui: "แผนที่ใหญ่กลางหน้าจอ Dashboard"
+      },
+      {
+        path: "wildfire-dashboard/src/components/TrendChart.tsx",
+        category: "dashboard",
+        lang: "TypeScript (React JSX)",
+        langClass: "lang-ts",
+        desc: "วาดกราฟเส้นแสดงแนวโน้มค่าอุณหภูมิอากาศ ความชื้น และค่าควันย้อนหลังตามช่วงเวลาที่เลือก",
+        impact: "ไม่เห็นแนวโน้มค่าเซนเซอร์ย้อนหลัง ไม่รู้ว่าอุณหภูมิกำลังพุ่งสูงขึ้นหรือไม่",
+        input: "อาร์เรย์ของ Reading ย้อนหลัง",
+        output: "กราฟเส้นสีส้ม (อุณหภูมิ) และสีฟ้า (ความชื้น)",
+        ui: "กล่องกราฟเส้นด้านล่างแผนที่"
+      },
+      {
+        path: "wildfire-dashboard/src/components/AlertsPanel.tsx",
+        category: "dashboard",
+        lang: "TypeScript (React JSX)",
+        langClass: "lang-ts",
+        desc: "แถบแสดงรายการเหตุการณ์เตือนภัยล่าสุด พร้อมปุ่มลบเหตุการณ์ในโหมด Admin",
+        impact: "ไม่เห็นประวัติและรายการเหตุการณ์ไฟป่าที่กำลังเกิดขึ้นบนหน้าจอ",
+        input: "อาร์เรย์ของข้อมูล Alert จาก Backend",
+        output: "แถวรายการแจ้งเตือนสีแดง/ส้ม/เหลือง",
+        ui: "กล่อง 'เหตุการณ์ล่าสุด (EVENTS)' ฝั่งขวาของหน้าจอ"
+      }
+    ];
+
+    function renderFiles(items) {
+      const container = document.getElementById('file-container');
+      container.innerHTML = items.map(file => `
+        <article class="file-card">
+          <div class="file-card-header">
+            <span class="file-path">${file.path}</span>
+            <span class="lang-badge ${file.langClass}">${file.lang}</span>
+          </div>
+          <div class="prop-row"><span class="prop-label">หน้าที่จริง:</span> <span>${file.desc}</span></div>
+          <div class="prop-row"><span class="prop-label">ถ้าไม่มีจะเกิดอะไร:</span> <span class="impact-danger">${file.impact}</span></div>
+          <div class="prop-row"><span class="prop-label">รับข้อมูลมาจาก:</span> <span><code>${file.input}</code></span></div>
+          <div class="prop-row"><span class="prop-label">ส่งข้อมูลต่อไปที่:</span> <span><code>${file.output}</code></span></div>
+          <div class="prop-row"><span class="prop-label">แสดงผลตรงไหน:</span> <strong>${file.ui}</strong></div>
+        </article>
+      `).join('');
+    }
+
+    function filterFiles(cat) {
+      document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
+      event.target.classList.add('active');
+      if (cat === 'all') {
+        renderFiles(files);
+      } else {
+        renderFiles(files.filter(f => f.category === cat));
+      }
+    }
+
+    renderFiles(files);
+  </script>
+</body>
+</html>

@@ -1,6 +1,12 @@
 # Teaching Notes
 
 - **Language Preference**: ภาษาไทย (Thai).
-- **Explanation Style**: ละเอียดแต่เข้าใจง่าย (Comprehensive yet intuitive), เน้นเห็นภาพ Data Flow, ยกตัวอย่าง payload จริง และอธิบาย "ทำไมถึงออกแบบแบบนี้".
-- **Current Topic**: ระบบ API ของโครงการ Wildfire LoRa (Express + MongoDB + Gateway Ingestion + Dashboard + Cloudflare Security).
-- **Target Audience / Goal**: กำลังสำรวจเป้าหมายจริง (Mission Interview) เพื่อเจาะลึกบทเรียนแบบ Interactive ต่อไป.
+- **Core Teaching Rule**: 
+  - **ห้ามใช้การเปรียบเทียบเชิงอุปมา (STRICTLY NO METAPHORS / NO ANALOGIES)** เช่น ห้ามเปรียบเทียบเป็นตู้เซฟ, ร้านอาหาร, ลิ้นชัก, สายลับ ฯลฯ เพราะทำให้ผู้เรียนไม่เห็นภาพกลไกจริงของโค้ด
+  - **อธิบายตรงไปตรงมาตามกลไกจริงของคอมพิวเตอร์** (Literal technical facts)
+  - **ต้องไล่ตั้งแต่บรรทัดที่ 1 ห้ามข้ามบรรทัด**
+  - **ต้องชี้ชัดเสมอว่า**:
+    1. โค้ดบรรทัดนี้ทำหน้าที่อะไรในหน่วยความจำ/ฐานข้อมูล
+    2. โค้ดนี้เชื่อมโยงกับไฟล์ไหน บรรทัดไหนในโปรเจกต์
+    3. ข้อมูลตัวนี้ไปโผล่ตรงจุดไหนของหน้าเว็บจริง (ชื่อ Component, ข้อความบนจอ, สีของปุ่ม)
+- **Current Topic**: ผ่าโครงสร้าง `src/models/Alert.js` แบบละเอียดทุกบรรทัดตั้งแต่บรรทัดที่ 1 พร้อมเชื่อมโยงระบบจริง
