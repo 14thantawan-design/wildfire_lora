@@ -60,7 +60,6 @@
 #define WIFI_PORTAL_TIMEOUT_MS 600000UL
 #define WIFI_CONNECT_TIMEOUT_MS 15000UL
 #define HTTP_POST_TIMEOUT_MS 5000UL
-#define HTTP_POST_RETRY_COUNT 2
 #define HTTP_JSON_SIZE 768
 #define COMMAND_REPORT_QUEUE_LENGTH 10
 #define NETWORK_TASK_STACK_SIZE 8192
@@ -68,6 +67,4 @@
 // Downlink commands are held until the target node sends its next LoRa packet.
 #define MAX_PENDING_COMMANDS 10
 #define COMMAND_POLL_INTERVAL_MS 30000UL
-#define COMMAND_REPEAT_COUNT 1  // Retry on the node's next uplink if its command ACK is lost.
-#define COMMAND_REPEAT_DELAY_MS 80UL
 #define COMMAND_HTTP_JSON_SIZE 2048

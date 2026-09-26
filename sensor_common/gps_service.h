@@ -106,12 +106,10 @@ String buildGpsPacket(const GpsLocation &fix, bool gpsFix, const char *errorCode
   return payload;
 }
 
-// sendGpsLocationPackets: สร้างแพ็กเก็ตพิกัดหนึ่งชุดแล้วส่งซ้ำตาม GPS_PACKET_REPEAT_COUNT; ไม่บังคับ ACK แบบข้อมูลเซนเซอร์
+// sendGpsLocationPackets: สร้างและส่งแพ็กเก็ตพิกัดหนึ่งครั้ง
 void sendGpsLocationPackets(const GpsLocation &fix) {
   String payload = buildGpsPacket(fix, true, "");
-  for (int i = 0; i < GPS_PACKET_REPEAT_COUNT; i++) {
-    sendLoRaPacket(payload, true);
-  }
+  sendLoRaPacket(payload, true);
 }
 
 // sendGpsFailedPacket: แจ้ง gps_failed เมื่อค้นไม่สำเร็จ; partialFix ไม่ถูกส่งเป็นพิกัด เพราะ buildGpsPacket ได้ gpsFix=false

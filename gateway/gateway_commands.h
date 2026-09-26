@@ -203,13 +203,9 @@ bool sendPendingCommandForNode(const String &nodeId) {
   serializeJson(doc, payload);
 
   LoRa.idle();
-  bool sent = true;
-  for (int repeat = 0; repeat < COMMAND_REPEAT_COUNT; repeat++) {
-    LoRa.beginPacket();
-    LoRa.print(payload);
-    sent = LoRa.endPacket() && sent;
-    if (repeat + 1 < COMMAND_REPEAT_COUNT) delay(COMMAND_REPEAT_DELAY_MS);
-  }
+  LoRa.beginPacket();
+  LoRa.print(payload);
+  bool sent = LoRa.endPacket();
   LoRa.receive();
   if (!sent) return false;
 

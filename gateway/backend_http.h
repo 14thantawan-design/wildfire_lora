@@ -68,54 +68,48 @@ bool beginBackendHttp(
 bool postPacketToBackend(const String &payload) {
   if (!ensureWiFiConnected()) return false;
 
-  for (int attempt = 1; attempt <= HTTP_POST_RETRY_COUNT; attempt++) {
-    HTTPClient http;
-    NetworkClientSecure secureClient;
-    http.setTimeout(HTTP_POST_TIMEOUT_MS);
+  HTTPClient http;
+  NetworkClientSecure secureClient;
+  http.setTimeout(HTTP_POST_TIMEOUT_MS);
 
-    if (!beginBackendHttp(http, secureClient, BACKEND_PACKETS_URL)) {
-      Serial.println("HTTP begin failed");
-      http.end();
-      continue;
-    }
-
-    http.addHeader("Content-Type", "application/json");
-    http.addHeader("X-Gateway-Key", GATEWAY_API_KEY);
-    int statusCode = http.POST(payload);
-    String httpError = statusCode < 0 ? http.errorToString(statusCode) : "";
-    char tlsErrorBuffer[160] = {0};
-    int tlsErrorCode = secureClient.lastError(tlsErrorBuffer, sizeof(tlsErrorBuffer));
-    String response = http.getString();
+  if (!beginBackendHttp(http, secureClient, BACKEND_PACKETS_URL)) {
+    Serial.println("HTTP begin failed");
     http.end();
+    return false;
+  }
 
-    if (statusCode >= 200 && statusCode < 300) {
-      Serial.print("Packet posted to backend: HTTP ");
-      Serial.println(statusCode);
-      return true;
-    }
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("X-Gateway-Key", GATEWAY_API_KEY);
+  int statusCode = http.POST(payload);
+  String httpError = statusCode < 0 ? http.errorToString(statusCode) : "";
+  char tlsErrorBuffer[160] = {0};
+  int tlsErrorCode = secureClient.lastError(tlsErrorBuffer, sizeof(tlsErrorBuffer));
+  String response = http.getString();
+  http.end();
 
-    Serial.print("Backend POST failed attempt ");
-    Serial.print(attempt);
-    Serial.print(": HTTP ");
-    Serial.print(statusCode);
-    if (httpError.length() > 0) {
-      Serial.print(" ");
-      Serial.print(httpError);
-    }
-    if (tlsErrorCode != 0) {
-      Serial.print(" TLS ");
-      Serial.print(tlsErrorCode);
-      Serial.print(": ");
-      Serial.print(tlsErrorBuffer);
-    }
-    if (response.length() > 0) {
-      Serial.print(" ");
-      Serial.println(response);
-    } else {
-      Serial.println();
-    }
+  if (statusCode >= 200 && statusCode < 300) {
+    Serial.print("Packet posted to backend: HTTP ");
+    Serial.println(statusCode);
+    return true;
+  }
 
-    delay(250);
+  Serial.print("Backend POST failed: HTTP ");
+  Serial.print(statusCode);
+  if (httpError.length() > 0) {
+    Serial.print(" ");
+    Serial.print(httpError);
+  }
+  if (tlsErrorCode != 0) {
+    Serial.print(" TLS ");
+    Serial.print(tlsErrorCode);
+    Serial.print(": ");
+    Serial.print(tlsErrorBuffer);
+  }
+  if (response.length() > 0) {
+    Serial.print(" ");
+    Serial.println(response);
+  } else {
+    Serial.println();
   }
 
   return false;
