@@ -49,10 +49,8 @@ int readParticleMedianAdc() {
 // beginSht31: ลองเชื่อม SHT31 ที่ 0x44 ก่อน ถ้าไม่สำเร็จลอง 0x45 แล้วคืนผลสำเร็จ; ช่วยรองรับการตั้ง ที่อยู่อุปกรณ์ สองแบบ
 bool beginSht31() {
   bool shtOk = sht31.begin(SHT31_I2C_ADDRESS_PRIMARY);
-  activeSht31Address = SHT31_I2C_ADDRESS_PRIMARY;
   if (!shtOk) {
     shtOk = sht31.begin(SHT31_I2C_ADDRESS_SECONDARY);
-    activeSht31Address = SHT31_I2C_ADDRESS_SECONDARY;
   }
   return shtOk;
 }
@@ -79,10 +77,6 @@ void initSensors() {
 
   Serial.print("SHT31 init: ");
   Serial.println(shtOk ? "OK" : "FAILED");
-  if (shtOk) {
-    Serial.print("SHT31 address: 0x");
-    Serial.println(activeSht31Address, HEX);
-  }
 }
 
 // =========================

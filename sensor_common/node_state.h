@@ -34,9 +34,8 @@ struct GpsLocation {
 // =========================
 // ออบเจ็กต์และตัวแปรที่ใช้ร่วมกันในไฟล์
 // =========================
-// ออบเจ็กต์สำหรับสั่งเซนเซอร์ผ่านไลบรารี; activeSht31Address จำ ที่อยู่อุปกรณ์ ที่เชื่อมสำเร็จเพื่อ การตรวจหาปัญหา
+// ออบเจ็กต์สำหรับสั่งเซนเซอร์ผ่านไลบรารี
 Adafruit_SHT31 sht31 = Adafruit_SHT31();
-uint8_t activeSht31Address = SHT31_I2C_ADDRESS_PRIMARY;
 
 #if USE_GPS
 // ตัวแปลข้อความจาก GPS ทาง UART; gpsPrefs จัดการข้อมูล GPS ใน NVS เมื่อเปิดตัวเลือกบันทึก
@@ -57,10 +56,8 @@ enum GpsOneShotState {
 GpsOneShotState gpsOneShotState = GPS_ONE_SHOT_IDLE;
 // กลุ่มเวลาของ GPS: เริ่มค้น, พิมพ์ การตรวจหาปัญหา ล่าสุด, เริ่มรอ การลองใหม่; gpsRetryRemainingSec อยู่ RTC เพื่อไม่ลืมเวลารอเมื่อหลับ
 unsigned long gpsStartMs = 0;
-unsigned long gpsLastDebugMs = 0;
 unsigned long gpsLastAttemptMs = 0;
 RTC_DATA_ATTR uint32_t gpsRetryRemainingSec = 0;
-uint32_t gpsByteCount = 0;
 // ธงรายงานที่รอส่ง: ได้พิกัดหรือค้นล้มเหลว; ทำให้บริการรอบถัดไปรู้ว่ายังมีงาน
 bool gpsFixReportPending = false;
 bool gpsFailureReportPending = false;

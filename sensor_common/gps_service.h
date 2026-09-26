@@ -156,8 +156,6 @@ void startGpsAcquisition() {
   gpsStartMs = millis();
   gpsLastAttemptMs = gpsStartMs;
   gpsRetryRemainingSec = 0;
-  gpsLastDebugMs = 0;
-  gpsByteCount = 0;
   gpsOneShotState = GPS_ONE_SHOT_ACQUIRING;
 
   Serial.println("GPS one-shot: acquisition started in background");
@@ -206,7 +204,6 @@ void serviceOneShotGps() {
 
   while (Serial2.available() > 0) {
     gps.encode((char)Serial2.read());
-    gpsByteCount++;
   }
 
   // รับทันทีเมื่อ GPS ส่งพิกัดใหม่ที่อ่านได้ โดยไม่กรองจำนวนดาวเทียมหรือความแม่นยำ
@@ -235,13 +232,6 @@ void serviceOneShotGps() {
     return;
   }
 
-  if (millis() - gpsLastDebugMs > 10000UL) {
-    gpsLastDebugMs = millis();
-    Serial.print("GPS waiting, bytes=");
-    Serial.print(gpsByteCount);
-    Serial.print(" elapsed_sec=");
-    Serial.println((millis() - gpsStartMs) / 1000UL);
-  }
 }
 
 // startOneShotGpsIfNeeded: เลือกตอนเริ่มเครื่องว่าจะใช้โหมด กำหนดพิกัดเอง พิกัดที่บันทึก รอรอบ การลองใหม่ หรือเริ่มค้นใหม่; ถ้าไม่มีทางเลือกนี้จะเสียเวลาค้นซ้ำทุกครั้ง
