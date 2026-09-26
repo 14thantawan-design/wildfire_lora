@@ -65,6 +65,10 @@ void handleIncomingLoRa() {
   StaticJsonDocument<MAX_JSON_SIZE> doc;
   deserializeJson(doc, payload);
   String nodeId = String((const char *)(doc["id"] | ""));
+  doc["rssi"] = rssi;
+  doc["snr"] = snr;
+  payload = "";
+  serializeJson(doc, payload);
   sendPendingCommandForNode(nodeId);
   Serial.print("Received from "); Serial.print(nodeId);
   Serial.print(" RSSI="); Serial.print(rssi);
