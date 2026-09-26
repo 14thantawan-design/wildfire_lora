@@ -144,9 +144,7 @@ void stopGpsAndUseManualLocation() {
   gpsOneShotState = GPS_ONE_SHOT_DONE;
   saveGpsManualModeToNvs();
 
-#if SERIAL_DEBUG
   Serial.println("Manual location accepted; automatic GPS search disabled");
-#endif
 }
 
 // startGpsAcquisition: ล้างตัวแปล GPS เปิดไฟและ UART ตั้งเวลาเริ่มแล้วเข้าสถานะ ACQUIRING; การอ่านต่อทำโดย serviceOneShotGps
@@ -162,9 +160,7 @@ void startGpsAcquisition() {
   gpsByteCount = 0;
   gpsOneShotState = GPS_ONE_SHOT_ACQUIRING;
 
-#if SERIAL_DEBUG
   Serial.println("GPS one-shot: acquisition started in background");
-#endif
 }
 
 // startGpsReacquisition: ทิ้งพิกัดเดิมทั้ง RAM/NVS แล้วเริ่มค้นใหม่เมื่อรับคำสั่ง; ใช้หลังย้ายจุดติดตั้ง
@@ -179,9 +175,7 @@ void startGpsReacquisition() {
   gpsOneShotState = GPS_ONE_SHOT_IDLE;
   startGpsAcquisition();
 
-#if SERIAL_DEBUG
   Serial.println("GPS re-acquire command accepted");
-#endif
 }
 
 // sendPendingGpsReports: ส่งรายงาน GPS ที่ปักธงรอไว้ แล้วล้างธง; โค้ดนี้ไม่ได้เก็บรายงานรอส่งใหม่เมื่อการส่งล้มเหลว
@@ -226,9 +220,7 @@ void serviceOneShotGps() {
     gpsOneShotState = GPS_ONE_SHOT_DONE;
     gpsFixReportPending = true;
 
-#if SERIAL_DEBUG
     Serial.println("GPS one-shot: fix acquired and saved");
-#endif
     return;
   }
 
@@ -239,13 +231,10 @@ void serviceOneShotGps() {
     gpsLastAttemptMs = millis();
     gpsRetryRemainingSec = max(1UL, GPS_RETRY_INTERVAL_MS / 1000UL);
 
-#if SERIAL_DEBUG
     Serial.println("GPS one-shot: gps_failed, continuing sensor loop");
-#endif
     return;
   }
 
-#if SERIAL_DEBUG
   if (millis() - gpsLastDebugMs > 10000UL) {
     gpsLastDebugMs = millis();
     Serial.print("GPS waiting, bytes=");
@@ -253,7 +242,6 @@ void serviceOneShotGps() {
     Serial.print(" elapsed_sec=");
     Serial.println((millis() - gpsStartMs) / 1000UL);
   }
-#endif
 }
 
 // startOneShotGpsIfNeeded: เลือกตอนเริ่มเครื่องว่าจะใช้โหมด กำหนดพิกัดเอง พิกัดที่บันทึก รอรอบ การลองใหม่ หรือเริ่มค้นใหม่; ถ้าไม่มีทางเลือกนี้จะเสียเวลาค้นซ้ำทุกครั้ง
@@ -262,9 +250,7 @@ void startOneShotGpsIfNeeded() {
 
   if (loadGpsManualModeFromNvs()) {
     gpsOneShotState = GPS_ONE_SHOT_DONE;
-#if SERIAL_DEBUG
     Serial.println("GPS one-shot: manual location mode, automatic search skipped");
-#endif
     return;
   }
 
@@ -273,9 +259,7 @@ void startOneShotGpsIfNeeded() {
     nodeGpsLocation = fix;
     gpsOneShotState = GPS_ONE_SHOT_DONE;
     gpsFixReportPending = true;
-#if SERIAL_DEBUG
     Serial.println("GPS one-shot: using stored NVS location");
-#endif
     return;
   }
 
@@ -284,11 +268,9 @@ void startOneShotGpsIfNeeded() {
     resetGpsLocation(gpsWorkingLocation);
     gpsOneShotState = GPS_ONE_SHOT_FAILED;
     gpsLastAttemptMs = millis();
-#if SERIAL_DEBUG
     Serial.print("GPS one-shot: retry deferred for ");
     Serial.print(gpsRetryRemainingSec);
     Serial.println(" sec");
-#endif
     return;
   }
 

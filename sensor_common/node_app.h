@@ -45,19 +45,17 @@ void runOneMeasurementCycle() {
 
 // setupNode: เตรียมโหนดเมื่อ setup() ในไฟล์ .ino เรียกใช้ รวมถึงหลังตื่นจาก deep sleep
 void setupNode() {
-#if SERIAL_DEBUG
-  Serial.begin(SERIAL_BAUD);
+  Serial.begin(115200);
   delay(1000);
-#endif
 
   disableUnusedRadios();
   randomSeed(esp_random());
 
   loadLastHandledCommandId();
 
-  debugPrintln("Starting Wildfire Sensor Node...");
-  debugPrintln(String("Mode: ") + (TEST_MODE ? "TEST_MODE" : "DEPLOY_MODE"));
-  debugPrintln(String("Node ID: ") + NODE_ID);
+  Serial.println("Starting Wildfire Sensor Node...");
+  Serial.println(String("Mode: ") + (TEST_MODE ? "TEST_MODE" : "DEPLOY_MODE"));
+  Serial.println(String("Node ID: ") + NODE_ID);
 
   initSensors();
   loraReady = initLoRa();

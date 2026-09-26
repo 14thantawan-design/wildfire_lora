@@ -52,12 +52,10 @@ void handleIncomingLoRa() {
   int rssi = LoRa.packetRssi();
   float snr = LoRa.packetSnr();
 
-#if PRINT_RAW_PAYLOAD
   Serial.print("RAW LoRa bytes=");
   Serial.print(packetSize);
   Serial.print(" payload=");
   Serial.println(payload);
-#endif
 
   if (handleCommandAckPacket(payload)) return;
 

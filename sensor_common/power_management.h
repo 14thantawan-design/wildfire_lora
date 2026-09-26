@@ -21,7 +21,6 @@ void delayWithBackgroundTasks(unsigned long durationMs) {
 
 // printSensorDebug: แสดงค่าที่ใช้ตัดสินและสถานะสุดท้าย
 void printSensorDebug(const SensorData &data, FireStatus status) {
-#if SERIAL_DEBUG
   Serial.println("========== SENSOR NODE ==========");
   Serial.print("Node: "); Serial.println(NODE_ID);
   Serial.print("State: "); Serial.println(statusToString(status));
@@ -30,7 +29,6 @@ void printSensorDebug(const SensorData &data, FireStatus status) {
   Serial.print("Particle ADC: "); Serial.println(data.particleAdc);
   Serial.print("Next Report Sec: "); Serial.println(plannedReportIntervalSeconds(status));
   Serial.println("=================================");
-#endif
 }
 
 // remainingIntervalMs: ทำให้รอบเป็น start-to-start โดยหักเวลาที่อ่าน/ส่ง/รอ ACK ไปแล้ว

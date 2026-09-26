@@ -14,7 +14,7 @@ bool initLoRa() {
 
   if (!LoRa.begin(LORA_FREQUENCY)) {
     loraReady = false;
-    debugPrintln("LoRa init FAILED");
+    Serial.println("LoRa init FAILED");
     return false;
   }
 
@@ -23,7 +23,7 @@ bool initLoRa() {
   LoRa.setCodingRate4(LORA_CODING_RATE_DENOMINATOR);
   LoRa.setSyncWord(LORA_SYNC_WORD);
   LoRa.setTxPower(LORA_TX_POWER_DBM);
-  debugPrintln(
+  Serial.println(
     String("LoRa init OK SF=") + LORA_SPREADING_FACTOR +
     " TX=" + LORA_TX_POWER_DBM + " dBm"
   );
@@ -62,16 +62,14 @@ void listenForGatewayCommand();
 // sendLoRaPacket: สุ่มเวลารอเพื่อลดการชนกัน ส่งหนึ่งครั้ง แล้วฟังคำสั่ง GPS
 bool sendLoRaPacket(const String &payload, bool useRandomDelay) {
   if (!ensureLoRaReady()) {
-    debugPrintln("TX skipped: LoRa is not ready");
+    Serial.println("TX skipped: LoRa is not ready");
     return false;
   }
 
   if (useRandomDelay) {
     long d = random(RANDOM_TX_DELAY_MIN_MS, RANDOM_TX_DELAY_MAX_MS + 1);
-#if SERIAL_DEBUG
     Serial.print("Random TX delay ms: ");
     Serial.println(d);
-#endif
     delay(d);
   }
 
@@ -82,13 +80,11 @@ bool sendLoRaPacket(const String &payload, bool useRandomDelay) {
   if (ok) listenForGatewayCommand();
   else LoRa.sleep();
 
-#if SERIAL_DEBUG
   Serial.print("TX bytes: ");
   Serial.println(payload.length());
   Serial.print("TX: ");
   Serial.println(payload);
   Serial.print("TX status: ");
   Serial.println(ok ? "OK" : "FAILED");
-#endif
   return ok;
 }

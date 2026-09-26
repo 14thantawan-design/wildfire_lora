@@ -19,13 +19,6 @@ const char* statusToString(FireStatus status) {
   }
 }
 
-// debugPrintln: พิมพ์ข้อความ msg เมื่อเปิด SERIAL_DEBUG เท่านั้น; เป็นเครื่องมือดูอาการ ไม่ได้ใช้ตัดสินไฟ
-void debugPrintln(const String &msg) {
-#if SERIAL_DEBUG
-  Serial.println(msg);
-#endif
-}
-
 // disableUnusedRadios: ปิด Wi-Fi และ Bluetooth ที่โหนดไม่ได้ใช้ เพื่อลดการใช้พลังงาน; การส่งข้อมูลส่วนนี้ใช้ LoRa
 void disableUnusedRadios() {
   WiFi.mode(WIFI_OFF);

@@ -34,7 +34,7 @@
 
 // Arduino เรียก setup() หนึ่งครั้งเมื่อเปิดเครื่องหรือรีเซ็ต Gateway
 void setup() {
-  Serial.begin(SERIAL_BAUD);
+  Serial.begin(115200);
   delay(1000);
   disableUnusedRadios();
 

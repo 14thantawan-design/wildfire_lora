@@ -33,9 +33,6 @@
 #define LORA_TX_POWER_DBM 20
 #define LORA_INIT_RETRY_MS 10000UL
 
-#define SERIAL_BAUD 115200
-#define PRINT_RAW_PAYLOAD 1   // useful while testing; set 0 later if too noisy
-
 // =========================
 // Backend uplink
 // =========================

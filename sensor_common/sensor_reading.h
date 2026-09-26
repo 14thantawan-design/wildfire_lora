@@ -77,14 +77,12 @@ void initSensors() {
 
   bool shtOk = beginSht31();
 
-#if SERIAL_DEBUG
   Serial.print("SHT31 init: ");
   Serial.println(shtOk ? "OK" : "FAILED");
   if (shtOk) {
     Serial.print("SHT31 address: 0x");
     Serial.println(activeSht31Address, HEX);
   }
-#endif
 }
 
 // =========================
