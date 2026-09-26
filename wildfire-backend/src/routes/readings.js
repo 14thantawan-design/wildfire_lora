@@ -54,13 +54,11 @@ router.get('/:node_id', async (req, res, next) => {
               ]
             },
             node_id: { $last: '$node_id' },
-            seq: { $last: '$seq' },
             timestamp: { $last: '$timestamp' },
             state: { $last: '$state' },
             air_temp: { $avg: '$air_temp' },
             humidity: { $avg: '$humidity' },
             particle_adc: { $avg: '$particle_adc' },
-            sensor_health: { $last: '$sensor_health' },
             rssi: { $last: '$rssi' },
             snr: { $last: '$snr' }
           }

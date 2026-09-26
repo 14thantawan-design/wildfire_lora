@@ -16,11 +16,11 @@
 - `node_state.h` — รูปแบบข้อมูลและตัวแปรที่ใช้ร่วมกัน
 - `sensor_config.h` — ขาอุปกรณ์ เกณฑ์ และรอบเวลาที่ใช้ร่วมกัน
 - `node_helpers.h` — ฟังก์ชันช่วยทั่วไปและข้อความ Serial
-- `sensor_reading.h` — อ่าน SHT31 และ Sharp GP2Y1014AU0F
-- `risk_rules.h` — ตัดสิน NORMAL, WATCH, WARNING และ SENSOR_FAULT
-- `lora_transport.h` — สร้าง JSON ส่ง LoRa และรอ ACK
+- `sensor_reading.h` — อ่าน SHT31 และอ่าน Sharp GP2Y1014AU0F สามครั้งเพื่อใช้ค่ากลาง
+- `risk_rules.h` — ตรวจ SENSOR_FAULT แล้วเทียบค่ากับเกณฑ์ NORMAL, WATCH หรือ WARNING
+- `lora_transport.h` — สร้าง JSON และส่ง LoRa
 - `gps_service.h` — ค้นหา บันทึก และรายงานพิกัด
-- `gateway_commands.h` — รับคำสั่งและ ACK จาก Gateway
+- `gateway_commands.h` — รับคำสั่ง GPS จาก Gateway และตอบรับคำสั่ง
 - `power_management.h` — ควบคุมรอบเวลาและ deep sleep
 - `node_app.h` — ขั้นตอนเตรียมโหนดและลำดับรอบวัดที่ `.ino` เรียกใช้
 

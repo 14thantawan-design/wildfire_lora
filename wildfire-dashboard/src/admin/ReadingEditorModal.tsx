@@ -49,31 +49,23 @@ export function ReadingEditorModal({
             </label>
             <label>
               <span>อุณหภูมิ (°C)</span>
-              <input max="100" min="-80" onChange={(event) => onDraftChange({ ...draft, air_temp: event.target.value })} step="0.1" type="number" value={draft.air_temp} />
+              <input onChange={(event) => onDraftChange({ ...draft, air_temp: event.target.value })} step="0.1" type="number" value={draft.air_temp} />
             </label>
             <label>
               <span>ความชื้น (%)</span>
-              <input max="100" min="0" onChange={(event) => onDraftChange({ ...draft, humidity: event.target.value })} step="0.1" type="number" value={draft.humidity} />
+              <input onChange={(event) => onDraftChange({ ...draft, humidity: event.target.value })} step="0.1" type="number" value={draft.humidity} />
             </label>
             <label>
               <span>ค่าควัน ADC</span>
-              <input max="4095" min="0" onChange={(event) => onDraftChange({ ...draft, particle_adc: event.target.value })} step="1" type="number" value={draft.particle_adc} />
-            </label>
-            <label>
-              <span>สถานะเซนเซอร์</span>
-              <select onChange={(event) => onDraftChange({ ...draft, sensor_health: event.target.value })} value={draft.sensor_health}>
-                <option value="">ไม่ระบุ</option>
-                <option value="OK">OK</option>
-                <option value="FAULT">FAULT</option>
-              </select>
+              <input onChange={(event) => onDraftChange({ ...draft, particle_adc: event.target.value })} step="1" type="number" value={draft.particle_adc} />
             </label>
             <label>
               <span>LoRa RSSI (dBm)</span>
-              <input max="50" min="-200" onChange={(event) => onDraftChange({ ...draft, rssi: event.target.value })} step="1" type="number" value={draft.rssi} />
+              <input onChange={(event) => onDraftChange({ ...draft, rssi: event.target.value })} step="1" type="number" value={draft.rssi} />
             </label>
             <label>
               <span>LoRa SNR (dB)</span>
-              <input max="50" min="-50" onChange={(event) => onDraftChange({ ...draft, snr: event.target.value })} step="0.1" type="number" value={draft.snr} />
+              <input onChange={(event) => onDraftChange({ ...draft, snr: event.target.value })} step="0.1" type="number" value={draft.snr} />
             </label>
           </div>
           {error && <p className="reading-editor-error" role="alert">{error}</p>}

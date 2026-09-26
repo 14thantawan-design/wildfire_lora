@@ -64,23 +64,9 @@ bool beginBackendHttp(
   return http.begin(secureClient, url);
 }
 
-// postPacketToBackend: ส่งแพ็กเก็ตโหนดไป Backend พร้อมเพิ่มค่า RSSI และ SNR ลงใน JSON
-bool postPacketToBackend(const String &payload, int rssi, float snr) {
+// postPacketToBackend: ส่ง JSON จากโหนดไป Backend ตรง ๆ
+bool postPacketToBackend(const String &payload) {
   if (!ensureWiFiConnected()) return false;
-
-  StaticJsonDocument<HTTP_JSON_SIZE> doc;
-  DeserializationError error = deserializeJson(doc, payload);
-  if (error) {
-    Serial.print("HTTP forward JSON parse error: ");
-    Serial.println(error.c_str());
-    return false;
-  }
-
-  doc["rssi"] = rssi;
-  doc["snr"] = snr;
-
-  String body;
-  serializeJson(doc, body);
 
   for (int attempt = 1; attempt <= HTTP_POST_RETRY_COUNT; attempt++) {
     HTTPClient http;
@@ -95,7 +81,7 @@ bool postPacketToBackend(const String &payload, int rssi, float snr) {
 
     http.addHeader("Content-Type", "application/json");
     http.addHeader("X-Gateway-Key", GATEWAY_API_KEY);
-    int statusCode = http.POST(body);
+    int statusCode = http.POST(payload);
     String httpError = statusCode < 0 ? http.errorToString(statusCode) : "";
     char tlsErrorBuffer[160] = {0};
     int tlsErrorCode = secureClient.lastError(tlsErrorBuffer, sizeof(tlsErrorBuffer));

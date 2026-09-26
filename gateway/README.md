@@ -7,13 +7,13 @@ The sensor nodes use LoRa to reach the gateway.
 `gateway.ino` keeps `setup()` and `loop()` visible. The remaining code is split
 by responsibility, and every function has a short explanation above it:
 
-- `gateway_state.h` - packet structures, queues, and shared runtime state
+- `gateway_state.h` - GPS command state
 - `gateway_helpers.h` - small general helpers
 - `backend_http.h` - Wi-Fi/HTTPS requests to the Backend
 - `lora_radio.h` - LoRa initialization
 - `gateway_commands.h` - pending command queue and node downlinks
-- `network_task.h` - background FreeRTOS HTTP work
-- `packet_processing.h` - parsing, ACK, Serial output, and packet forwarding
+- `network_task.h` - background GPS command work
+- `packet_processing.h` - GPS commands and direct packet forwarding
 - `wifi_provisioning.h/.cpp` - WiFiManager setup portal and reconnection
 
 LoRa is only the local radio link:
@@ -71,10 +71,10 @@ installation's source configuration.
 Install WiFiManager version 2.0.17 or newer from Arduino Library Manager before
 compiling the Gateway.
 
-The Gateway does not keep a fixed-size node table. It accepts every valid node
-packet and posts it directly to `POST /api/packets` using the private gateway key.
-Backend and MongoDB are responsible for duplicate handling, current node status,
-and offline detection.
+The Gateway does not keep a fixed-size node table. It posts every received node
+packet directly to `POST /api/packets` using the private gateway key.
+Backend and MongoDB store each sensor packet as a reading and manage current
+node status and offline detection. Repeated packets create repeated readings.
 No computer or COM port is needed at the gateway site.
 
 ## GPS Re-acquire Command

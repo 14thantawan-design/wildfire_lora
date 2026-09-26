@@ -3,7 +3,7 @@
 /*
   การส่งข้อมูลผ่าน LoRa
   เริ่มวิทยุ สร้าง JSON ของข้อมูลเซนเซอร์ ส่งแพ็กเก็ต
-  และรอ ACK จาก Gateway ตามค่าที่กำหนดไว้ใน config.h
+  และเปิดช่วงรับคำสั่ง GPS จาก Gateway หลังส่ง
 */
 
 // initLoRa: ตั้ง SPI และวิทยุ LoRa แล้วคืน true ถ้าเริ่มได้; ค่าคลื่นต้องสอดคล้องกับ เกตเวย์ จึงสื่อสารกันได้
@@ -23,9 +23,6 @@ bool initLoRa() {
   LoRa.setCodingRate4(LORA_CODING_RATE_DENOMINATOR);
   LoRa.setSyncWord(LORA_SYNC_WORD);
   LoRa.setTxPower(LORA_TX_POWER_DBM);
-  // เพิ่มการตรวจความผิดพลาดของแพ็กเก็ตทางวิทยุ; CRC ไม่ใช่การเข้ารหัสหรือยืนยันตัวตนผู้ส่ง
-  LoRa.enableCrc();
-
   debugPrintln(
     String("LoRa init OK SF=") + LORA_SPREADING_FACTOR +
     " TX=" + LORA_TX_POWER_DBM + " dBm"
@@ -41,29 +38,18 @@ bool ensureLoRaReady() {
   return initLoRa();
 }
 
-// addFloatOrNull: ใส่ค่าทศนิยมลง JSON ตาม key; ถ้า NaN ใช้ null เพื่อบอกว่าไม่มีข้อมูล แทนเลขศูนย์ที่อาจถูกเข้าใจว่าเป็นค่าจริง
-void addFloatOrNull(JsonDocument &doc, const char *key, float value) {
-  if (isnan(value)) doc[key] = nullptr;
-  else doc[key] = value;
-}
-
-// buildJsonPacket: ประกอบข้อมูลวัดเป็น JSON ย่อและเพิ่ม seq หนึ่งครั้งต่อข้อมูลชุดใหม่; คีย์สั้นช่วยประหยัดพื้นที่ LoRa การส่งซ้ำใช้ ข้อความที่จะส่ง เดิมเพื่อระบุว่าเป็นชุดเดียวกัน
+// buildJsonPacket: ประกอบค่าที่วัดและสถานะความเสี่ยงเป็น JSON ย่อสำหรับ LoRa
 String buildJsonPacket(const SensorData &data, FireStatus status) {
   StaticJsonDocument<MAX_JSON_SIZE> doc;
-  seq++;
 
-  // โหนดตัดสินสถานะแล้วส่งเฉพาะค่าที่วัดได้ สุขภาพเซนเซอร์ และสถานะสุดท้าย
+  // โหนดส่งค่าที่วัดได้และสถานะความเสี่ยง
   doc["t"] = "s";
   doc["id"] = NODE_ID;
-  doc["q"] = seq;
-  doc["sid"] = bootSessionId;
   doc["ri"] = plannedReportIntervalSeconds(status);
   doc["st"] = statusToString(status);
-  addFloatOrNull(doc, "at", data.airTemp);
-  addFloatOrNull(doc, "h", data.humidity);
-  if (data.particleAdc < 0) doc["adc"] = nullptr;
-  else doc["adc"] = data.particleAdc;
-  doc["sh"] = sensorHealthString(data);
+  doc["at"] = data.airTemp;
+  doc["h"] = data.humidity;
+  doc["adc"] = data.particleAdc;
 
   String payload;
   serializeJson(doc, payload);
@@ -71,10 +57,10 @@ String buildJsonPacket(const SensorData &data, FireStatus status) {
 }
 
 // ประกาศล่วงหน้า (ยังไม่มีตัวฟังก์ชัน) เพื่อให้ฟังก์ชันส่งด้านล่างเรียกชื่อที่นิยามทีหลังได้
-bool listenForGatewayCommand(uint32_t expectedSeq);
+void listenForGatewayCommand();
 
-// sendLoRaPacket: ส่ง ข้อความที่จะส่ง โดยอาจสุ่มเวลารอเพื่อลดโหนดส่งชนกัน แล้วเปิดหน้าต่างรับคำตอบ; คืนผลส่ง และถ้าขอ ACK ต้องได้รับ ACK ตรงชุดด้วย
-bool sendLoRaPacket(const String &payload, bool useRandomDelay, bool requireGatewayAck = false) {
+// sendLoRaPacket: สุ่มเวลารอเพื่อลดการชนกัน ส่งหนึ่งครั้ง แล้วฟังคำสั่ง GPS
+bool sendLoRaPacket(const String &payload, bool useRandomDelay) {
   if (!ensureLoRaReady()) {
     debugPrintln("TX skipped: LoRa is not ready");
     return false;
@@ -93,8 +79,7 @@ bool sendLoRaPacket(const String &payload, bool useRandomDelay, bool requireGate
   LoRa.beginPacket();
   LoRa.print(payload);
   bool ok = LoRa.endPacket();
-  bool acknowledged = false;
-  if (ok) acknowledged = listenForGatewayCommand(seq);
+  if (ok) listenForGatewayCommand();
   else LoRa.sleep();
 
 #if SERIAL_DEBUG
@@ -104,29 +89,6 @@ bool sendLoRaPacket(const String &payload, bool useRandomDelay, bool requireGate
   Serial.println(payload);
   Serial.print("TX status: ");
   Serial.println(ok ? "OK" : "FAILED");
-  if (requireGatewayAck) {
-    Serial.print("Gateway ACK: ");
-    Serial.println(acknowledged ? "YES" : "NO");
-  }
 #endif
-  return ok && (!requireGatewayAck || acknowledged);
-}
-
-// sendSensorPacketWithAck: ส่งข้อมูลเซนเซอร์ซ้ำได้ตามจำนวนที่ตั้งจนได้รับ ACK หรือหมดโอกาส; ถ้าไม่มี ACK ไม่ได้แปลว่า เกตเวย์ ไม่เคยรับ เพราะคำตอบอาจสูญหายได้เช่นกัน
-bool sendSensorPacketWithAck(const String &payload) {
-#if SENSOR_REQUIRE_GATEWAY_ACK
-  for (int attempt = 1; attempt <= SENSOR_ACK_MAX_ATTEMPTS; attempt++) {
-#if SERIAL_DEBUG
-    Serial.print("Sensor TX attempt: ");
-    Serial.print(attempt);
-    Serial.print("/");
-    Serial.println(SENSOR_ACK_MAX_ATTEMPTS);
-#endif
-    if (sendLoRaPacket(payload, true, true)) return true;
-  }
-  debugPrintln("Sensor TX ended without Gateway ACK");
-  return false;
-#else
-  return sendLoRaPacket(payload, true);
-#endif
+  return ok;
 }

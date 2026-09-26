@@ -13,7 +13,6 @@ export interface NodeStatus {
   air_temp?: number | null
   humidity?: number | null
   particle_adc?: number | null
-  sensor_health?: string
   lat?: number
   lng?: number
   gps_fixed?: boolean
@@ -21,7 +20,6 @@ export interface NodeStatus {
   location_source?: 'gps' | 'manual'
   location_updated_at?: string
   last_seen?: string
-  last_seq?: number
   report_interval_sec?: number
   rssi?: number
   snr?: number
@@ -44,13 +42,11 @@ export interface ManualLocationInput {
 export interface Reading {
   _id?: string
   node_id: string
-  seq?: number
   timestamp: string
   state: NodeState
   air_temp?: number | null
   humidity?: number | null
   particle_adc?: number | null
-  sensor_health?: string
   rssi?: number
   snr?: number
 }
@@ -78,13 +74,11 @@ export interface Alert {
   max_state?: NodeState
   last_reading?: {
     reading_id?: string
-    seq?: number
     timestamp?: string
     state?: NodeState
     air_temp?: number | null
     humidity?: number | null
     particle_adc?: number | null
-    sensor_health?: string
     rssi?: number
     snr?: number
   }

@@ -86,15 +86,12 @@ void clearGpsLocationFromNvs() {
 #endif
 }
 
-// buildGpsPacket: สร้าง JSON GPS แยกจากข้อมูลเซนเซอร์ พร้อมหมายเลขชุด; gf บอกว่าหาพิกัดได้หรือไม่ la/ln เป็นพิกัด ส่วน er เป็นเหตุขัดข้อง
+// buildGpsPacket: สร้าง JSON GPS แยกจากข้อมูลเซนเซอร์; gf บอกว่าหาพิกัดได้หรือไม่
 String buildGpsPacket(const GpsLocation &fix, bool gpsFix, const char *errorCode) {
   StaticJsonDocument<MAX_JSON_SIZE> doc;
-  seq++;
 
   doc["t"] = "gps";
   doc["id"] = NODE_ID;
-  doc["q"] = seq;
-  doc["sid"] = bootSessionId;
   doc["gf"] = gpsFix ? 1 : 0;
 
   if (gpsFix && fix.hasFix) {

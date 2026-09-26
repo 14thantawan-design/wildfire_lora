@@ -2,25 +2,8 @@
 
 /*
   รูปแบบข้อมูลและสถานะส่วนกลางของ Gateway
-  เก็บโครงสร้างแพ็กเก็ต คิวคำสั่ง และตัวแปรที่หลายโมดูลต้องใช้ร่วมกัน
+  เก็บคิวคำสั่งและตัวแปรที่หลายโมดูลต้องใช้ร่วมกัน
 */
-
-struct ParsedPacket {
-  String packetType;
-  String nodeId;
-  uint32_t seq;
-  uint32_t sessionId;
-  uint32_t reportIntervalSec;
-  bool gpsFix;
-  double latitude;
-  double longitude;
-  String gpsError;
-  String state;
-  float airTemp;
-  float humidity;
-  int particleAdc;
-  String sensorHealth;
-};
 
 struct PendingCommand {
   bool used;
@@ -36,13 +19,6 @@ enum CommandReportType : uint8_t {
 };
 
 #if WIFI_HTTP_ENABLED
-struct HttpPacketJob {
-  char payload[MAX_JSON_SIZE + 1];
-  int rssi;
-  float snr;
-  uint8_t attempts;
-};
-
 struct CommandReportJob {
   CommandReportType type;
   char commandId[64];
@@ -60,7 +36,6 @@ unsigned long lastLoRaInitAttemptMs = 0;
 bool loraReady = false;
 
 #if WIFI_HTTP_ENABLED
-QueueHandle_t httpPacketQueue = nullptr;
 QueueHandle_t commandReportQueue = nullptr;
 SemaphoreHandle_t pendingCommandMutex = nullptr;
 #endif

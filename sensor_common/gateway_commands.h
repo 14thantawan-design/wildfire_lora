@@ -2,7 +2,7 @@
 
 /*
   คำสั่งจาก Gateway
-  รับคำสั่ง GPS ตรวจ ACK ของข้อมูลเซนเซอร์ ป้องกันคำสั่งซ้ำ
+  รับคำสั่ง GPS ป้องกันคำสั่งซ้ำ
   และส่งผลตอบกลับให้ Gateway ภายในช่วงรับ LoRa
 */
 
@@ -21,13 +21,12 @@ void saveLastHandledCommandId(const String &commandId) {
   lastHandledCommandId = commandId;
 }
 
-// sendCommandAckPacket: ส่ง cmd_ack กลับว่าโหนดยอมรับคำสั่งหรือไม่ พร้อมเหตุผลเมื่อปฏิเสธ; ต่างจาก rx_ack ที่ เกตเวย์ ส่งยืนยันการรับข้อมูลวัด
+// sendCommandAckPacket: ส่ง cmd_ack กลับว่าโหนดยอมรับคำสั่ง GPS หรือไม่
 void sendCommandAckPacket(const String &commandId, bool accepted, const String &reason) {
   StaticJsonDocument<COMMAND_MAX_JSON_SIZE> doc;
   doc["t"] = "cmd_ack";
   doc["id"] = NODE_ID;
   doc["cid"] = commandId;
-  doc["sid"] = bootSessionId;
   doc["ok"] = accepted ? 1 : 0;
   if (!accepted && reason.length() > 0) doc["r"] = reason;
 
@@ -66,24 +65,12 @@ String handleGatewayCommand(const String &payload) {
 #endif
 }
 
-// isUplinkAck: ตรวจ rx_ack ว่าตรง NODE_ID, bootSessionId และ seq ที่รอ; ถ้าไม่ตรวจอาจเอาคำตอบของโหนดอื่นหรือข้อมูลชุดเก่ามานับว่าสำเร็จ
-bool isUplinkAck(const String &payload, uint32_t expectedSeq) {
-  StaticJsonDocument<COMMAND_MAX_JSON_SIZE> doc;
-  if (deserializeJson(doc, payload)) return false;
-  if (String((const char *)(doc["t"] | "")) != "rx_ack") return false;
-  if (String((const char *)(doc["id"] | "")) != NODE_ID) return false;
-  uint32_t ackSessionId = doc["sid"] | 0UL;
-  uint32_t ackSeq = doc["q"] | 0UL;
-  return ackSessionId == bootSessionId && ackSeq == expectedSeq;
-}
-
-// listenForGatewayCommand: เปิดรับ LoRa ชั่วคราวหลังส่ง แยก ACK กับคำสั่ง แล้วตอบคำสั่งล่าสุดที่จัดการได้เมื่อจบหน้าต่าง; ถ้าไม่เปิดรับจะไม่ได้ ACK/คำสั่งในช่วงนี้
-bool listenForGatewayCommand(uint32_t expectedSeq) {
+// listenForGatewayCommand: ฟังคำสั่ง GPS หลังส่งข้อมูล แล้วตอบรับคำสั่งที่ได้รับ
+void listenForGatewayCommand() {
   unsigned long startedAt = millis();
   String commandAckId;
   bool commandAccepted = true;
   String commandResultReason;
-  bool uplinkAcknowledged = false;
   LoRa.receive();
 
   while (millis() - startedAt < COMMAND_RX_WINDOW_MS) {
@@ -95,7 +82,6 @@ bool listenForGatewayCommand(uint32_t expectedSeq) {
 
     String payload;
     while (LoRa.available()) payload += (char)LoRa.read();
-    if (isUplinkAck(payload, expectedSeq)) uplinkAcknowledged = true;
     String handledCommandId = handleGatewayCommand(payload);
     if (handledCommandId.length() > 0) {
       commandAckId = handledCommandId;
@@ -109,5 +95,4 @@ bool listenForGatewayCommand(uint32_t expectedSeq) {
     sendCommandAckPacket(commandAckId, commandAccepted, commandResultReason);
   }
   if (loraReady) LoRa.sleep();
-  return uplinkAcknowledged;
 }

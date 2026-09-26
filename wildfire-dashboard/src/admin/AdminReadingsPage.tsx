@@ -132,7 +132,6 @@ export function AdminReadingsPage({ onDataChanged }: AdminReadingsPageProps) {
           air_temp: nullableNumber(draft.air_temp),
           humidity: nullableNumber(draft.humidity),
           particle_adc: nullableNumber(draft.particle_adc),
-          sensor_health: draft.sensor_health || null,
           rssi: nullableNumber(draft.rssi),
           snr: nullableNumber(draft.snr),
         }),

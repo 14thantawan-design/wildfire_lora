@@ -53,7 +53,7 @@ app.post('/api/packets', requireGatewayKey, async (req, res, next) => {
   try {
     const result = await handlePacket(req.body);
     if (result.ignored) {
-      return res.status(result.invalid ? 400 : 202).json(result);
+      return res.status(202).json(result);
     }
 
     markGatewayPacket('http');

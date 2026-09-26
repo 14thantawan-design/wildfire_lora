@@ -3,17 +3,16 @@ const assert = require('node:assert/strict');
 const NodeModel = require('../src/models/Node');
 const Reading = require('../src/models/Reading');
 const Alert = require('../src/models/Alert');
-const { handleSensorPacket, validateSensorPacket } = require('../src/services/packetHandler');
-const { riskFromPacket } = require('../src/services/nodeRisk');
+const { handleSensorPacket } = require('../src/services/packetHandler');
 const { serializeReading } = require('../src/routes/readings');
 const { withOnlineStatus } = require('../src/routes/nodes');
 const { buildTelegramMessage } = require('../src/services/telegramService');
 
 function packet(overrides = {}) {
   return {
-    t: 's', id: 'NODE01', sid: 10, q: 1,
+    t: 's', id: 'NODE01',
     st: 'NORMAL',
-    at: 30, h: 70, adc: 200, sh: 'OK', ri: 300,
+    at: 30, h: 70, adc: 200, ri: 300,
     ...overrides
   };
 }
@@ -28,35 +27,9 @@ function query(value) {
   };
 }
 
-test('sensor packet accepts a state without duplicated reason fields', () => {
-  assert.equal(validateSensorPacket(packet()), null);
-  assert.match(validateSensorPacket(packet({ st: 'INVALID' })), /state/);
-  assert.match(validateSensorPacket(packet({ t: 'invalid' })), /type/);
-  assert.match(validateSensorPacket(packet({ sh: 'INVALID' })), /health/);
-  assert.match(validateSensorPacket(packet({ rb: 1 })), /unsupported field/);
-  assert.match(validateSensorPacket(packet({ st: 'SENSOR_FAULT' })), /disagree/);
-  assert.equal(validateSensorPacket(packet({
-    st: 'SENSOR_FAULT', sh: 'FAULT', at: null, h: null, adc: null
-  })), null);
-
-  assert.deepEqual(riskFromPacket(packet({ st: 'WARNING' })), {
-    state: 'WARNING'
-  });
-});
-
-test('sensor report interval comes from firmware and uses whole seconds', () => {
-  assert.equal(validateSensorPacket(packet({ st: 'WARNING', ri: 120 })), null);
-  assert.equal(validateSensorPacket(packet({ st: 'WATCH', ri: 20 })), null);
-  assert.equal(validateSensorPacket(packet({ st: 'NORMAL', ri: 5 })), null);
-  assert.match(validateSensorPacket(packet({ ri: 0 })), /interval/);
-  assert.match(validateSensorPacket(packet({ ri: 20.5 })), /interval/);
-  assert.match(validateSensorPacket(packet({ ri: 86401 })), /interval/);
-});
-
 test('current schema stores only the firmware state', () => {
-  const risk = riskFromPacket(packet({ st: 'WATCH' }));
-  const node = new NodeModel({ node_id: 'NODE01', ...risk }).toObject();
-  const reading = new Reading({ node_id: 'NODE01', ...risk }).toObject();
+  const node = new NodeModel({ node_id: 'NODE01', state: 'WATCH' }).toObject();
+  const reading = new Reading({ node_id: 'NODE01', state: 'WATCH' }).toObject();
 
   for (const obj of [node, reading]) {
     assert.equal(obj.state, 'WATCH');
@@ -117,6 +90,11 @@ test('ingestion, storage, live API, alerts and Telegram use firmware state end t
   assert.equal(active.level, 'WARNING');
   assert.equal(Object.hasOwn(active, 'reasons'), false);
 
+  const repeated = await handleSensorPacket(warning);
+  assert.equal(repeated.alert.action, 'updated');
+  assert.equal(readings.length, 2);
+  assert.notEqual(readings[0]._id.toString(), readings[1]._id.toString());
+
   const message = buildTelegramMessage('created', active, active.last_reading);
   assert.match(message, /30°C/);
   assert.match(message, /30%/);
@@ -124,16 +102,18 @@ test('ingestion, storage, live API, alerts and Telegram use firmware state end t
   assert.doesNotMatch(message, /สาเหตุ/);
 
   // Backend trusts the firmware state and does not calculate thresholds again.
-  const normal = await handleSensorPacket(packet({ q: 2, st: 'NORMAL', at: 50, h: 20, adc: 1600 }));
+  const normal = await handleSensorPacket(packet({ st: 'NORMAL', at: 50, h: 20, adc: 1600 }));
   assert.equal(normal.alert.action, 'closed');
   assert.equal(closes, 1);
   assert.equal(snapshot.state, 'NORMAL');
   assert.equal(active, null);
-  assert.equal(serializeReading(readings[1]).state, 'NORMAL');
+  assert.equal(serializeReading(readings[2]).state, 'NORMAL');
   assert.equal(withOnlineStatus(snapshot).state, 'NORMAL');
 
-  await handleSensorPacket(packet({ q: 3, st: 'SENSOR_FAULT', sh: 'FAULT', at: null, h: null }));
-  assert.equal(active.level, 'SENSOR_FAULT');
+  const fault = await handleSensorPacket(packet({ st: 'SENSOR_FAULT', at: null, h: null, adc: 200 }));
+  assert.equal(fault.alert.action, 'created');
+  assert.equal(readings[3].state, 'SENSOR_FAULT');
   assert.equal(snapshot.state, 'SENSOR_FAULT');
-  assert.equal(Object.hasOwn(snapshot, 'risk_reasons'), false);
+  assert.equal(active.level, 'SENSOR_FAULT');
+  assert.match(buildTelegramMessage('created', active, active.last_reading), /เซนเซอร์ขัดข้อง/);
 });

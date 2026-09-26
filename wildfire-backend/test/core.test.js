@@ -1,13 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { riskFromPacket } = require('../src/services/nodeRisk');
-const {
-  isOutOfOrderPacket,
-  readingIdentity,
-  validateGpsPacket,
-  validateSensorPacket
-} = require('../src/services/packetHandler');
 const {
   severityOf,
   shouldNotifyLevel
@@ -36,47 +29,6 @@ const {
   isTelegramConfigured
 } = require('../src/services/telegramService');
 
-function validSensorPacket(overrides = {}) {
-  return {
-    t: 's',
-    id: 'NODE01',
-    q: 10,
-    sid: 1234,
-    st: 'NORMAL',
-    at: 30,
-    h: 60,
-    adc: 200,
-    sh: 'OK',
-    ri: 300,
-    ...overrides
-  };
-}
-
-test('backend preserves a node decision regardless of sensor values', () => {
-  for (const values of [{ adc: 0, at: 50, h: 20 }, { adc: 1200, at: 30, h: 95 }]) {
-    assert.deepEqual(riskFromPacket(validSensorPacket({ ...values, st: 'WARNING' })), {
-      state: 'WARNING'
-    });
-  }
-});
-
-test('sensor validation rejects incomplete or impossible packets', () => {
-  assert.equal(validateSensorPacket(validSensorPacket()), null);
-  assert.match(validateSensorPacket({ t: 's', id: 'NODE01' }), /sequence/);
-  assert.match(validateSensorPacket(validSensorPacket({ adc: 4096 })), /particle/);
-  assert.match(validateSensorPacket(validSensorPacket({ obsolete: true })), /unsupported field/);
-  assert.match(validateSensorPacket(validSensorPacket({ sh: 'OK', at: null })), /missing/);
-});
-
-test('GPS validation requires a real coordinate when fixed', () => {
-  assert.equal(validateGpsPacket({
-    t: 'gps', id: 'NODE01', q: 11, sid: 1234, gf: 1, la: 14.9, ln: 102.1
-  }), null);
-  assert.match(validateGpsPacket({
-    t: 'gps', id: 'NODE01', q: 11, sid: 1234, gf: 1, la: 200, ln: 102.1
-  }), /coordinates/);
-});
-
 test('GPS reacquire preserves a manual fallback but clears a stale GPS fix', () => {
   const manualUpdate = buildGpsReacquireUpdate({ location_source: 'manual' });
   const gpsUpdate = buildGpsReacquireUpdate({ location_source: 'gps' });
@@ -104,24 +56,22 @@ test('a new GPS command supersedes only the opposite GPS command', () => {
   assert.equal(oppositeGpsCommand('other'), null);
 });
 
-test('admin reading edits only accept measured fields in sensor ranges', () => {
+test('admin reading edits pass measured values through without range checks', () => {
   const update = buildReadingUpdate({
     timestamp: '2026-08-25T08:30:00.000Z',
     air_temp: 34.5,
     humidity: 48,
     particle_adc: 104,
-    sensor_health: 'ok',
     rssi: -76,
     snr: 7.5
   });
 
   assert.equal(update.$set.air_temp, 34.5);
-  assert.equal(update.$set.sensor_health, 'OK');
   assert.equal(update.$set.particle_adc, 104);
-  assert.equal(update.$set.timestamp.toISOString(), '2026-08-25T08:30:00.000Z');
-  assert.throws(() => buildReadingUpdate({ humidity: 101 }), /out of range/);
-  assert.throws(() => buildReadingUpdate({ timestamp: null }), /timestamp is invalid/);
-  assert.throws(() => buildReadingUpdate({ state: 'NORMAL' }), /no editable/);
+  assert.equal(update.$set.timestamp, '2026-08-25T08:30:00.000Z');
+  assert.equal(buildReadingUpdate({ humidity: 101 }).$set.humidity, 101);
+  assert.equal(buildReadingUpdate({ timestamp: null }).$set.timestamp, null);
+  assert.deepEqual(buildReadingUpdate({ state: 'NORMAL' }), { $set: {} });
 });
 
 test('bulk reading deletion validates, deduplicates, and limits ids', () => {
@@ -141,23 +91,6 @@ test('delete-all reading scope accepts one explicit safe node id only', () => {
   assert.throws(() => normalizeNodeId(''), /node_id is invalid/);
   assert.throws(() => normalizeNodeId('../NODE01'), /node_id is invalid/);
   assert.throws(() => normalizeNodeId('NODE01,NODE02'), /node_id is invalid/);
-});
-
-test('reading identity uses node, boot session, and sequence only', () => {
-  const first = readingIdentity(validSensorPacket({ rssi: -40, snr: 8 }));
-  const retry = readingIdentity(validSensorPacket({ rssi: -45, snr: 7 }));
-
-  assert.deepEqual(first, retry);
-  assert.deepEqual(first, { node_id: 'NODE01', session_id: 1234, seq: 10 });
-});
-
-test('out-of-order packets in the same boot session cannot overwrite the live node snapshot', () => {
-  const node = { session_id: 1234, last_seq: 42 };
-
-  assert.equal(isOutOfOrderPacket(node, validSensorPacket({ sid: 1234, q: 41 })), true);
-  assert.equal(isOutOfOrderPacket(node, validSensorPacket({ sid: 1234, q: 42 })), true);
-  assert.equal(isOutOfOrderPacket(node, validSensorPacket({ sid: 1234, q: 43 })), false);
-  assert.equal(isOutOfOrderPacket(node, validSensorPacket({ sid: 5678, q: 1 })), false);
 });
 
 test('offline timeout marks a node offline after two missed reports', () => {
@@ -196,13 +129,10 @@ test('node listing keeps offline nodes so the dashboard can show their last data
   assert.equal(statuses[1].state, 'NORMAL');
 });
 
-test('WARNING outranks a sensor fault in alert priority', () => {
-  assert.ok(severityOf('WARNING') > severityOf('SENSOR_FAULT'));
-});
-
-test('WATCH is an alert level so early warning reaches Telegram', () => {
+test('WATCH and SENSOR_FAULT open alerts and reach Telegram', () => {
   const { ALERT_LEVELS } = require('../src/services/alertService');
   assert.ok(ALERT_LEVELS.includes('WATCH'));
+  assert.ok(ALERT_LEVELS.includes('SENSOR_FAULT'));
 
   const message = buildTelegramMessage('created', {
     node_id: 'NODE02',
@@ -222,8 +152,6 @@ test('an unsent Telegram alert is retried without duplicating a delivered level'
   assert.equal(shouldNotifyLevel('WATCH', undefined), true);
   assert.equal(shouldNotifyLevel('WATCH', 'WATCH'), false);
   assert.equal(shouldNotifyLevel('WARNING', 'WATCH'), true);
-  assert.equal(shouldNotifyLevel('SENSOR_FAULT', 'WATCH'), true);
-  assert.equal(shouldNotifyLevel('WARNING', 'SENSOR_FAULT'), true);
 });
 
 test('Telegram alert uses the reported state and measured values', () => {

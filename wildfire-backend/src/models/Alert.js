@@ -4,27 +4,22 @@ const mongoose = require('mongoose');
 const alertSchema = new mongoose.Schema(
   {
     // ระดับ เหตุการณ์ และ Reading ล่าสุดที่ทำให้ Alert เปลี่ยน
-    node_id: { type: String, required: true, trim: true },
+    node_id: { type: String },
     level: {
       type: String,
-      required: true,
-      enum: ['WATCH', 'WARNING', 'SENSOR_FAULT'],
       index: true
     },
-    started_at: { type: Date, required: true, index: true },
+    started_at: { type: Date, index: true },
     ended_at: { type: Date },
     active: { type: Boolean, default: true, index: true },
     max_state: {
-      type: String,
-      enum: ['WATCH', 'WARNING', 'SENSOR_FAULT'],
-      index: true
+      type: String, index: true
     },
     message: { type: String },
     last_reading: { type: mongoose.Schema.Types.Mixed },
     // สถานะการส่ง Telegram เพื่อไม่แจ้งระดับเดิมซ้ำ
     telegram_notified_level: {
-      type: String,
-      enum: ['WATCH', 'WARNING', 'SENSOR_FAULT']
+      type: String
     },
     telegram_notified_at: { type: Date },
     telegram_resolved_notified_at: { type: Date },

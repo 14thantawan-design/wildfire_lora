@@ -1,8 +1,8 @@
 #pragma once
 
 /*
-  งานเครือข่ายเบื้องหลัง
-  FreeRTOS task นี้แยก HTTP ออกจากลูปรับ LoRa เพื่อไม่ให้การเชื่อมต่อ Backend บังการรับวิทยุ
+  งาน GPS command เบื้องหลัง
+  ดึงคำสั่งจาก Backend และส่งผล ACK กลับโดยไม่ปนกับทางเดินข้อมูลเซนเซอร์
 */
 
 #if WIFI_HTTP_ENABLED
@@ -37,16 +37,6 @@ void pollBackendCommands() {
   }
 }
 
-// enqueuePacketForBackend: คัดลอกแพ็กเก็ต LoRa เข้าคิว HTTP โดยไม่บล็อกการรับวิทยุ
-bool enqueuePacketForBackend(const String &payload, int rssi, float snr) {
-  if (!httpPacketQueue || payload.length() > MAX_JSON_SIZE) return false;
-  HttpPacketJob job = {};
-  strlcpy(job.payload, payload.c_str(), sizeof(job.payload));
-  job.rssi = rssi;
-  job.snr = snr;
-  return xQueueSend(httpPacketQueue, &job, 0) == pdTRUE;
-}
-
 // processCommandReport: ส่งสถานะคำสั่งไป Backend และลองใหม่เมื่อส่งไม่สำเร็จ
 void processCommandReport(CommandReportJob &job) {
   bool posted = job.type == COMMAND_REPORT_SENT
@@ -70,32 +60,14 @@ void processCommandReport(CommandReportJob &job) {
   }
 }
 
-// networkTask: ทำงานเครือข่ายบนอีกคอร์หนึ่ง ทั้งส่งแพ็กเก็ต รายงานคำสั่ง และตรวจคำสั่งใหม่
+// networkTask: รายงานผลคำสั่งและตรวจคำสั่งใหม่บนอีกคอร์หนึ่ง
 void networkTask(void *parameter) {
   (void)parameter;
-  HttpPacketJob pendingPacket = {};
-  bool hasPendingPacket = false;
 
   for (;;) {
     CommandReportJob report;
     if (xQueueReceive(commandReportQueue, &report, 0) == pdTRUE) {
       processCommandReport(report);
-    }
-
-    if (!hasPendingPacket && xQueueReceive(httpPacketQueue, &pendingPacket, 0) == pdTRUE) {
-      hasPendingPacket = true;
-    }
-
-    if (hasPendingPacket) {
-      if (postPacketToBackend(String(pendingPacket.payload), pendingPacket.rssi, pendingPacket.snr)) {
-        hasPendingPacket = false;
-      } else if (pendingPacket.attempts < 2) {
-        // Keep retrying the same packet instead of moving it to the queue tail.
-        // This prevents old seq values from arriving after newer live readings.
-        pendingPacket.attempts++;
-      } else {
-        hasPendingPacket = false;
-      }
     }
 
     unsigned long now = millis();
@@ -110,10 +82,9 @@ void networkTask(void *parameter) {
 
 // startNetworkTask: สร้างคิว mutex และ FreeRTOS task สำหรับงานเครือข่าย
 bool startNetworkTask() {
-  httpPacketQueue = xQueueCreate(HTTP_PACKET_QUEUE_LENGTH, sizeof(HttpPacketJob));
   commandReportQueue = xQueueCreate(COMMAND_REPORT_QUEUE_LENGTH, sizeof(CommandReportJob));
   pendingCommandMutex = xSemaphoreCreateMutex();
-  if (!httpPacketQueue || !commandReportQueue || !pendingCommandMutex) return false;
+  if (!commandReportQueue || !pendingCommandMutex) return false;
 
   return xTaskCreatePinnedToCore(
     networkTask,

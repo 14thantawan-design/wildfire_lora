@@ -36,14 +36,6 @@ function buildNodeStatusList(nodes) {
   return nodes.map(withOnlineStatus);
 }
 
-// ตรวจช่วงละติจูดและลองจิจูด รวมถึงไม่ยอมรับพิกัด 0,0
-function isValidCoordinate(latitude, longitude) {
-  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return false;
-  if (latitude < -90 || latitude > 90) return false;
-  if (longitude < -180 || longitude > 180) return false;
-  return Math.abs(latitude) >= 0.000001 || Math.abs(longitude) >= 0.000001;
-}
-
 // สร้างคำสั่งอัปเดต Node เมื่อ Admin ขอให้ค้นหา GPS ใหม่
 function buildGpsReacquireUpdate(node) {
   const unset = {};
@@ -108,15 +100,8 @@ router.post('/:node_id/gps/reacquire', requireLocalAdmin, async (req, res, next)
 // POST /api/nodes/:node_id/location/manual บันทึกพิกัดที่ Admin กรอกเอง
 router.post('/:node_id/location/manual', requireLocalAdmin, async (req, res, next) => {
   try {
-    if (typeof req.body?.lat !== 'number' || typeof req.body?.lng !== 'number') {
-      return res.status(400).json({ error: 'invalid coordinates' });
-    }
-
     const latitude = req.body.lat;
     const longitude = req.body.lng;
-    if (!isValidCoordinate(latitude, longitude)) {
-      return res.status(400).json({ error: 'invalid coordinates' });
-    }
 
     const node = await NodeModel.findOneAndUpdate(
       { node_id: req.params.node_id },

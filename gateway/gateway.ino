@@ -24,13 +24,13 @@
 #endif
 
 // โหลดโมดูลตามลำดับการพึ่งพากัน
-#include "gateway_state.h"       // โครงสร้างข้อมูล คิว และสถานะส่วนกลาง
+#include "gateway_state.h"       // โครงสร้างข้อมูลคำสั่งและสถานะส่วนกลาง
 #include "gateway_helpers.h"     // ปิดวิทยุที่ไม่ใช้
 #include "backend_http.h"        // Wi-Fi, HTTPS และ Backend
 #include "lora_radio.h"          // เริ่มวิทยุ LoRa
 #include "gateway_commands.h"    // คิวและการส่งคำสั่งไปโหนด
-#include "network_task.h"        // งาน HTTP เบื้องหลังบน FreeRTOS
-#include "packet_processing.h"   // รับ ตรวจ และส่งต่อแพ็กเก็ต LoRa
+#include "network_task.h"        // งาน GPS command เบื้องหลังบน FreeRTOS
+#include "packet_processing.h"   // รับและส่งต่อแพ็กเก็ต LoRa
 
 // Arduino เรียก setup() หนึ่งครั้งเมื่อเปิดเครื่องหรือรีเซ็ต Gateway
 void setup() {

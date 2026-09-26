@@ -2,8 +2,7 @@
 
 /*
   การอ่านเซนเซอร์
-  ดูแลการจ่ายไฟ SHT31/Sharp การอ่านค่า การแปลงแรงดันเป็นค่าอนุภาค
-  และการตรวจว่าค่าที่อ่านได้อยู่ในช่วงที่สมเหตุสมผลหรือไม่
+  ดูแลการจ่ายไฟ SHT31/Sharp และอ่านค่าเซนเซอร์
 */
 
 // powerSensors: รับ on=true เพื่อจ่ายไฟ หรือ false เพื่อตัดไฟผ่านขาควบคุม; จำสถานะด้วย static เพื่อไม่รอไฟนิ่งซ้ำ ถ้าขาเป็น -1 จะไม่สั่งสวิตช์
@@ -17,7 +16,7 @@ void powerSensors(bool on) {
   }
 }
 
-// median3: รับจำนวนเต็มสามค่าแล้วคืนค่ากลางเมื่อเรียงลำดับ เช่น 100, 900, 110 ได้ 110; ช่วยตัดค่ากระโดดหนึ่งตัว แต่ไม่ได้กรองความผิดพลาดทุกแบบ
+// median3: เลือกค่ากลางจากการอ่านควันสามครั้ง
 int median3(int a, int b, int c) {
   if ((a <= b && b <= c) || (c <= b && b <= a)) return b;
   if ((b <= a && a <= c) || (c <= a && a <= b)) return a;
@@ -37,7 +36,7 @@ int readSharpOnce() {
   return adc;
 }
 
-// readParticleMedianAdc: อ่าน Sharp สามครั้งแล้วคืน ADC ค่ากลาง; ช่วยตัดค่ากระโดดหนึ่งครั้ง
+// readParticleMedianAdc: อ่านควันสามครั้งและใช้ค่ากลางเพื่อลดผลของค่ากระโดดหนึ่งครั้ง
 int readParticleMedianAdc() {
   int a = readSharpOnce();
   delay(5);
@@ -45,14 +44,6 @@ int readParticleMedianAdc() {
   delay(5);
   int c = readSharpOnce();
   return median3(a, b, c);
-}
-
-// isShtReadingSane: รับ t (องศาเซลเซียส) และ h (%RH) แล้วคืน true เมื่อไม่ใช่ NaN และอยู่ในช่วงที่ตั้งไว้; เป็นการตรวจความสมเหตุสมผล ไม่ใช่การสอบเทียบ
-bool isShtReadingSane(float t, float h) {
-  if (isnan(t) || isnan(h)) return false;
-  if (t < SHT31_MIN_TEMP_C || t > SHT31_MAX_TEMP_C) return false;
-  if (h < SHT31_MIN_HUMIDITY || h > SHT31_MAX_HUMIDITY) return false;
-  return true;
 }
 
 // beginSht31: ลองเชื่อม SHT31 ที่ 0x44 ก่อน ถ้าไม่สำเร็จลอง 0x45 แล้วคืนผลสำเร็จ; ช่วยรองรับการตั้ง ที่อยู่อุปกรณ์ สองแบบ
@@ -97,38 +88,14 @@ void initSensors() {
 }
 
 // =========================
-// อ่านค่าและตรวจความสมเหตุสมผลของข้อมูลเซนเซอร์
+// อ่านค่าเซนเซอร์หนึ่งรอบ
 // =========================
-// readSensors: สร้างชุดข้อมูลใหม่ อ่าน SHT31 พร้อมลองใหม่หนึ่งครั้งถ้าผิดปกติ และอ่าน Sharp แบบมัธยฐาน; คืนทั้งค่าและธงสุขภาพ ไม่ใช้ค่าเก่าปลอมเป็นค่าใหม่
+// readSensors: อ่าน SHT31 หนึ่งครั้ง และใช้ค่ากลางจาก Sharp สามครั้ง
 SensorData readSensors() {
   SensorData data;
-  data.airTemp = NAN;
-  data.humidity = NAN;
-  data.particleAdc = -1;
-  data.shtOk = false;
-  data.sharpOk = false;
-
   powerSensors(true);
-
-  float t = sht31.readTemperature();
-  float h = sht31.readHumidity();
-  if (!isShtReadingSane(t, h)) {
-    beginSht31();
-    delay(20);
-    t = sht31.readTemperature();
-    h = sht31.readHumidity();
-  }
-
-  if (isShtReadingSane(t, h)) {
-    data.airTemp = t;
-    data.humidity = h;
-    data.shtOk = true;
-  }
-
-  int particleAdc = readParticleMedianAdc();
-  data.particleAdc = particleAdc;
-  // ตรวจเพียงว่าค่าอยู่ในช่วง ADC 12 บิต; การทดสอบว่าตอบสนองต่อควันจริงยังต้องทำกับฮาร์ดแวร์
-  data.sharpOk = particleAdc >= 0 && particleAdc <= SHARP_ADC_MAX;
-
+  data.airTemp = sht31.readTemperature();
+  data.humidity = sht31.readHumidity();
+  data.particleAdc = readParticleMedianAdc();
   return data;
 }

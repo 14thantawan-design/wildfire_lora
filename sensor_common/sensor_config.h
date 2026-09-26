@@ -92,8 +92,7 @@
 // ขา ADC อ่านแรงดันสัญญาณ Sharp; โค้ดอ่านเป็นมิลลิโวลต์ด้วย ADC calibration ของ ESP32
 #define SHARP_ANALOG_PIN 36  // ADC ของสัญญาณอนาล็อกจาก GP2Y1014
 
-// ADC ของ ESP32 ตั้งที่ 12 บิต จึงรับค่าดิบได้ 0–4095
-#define SHARP_ADC_MAX 4095
+
 // ขาสั่งวงจรสวิตช์ไฟเซนเซอร์ HIGH เปิด; ถ้า -1 โค้ดไม่ควบคุมไฟ จึงไม่ตัดไฟผ่านขานี้ตอนหลับ
 #define SENSOR_POWER_PIN 4    // ต่อ IO4 ของ TTGO ไป SIG+ ของ F5305S ที่ควบคุม Sharp (HIGH = เปิดไฟเลี้ยง)
 // รอไฟเซนเซอร์นิ่งหลังเปิดก่อนวัด หน่วย ms; ไม่มีเวลารออาจอ่านช่วงอุปกรณ์ยังไม่พร้อม
@@ -141,51 +140,7 @@
 #if TEST_MODE
   // TEST_MODE ใช้รอบสั้นเพื่อทดสอบโต๊ะ ไม่ใช่รอบภาคสนาม
   #define LOOP_INTERVAL_MS 5000UL
-#else
-  // รอบเริ่มวัดและส่งข้อมูลถัดไปตามสถานะ หน่วยวินาที
-  #define NORMAL_REPORT_INTERVAL_SEC 300UL
-  #define WATCH_REPORT_INTERVAL_SEC 120UL
-  #define WARNING_REPORT_INTERVAL_SEC 20UL
-  #define SENSOR_FAULT_REPORT_INTERVAL_SEC 300UL
 #endif
-
-// 1 ต้องได้รับ rx_ack ตรงชุดจึงถือว่าส่งข้อมูลวัดสำเร็จ; 0 ดูเพียงผลส่งของวิทยุ
-#define SENSOR_REQUIRE_GATEWAY_ACK 1
-// จำนวนส่งข้อมูลชุดเดียวสูงสุดรวมครั้งแรก เมื่อบังคับ ACK
-#define SENSOR_ACK_MAX_ATTEMPTS 3
-
-// =========================
-// การตรวจความสมเหตุสมผลของค่าเซนเซอร์
-// =========================
-// อุณหภูมิต่ำสุดที่โค้ดยอมรับเป็นค่าที่สมเหตุสมผล หน่วย °C
-#define SHT31_MIN_TEMP_C -20.0f
-// อุณหภูมิสูงสุดที่โค้ดยอมรับ หน่วย °C; เกินช่วงจะเป็น เซนเซอร์ผิดปกติ ไม่ใช่ค่าร้อนปกติ
-#define SHT31_MAX_TEMP_C 85.0f
-// ความชื้นต่ำสุดที่ยอมรับ หน่วย %RH
-#define SHT31_MIN_HUMIDITY 0.0f
-// ความชื้นสูงสุดที่ยอมรับ หน่วย %RH
-#define SHT31_MAX_HUMIDITY 100.0f
-
-// =========================
-// เกณฑ์ประเมินสถานะจากงานวิจัย
-// =========================
-// เกณฑ์อุณหภูมิ/ความชื้นอ้างอิงงานวิจัย ส่วนเกณฑ์ ADC 300/1100 เป็นค่าทดลองของต้นแบบ
-// WATCH เมื่อ T>35 หรือ ADC>300 หรือ RH<50 ในช่วงที่ยังไม่เข้า WARNING
-// WARNING เมือ T>45 หรือ ADC>1100 หรือ T>=30 ร่วมกับ RH<=30
-#define NORMAL_MAX_AIR_TEMP_C 35.0f
-#define NORMAL_MIN_HUMIDITY_RH 50.0f
-#define NORMAL_MAX_PARTICLE_ADC 300
-#define WARNING_AIR_TEMP_GT_C 45.0f
-#define WARNING_PARTICLE_ADC_GT 1100
-
-// Designs 2025, 9, 91: เข้าเกณฑ์ 30-30-30 เมื่อครบอย่างน้อย 2 ใน 3 เงื่อนไข
-// โหนดนี้วัดได้สองเงื่อนไขคือ T>=30 และ RH<=30 จึงใช้คู่นี้เป็นเส้นทาง WARNING เพิ่มเติม
-#define HOT_DRY_MIN_AIR_TEMP_C 30.0f
-#define HOT_DRY_MAX_HUMIDITY_RH 30.0f
-
-// ลด WARNING เป็น WATCH เมื่อไม่เข้า WARNING 3 รอบ และลด WATCH เป็น NORMAL
-// เมื่อเข้า NORMAL 3 รอบ; การยกระดับเกิดทันที
-#define STATUS_RELEASE_CYCLES 3
 
 // =========================
 // การแสดงข้อมูลเพื่อตรวจหาปัญหา

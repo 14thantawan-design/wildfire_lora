@@ -21,20 +21,17 @@ Schema จริงอยู่ใน `wildfire-backend/src/models/` หนึ�
 | --- | --- | --- |
 | `node_id` | String | รหัสโหนด เช่น `NODE01` และห้ามซ้ำ |
 | `state` | String | `UNKNOWN`, `NORMAL`, `WATCH`, `WARNING` หรือ `SENSOR_FAULT` |
-| `air_temp` | Number | อุณหภูมิล่าสุด หน่วย °C |
-| `humidity` | Number | ความชื้นสัมพัทธ์ล่าสุด หน่วย %RH |
-| `particle_adc` | Number | ค่าควัน ADC ล่าสุด ช่วง 0–4095 |
-| `sensor_health` | String | สุขภาพเซนเซอร์ `OK` หรือ `FAULT` |
-| `lat`, `lng` | Number | พิกัดล่าสุด |
+| `air_temp` | Mixed | อุณหภูมิล่าสุด หน่วย °C; เก็บค่าที่ได้รับโดยไม่ตรวจช่วง |
+| `humidity` | Mixed | ความชื้นสัมพัทธ์ล่าสุด หน่วย %RH; เก็บค่าที่ได้รับโดยไม่ตรวจช่วง |
+| `particle_adc` | Mixed | ค่าควัน ADC ล่าสุด; เก็บค่าที่ได้รับโดยไม่ตรวจช่วง |
+| `lat`, `lng` | Mixed | พิกัดล่าสุด |
 | `gps_fixed` | Boolean | GPS หาพิกัดได้หรือไม่ |
 | `gps_error` | String | สาเหตุที่ GPS ยังไม่พร้อม |
 | `location_source` | String | ที่มาของพิกัด `gps` หรือ `manual` |
 | `location_updated_at` | Date | เวลาที่พิกัดเปลี่ยนล่าสุด |
 | `last_seen` | Date | เวลาที่ Backend ได้รับแพ็กเก็ตล่าสุด |
-| `session_id` | Number | รหัสรอบเปิดเครื่องของโหนด |
-| `last_seq` | Number | เลขลำดับแพ็กเก็ตล่าสุด |
-| `report_interval_sec` | Number | รอบส่งที่ firmware แจ้งมา หน่วยวินาที |
-| `rssi`, `snr` | Number | คุณภาพสัญญาณ LoRa ล่าสุด |
+| `report_interval_sec` | Mixed | รอบส่งที่ firmware แจ้งมา หน่วยวินาที |
+| `rssi`, `snr` | Mixed | คุณภาพสัญญาณเมื่อมีค่าอยู่ใน JSON |
 | `created_at`, `updated_at` | Date | Mongoose เพิ่มให้อัตโนมัติ |
 
 Index สำคัญ: `node_id` เป็น unique index เพื่อไม่ให้หนึ่งโหนดมีหลาย snapshot
@@ -48,22 +45,20 @@ Index สำคัญ: `node_id` เป็น unique index เพื่อไม
 | Field | ชนิด | ความหมาย |
 | --- | --- | --- |
 | `node_id` | String | เจ้าของข้อมูลวัด |
-| `session_id` | Number | รหัสรอบเปิดเครื่อง |
-| `seq` | Number | เลขลำดับแพ็กเก็ตในรอบนั้น |
-| `report_interval_sec` | Number | รอบส่งที่โหนดใช้ |
+| `report_interval_sec` | Mixed | รอบส่งที่โหนดใช้ |
 | `timestamp` | Date | เวลาที่ Backend บันทึกข้อมูล |
 | `state` | String | สถานะที่ firmware ประเมินแล้ว |
-| `air_temp` | Number/null | อุณหภูมิ |
-| `humidity` | Number/null | ความชื้นสัมพัทธ์ |
-| `particle_adc` | Number/null | ค่าควัน ADC |
-| `sensor_health` | String | `OK` หรือ `FAULT` |
-| `rssi`, `snr` | Number | คุณภาพสัญญาณของแพ็กเก็ตนั้น |
+| `air_temp` | Mixed | อุณหภูมิที่ได้รับโดยไม่ตรวจช่วงหรือชนิด |
+| `humidity` | Mixed | ความชื้นที่ได้รับโดยไม่ตรวจช่วงหรือชนิด |
+| `particle_adc` | Mixed | ค่า ADC ที่ได้รับโดยไม่ตรวจช่วงหรือชนิด |
+| `rssi`, `snr` | Mixed | คุณภาพสัญญาณเมื่อมีค่าอยู่ใน JSON |
 
 Index สำคัญ:
 
 - `{ node_id, timestamp }` ใช้ค้นกราฟย้อนหลัง
-- `{ node_id, seq }` ใช้ค้นตามลำดับแพ็กเก็ต
-- `{ node_id, session_id, seq }` เป็น unique index ป้องกันแพ็กเก็ตเดิมถูกบันทึกซ้ำ
+
+ข้อมูลเซนเซอร์ที่ส่งซ้ำจะถูกบันทึกเป็น Reading ใหม่ทุกครั้ง เมื่อเริ่ม Backend ครั้งแรกหลังอัปเดต
+ระบบสำรอง collection เป็น `readings_backup_before_simple_packets` แล้วถอด unique index เก่า
 
 ## Collection: alerts
 
@@ -127,7 +122,6 @@ nodes.node_id
 ```text
 POST /api/packets
   → packetHandler.js เลือกชนิดแพ็กเก็ต
-  → packetValidation.js ตรวจค่า
   → sensorPacketHandler.js หรือ gpsPacketHandler.js
   → Mongoose Model
   → MongoDB Collection

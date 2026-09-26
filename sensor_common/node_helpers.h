@@ -11,10 +11,10 @@
 // statusToString: แปลงสถานะชนิด FireStatus เป็นข้อความสำหรับ JSON และหน้าจอ การตรวจหาปัญหา; ถ้าไม่มี ตัวเรียกจะไม่มีตัวแปลงชื่อสถานะ
 const char* statusToString(FireStatus status) {
   switch (status) {
-    case SENSOR_FAULT: return "SENSOR_FAULT";
     case NORMAL: return "NORMAL";
     case WATCH: return "WATCH";
     case WARNING: return "WARNING";
+    case SENSOR_FAULT: return "SENSOR_FAULT";
     default: return "UNKNOWN";
   }
 }

@@ -32,8 +32,6 @@ src/
 └── services/
     ├── packetHandler.js
     ├── packets/
-    │   ├── packetHelpers.js
-    │   ├── packetValidation.js
     │   ├── sensorPacketHandler.js
     │   └── gpsPacketHandler.js
     ├── alertService.js
@@ -58,20 +56,14 @@ src/
 | ไฟล์ | หน้าที่ |
 | --- | --- |
 | `services/packetHandler.js` | จุดกลางที่เลือก Sensor หรือ GPS handler |
-| `services/packets/packetHelpers.js` | แปลงตัวเลข ตรวจ sequence/session และอ่าน RSSI/SNR |
-| `services/packets/packetValidation.js` | ตรวจชนิด field และช่วงค่าก่อนเขียนฐานข้อมูล |
-| `services/packets/sensorPacketHandler.js` | บันทึก Reading อัปเดต Node และเรียก Alert |
+| `services/packets/sensorPacketHandler.js` | คัดลอกค่าจาก JSON ลง Reading/Node และเรียก Alert |
 | `services/packets/gpsPacketHandler.js` | อัปเดตพิกัดหรือข้อผิดพลาด GPS ใน Node |
 
 ฟังก์ชันสำคัญ:
 
 - `handlePacket()` เลือก handler จาก `packet.t`
-- `validateSensorPacket()` ตรวจแพ็กเก็ตเซนเซอร์
-- `validateGpsPacket()` ตรวจแพ็กเก็ต GPS
-- `handleSensorPacket()` บันทึกข้อมูลวัดและป้องกันข้อมูลซ้ำ
+- `handleSensorPacket()` บันทึกทุกข้อมูลวัดเป็น Reading ใหม่
 - `handleGpsPacket()` อัปเดตตำแหน่งล่าสุด
-- `readingIdentity()` ใช้ `node_id + session_id + seq` ระบุ Reading หนึ่งรายการ
-- `isOutOfOrderPacket()` ป้องกันแพ็กเก็ตเก่าทับ snapshot ล่าสุด
 
 ### Routes และ Services
 
@@ -80,7 +72,7 @@ src/
 | `routes/nodes.js` | อ่านโหนด สั่งค้นหา GPS และกำหนดพิกัดเอง |
 | `routes/readings.js` | API อ่านค่าล่าสุดและกราฟย้อนหลัง |
 | `routes/readings/adminReadings.js` | API ค้นหา แก้ไข และลบ Reading ของ Admin |
-| `routes/readings/readingTools.js` | ตรวจ query และค่าที่ Admin แก้ไข |
+| `routes/readings/readingTools.js` | เตรียมค่าที่ Admin แก้ไขและป้องกันการลบผิดรายการ |
 | `routes/alerts.js` | อ่านและลบ Alert |
 | `routes/commands.js` | Gateway อ่านและรายงานผลคำสั่ง |
 | `services/alertService.js` | เปิด อัปเดต และปิด Alert |
@@ -167,7 +159,6 @@ src/
 POST /api/packets
   → server.js
   → packetHandler.js
-  → packetValidation.js
   → sensorPacketHandler.js
   → Reading + Node models
   → MongoDB

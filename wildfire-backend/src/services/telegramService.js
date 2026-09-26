@@ -36,17 +36,10 @@ function escapeHtml(value) {
     .replaceAll('"', '&quot;');
 }
 
-// แปลงค่าเป็นตัวเลขจำกัด และคืน undefined เมื่อใช้เป็นตัวเลขไม่ได้
-function finiteNumber(value) {
-  if (value === undefined || value === null || value === '') return undefined;
-  const number = Number(value);
-  return Number.isFinite(number) ? number : undefined;
-}
-
 // จัดรูปแบบค่าตรวจวัดพร้อมหน่วยสำหรับข้อความแจ้งเตือน
 function formatValue(value, suffix = '', digits = 1) {
-  const number = finiteNumber(value);
-  if (number === undefined) return 'ไม่มีข้อมูล';
+  if (value === undefined || value === null || value === '') return 'ไม่มีข้อมูล';
+  const number = Number(value);
   return `${number.toLocaleString('th-TH', {
     minimumFractionDigits: 0,
     maximumFractionDigits: digits
@@ -96,7 +89,7 @@ function buildTelegramMessage(event, alert, reading, options = {}) {
       '',
       `<b>จุดตรวจ:</b> ${nodeId}`,
       '<b>สถานะปัจจุบัน:</b> NORMAL (ปกติ)',
-      'ระบบตรวจพบค่าปกติต่อเนื่องครบตามเงื่อนไขแล้ว',
+      'โหนดรายงานสถานะ NORMAL แล้ว',
       `<b>เวลา:</b> ${escapeHtml(formatTimestamp(timestamp, config.timezone))}`,
       '',
       `<a href="${dashboardUrl}">ดูข้อมูลบน Dashboard</a>`

@@ -53,7 +53,6 @@ Telegram notifications follow the states already confirmed by the firmware:
 - Repeated readings at the same level do not send duplicate messages.
 - If Telegram is temporarily unreachable, the next reading retries the unsent alert.
 - A firmware-confirmed `NORMAL` closes the alert and sends one resolved message.
-  Firmware already waits for three clean measurement cycles; the backend does not wait again.
 - `NORMAL` without an active alert does not send a message.
 
 Setup:
@@ -71,6 +70,14 @@ npm run telegram:test
 Restart the backend after changing `.env`. The health endpoint exposes only `telegram_configured: true` or `false`; it never exposes the bot token. Keep `.env` private and never commit or paste the bot token into source code.
 
 ## Run
+
+When upgrading an existing database, start the updated Backend before flashing the new
+Gateway and sensor firmware. On its first start, the Backend copies `readings` to
+`readings_backup_before_simple_packets`, verifies the document count, then removes
+the old `seq`/`session_id` indexes, including the unique one. This needs enough free
+MongoDB space for a second `readings` collection and permission to create it.
+If the backup or count check fails, the API does not start and the old index stays.
+Do not flash the new firmware until the Backend starts successfully.
 
 ```bash
 npm run dev
@@ -112,7 +119,7 @@ The Node list keeps known Nodes visible and marks each one online or offline fro
 curl -X POST http://localhost:4000/api/packets ^
   -H "Content-Type: application/json" ^
   -H "X-Gateway-Key: replace-with-your-gateway-key" ^
-  -d "{\"t\":\"s\",\"id\":\"NODE01\",\"q\":12,\"sid\":1234,\"ri\":300,\"st\":\"NORMAL\",\"at\":31.2,\"h\":55.4,\"adc\":180,\"sh\":\"OK\"}"
+  -d "{\"t\":\"s\",\"id\":\"NODE01\",\"ri\":300,\"st\":\"NORMAL\",\"at\":31.2,\"h\":55.4,\"adc\":180}"
 ```
 
 GPS test:
@@ -121,5 +128,5 @@ GPS test:
 curl -X POST http://localhost:4000/api/packets ^
   -H "Content-Type: application/json" ^
   -H "X-Gateway-Key: replace-with-your-gateway-key" ^
-  -d "{\"t\":\"gps\",\"id\":\"NODE01\",\"q\":5,\"sid\":1234,\"la\":13.123456,\"ln\":100.123456,\"gf\":1}"
+  -d "{\"t\":\"gps\",\"id\":\"NODE01\",\"la\":13.123456,\"ln\":100.123456,\"gf\":1}"
 ```

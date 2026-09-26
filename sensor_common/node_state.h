@@ -9,12 +9,12 @@
 // =========================
 // โครงสร้างข้อมูล
 // =========================
-// สถานะความเสี่ยงมี 3 ระดับ; SENSOR_FAULT เป็นสุขภาพอุปกรณ์ ไม่ใช่ระดับความเสี่ยง
+// ชื่อสถานะ; C++ กำหนดเลขภายในให้อัตโนมัติตามลำดับ
 enum FireStatus {
-  SENSOR_FAULT,
   NORMAL,
   WATCH,
-  WARNING
+  WARNING,
+  SENSOR_FAULT
 };
 
 // struct รวมค่าที่อ่านหนึ่งรอบ: ค่าควันใช้ ADC ดิบ 12 บิตช่วง 0–4095
@@ -22,8 +22,6 @@ struct SensorData {
   float airTemp;
   float humidity;
   int particleAdc;
-  bool shtOk;
-  bool sharpOk;
 };
 
 // เก็บพิกัดและบอกตรง ๆ ว่า GPS จับตำแหน่งได้แล้วหรือยัง
@@ -74,11 +72,3 @@ unsigned long lastLoRaInitAttemptMs = 0;
 bool loraReady = false;
 bool lastCommandAccepted = true;
 String lastCommandResultReason;
-
-// seq คือเลขชุดข้อมูล และ bootSessionId แยกชุดหลังเริ่มเครื่องใหม่
-RTC_DATA_ATTR uint32_t seq = 0;
-RTC_DATA_ATTR uint32_t bootSessionId = 0;
-
-// จำสถานะและจำนวนรอบลดระดับข้าม deep sleep
-RTC_DATA_ATTR int latchedStatusValue = NORMAL;
-RTC_DATA_ATTR uint8_t releaseCounter = 0;

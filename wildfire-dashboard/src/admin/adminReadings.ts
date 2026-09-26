@@ -21,7 +21,6 @@ export type EditDraft = {
   air_temp: string
   humidity: string
   particle_adc: string
-  sensor_health: string
   rssi: string
   snr: string
 }
@@ -74,7 +73,6 @@ export function toEditDraft(reading: AdminReading): EditDraft {
     air_temp: asInput(reading.air_temp),
     humidity: asInput(reading.humidity),
     particle_adc: asInput(reading.particle_adc),
-    sensor_health: reading.sensor_health ?? '',
     rssi: asInput(reading.rssi),
     snr: asInput(reading.snr),
   }

@@ -28,6 +28,12 @@ test('live warning decisions come only from online nodes', () => {
   ], health, false).highestState, 'WARNING')
 })
 
+test('an online sensor fault is shown instead of an all-clear', () => {
+  assert.equal(assessLiveSafety([
+    { node_id: 'NODE02', online: true, state: 'SENSOR_FAULT' },
+  ], health, false).highestState, 'SENSOR_FAULT')
+})
+
 test('losing all nodes clears selection and cannot produce an all-clear', () => {
   const offline = nodes.map((node) => ({ ...node, online: false }))
   assert.deepEqual(selectLiveOverview(offline, 'NODE02'), { liveNodes: [], effectiveNodeId: undefined })

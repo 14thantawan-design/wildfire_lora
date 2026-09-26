@@ -52,7 +52,6 @@ export function AdminReadingsTable({
             <th>ความชื้น</th>
             <th>ค่าควัน ADC</th>
             <th>สถานะระบบ</th>
-            <th>เซนเซอร์</th>
             <th>RSSI / SNR</th>
             <th className="action-column">จัดการ</th>
           </tr>
@@ -76,7 +75,6 @@ export function AdminReadingsTable({
                 <td>{displayNumber(reading.humidity, '%')}</td>
                 <td>{displayNumber(reading.particle_adc, ' ADC', 0)}</td>
                 <td><span className={`reading-state state-${state.toLowerCase()}`}>{stateLabels[state]}</span></td>
-                <td>{reading.sensor_health || '—'}</td>
                 <td>{displayNumber(reading.rssi, ' dBm', 0)} <small>/ {displayNumber(reading.snr, ' dB')}</small></td>
                 <td className="action-column">
                   <button aria-label={`แก้ไขข้อมูล ${reading.node_id}`} className="table-edit-button" onClick={() => onEdit(reading)} title="แก้ไข" type="button">
