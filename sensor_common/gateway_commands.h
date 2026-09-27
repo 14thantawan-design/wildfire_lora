@@ -65,12 +65,13 @@ String handleGatewayCommand(const String &payload) {
 #endif
 }
 
-// listenForGatewayCommand: ฟังคำสั่ง GPS หลังส่งข้อมูล แล้วตอบรับคำสั่งที่ได้รับ
-void listenForGatewayCommand() {
+// listenForGatewayCommand: ฟัง ACK ข้อมูลเซนเซอร์และคำสั่ง GPS หลังส่ง LoRa
+bool listenForGatewayCommand(bool waitForSensorAck) {
   unsigned long startedAt = millis();
   String commandAckId;
   bool commandAccepted = true;
   String commandResultReason;
+  bool sensorUplinkAcknowledged = false;
   LoRa.receive();
 
   while (millis() - startedAt < COMMAND_RX_WINDOW_MS) {
@@ -82,11 +83,19 @@ void listenForGatewayCommand() {
 
     String payload;
     while (LoRa.available()) payload += (char)LoRa.read();
-    String handledCommandId = handleGatewayCommand(payload);
-    if (handledCommandId.length() > 0) {
-      commandAckId = handledCommandId;
-      commandAccepted = lastCommandAccepted;
-      commandResultReason = lastCommandResultReason;
+
+    StaticJsonDocument<COMMAND_MAX_JSON_SIZE> doc;
+    if (!deserializeJson(doc, payload) &&
+        String((const char *)(doc["t"] | "")) == "rx_ack" &&
+        String((const char *)(doc["id"] | "")) == NODE_ID) {
+      sensorUplinkAcknowledged = waitForSensorAck;
+    } else {
+      String handledCommandId = handleGatewayCommand(payload);
+      if (handledCommandId.length() > 0) {
+        commandAckId = handledCommandId;
+        commandAccepted = lastCommandAccepted;
+        commandResultReason = lastCommandResultReason;
+      }
     }
     LoRa.receive();
   }
@@ -95,4 +104,5 @@ void listenForGatewayCommand() {
     sendCommandAckPacket(commandAckId, commandAccepted, commandResultReason);
   }
   if (loraReady) LoRa.sleep();
+  return sensorUplinkAcknowledged;
 }

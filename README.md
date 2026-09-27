@@ -85,11 +85,10 @@ bandwidth, coding rate และ sync word ตรงกัน
 
 ## วิธีอัปโหลด
 
-1. ตั้ง `TEST_MODE 1` เฉพาะตอนทดสอบบนโต๊ะ หรือ `0` สำหรับรอบภาคสนาม
-2. อัปโหลด `sensor_node/sensor_node.ino` เป็น `NODE01`
-3. อัปโหลด `sensor_node_2/sensor_node_2.ino` เป็น `NODE02`
-4. คัดลอก `gateway/secrets.example.h` เป็น `gateway/secrets.h` แล้วตั้ง Backend URL/API key
-5. อัปโหลด `gateway/gateway.ino` และตั้ง Wi-Fi ผ่านหน้า `Wildfire-Gateway-*`
+1. อัปโหลด `sensor_node/sensor_node.ino` เป็น `NODE01`
+2. อัปโหลด `sensor_node_2/sensor_node_2.ino` เป็น `NODE02`
+3. คัดลอก `gateway/secrets.example.h` เป็น `gateway/secrets.h` แล้วใส่ API key และใบรับรอง
+4. อัปโหลด `gateway/gateway.ino` และตั้ง Wi-Fi ผ่านหน้า `Wildfire-Gateway-*`
 
 อย่าถือผลการทดสอบซอฟต์แวร์แทนการสอบเทียบเซนเซอร์ การทดสอบระยะ LoRa และการทดสอบไฟเลี้ยงจริง
 

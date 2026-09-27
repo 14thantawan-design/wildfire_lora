@@ -41,7 +41,6 @@ unsigned long remainingIntervalMs(FireStatus status, unsigned long cycleStartedM
 
 // enterDeepSleepForSeconds: เตรียมเวลาลอง GPS ปิดวิทยุ/ไฟเซนเซอร์ ตั้งปลุกแล้วเข้า การหลับลึก; ถ้าไม่ตั้งปลุกจะไม่ตื่นตามเวลาที่ต้องการ
 void enterDeepSleepForSeconds(uint64_t sleepSec) {
-#if !TEST_MODE
 #if USE_GPS
   accountGpsRetryBeforeSleep(sleepSec);
 #endif
@@ -50,25 +49,18 @@ void enterDeepSleepForSeconds(uint64_t sleepSec) {
   // แปลงวินาทีเป็นไมโครวินาที ใช้ ULL เพื่อรองรับจำนวนใหญ่ก่อนส่งให้ตัวตั้งปลุก
   esp_sleep_enable_timer_wakeup(sleepSec * 1000000ULL);
   esp_deep_sleep_start();
-#endif
 }
 
 // enterDeepSleepByStatus: หลับเฉพาะเวลาที่เหลือของรอบ เพื่อให้วัดและส่งตามคาบเดียวกัน
 void enterDeepSleepByStatus(FireStatus status, unsigned long cycleStartedMs) {
-#if !TEST_MODE
   uint64_t remainingMs = remainingIntervalMs(status, cycleStartedMs);
   uint64_t remainingSec = (remainingMs + 999ULL) / 1000ULL;
   enterDeepSleepForSeconds(remainingSec > 0 ? remainingSec : 1);
-#else
-  (void)status;
-  (void)cycleStartedMs;
-#endif
 }
 
 #if USE_GPS
 // serviceGpsUntilNextMeasurementOrSleep: ขณะรอ GPS ให้ปิดไฟเซนเซอร์และบริการ GPS จนถึงรอบวัดถัดไป; ถ้างานจบเร็วจะหลับเฉพาะเวลาที่เหลือแทนเริ่มนับรอบใหม่ทั้งหมด
 void serviceGpsUntilNextMeasurementOrSleep(FireStatus status, unsigned long cycleStartedMs) {
-#if !TEST_MODE
   const unsigned long intervalMs = plannedReportIntervalSeconds(status) * 1000UL;
 
   // จีพีเอสต้องให้ ESP32 ตื่นเพื่อแปลข้อมูล UART ส่วนเซนเซอร์สิ่งแวดล้อม
@@ -85,9 +77,5 @@ void serviceGpsUntilNextMeasurementOrSleep(FireStatus status, unsigned long cycl
   const uint64_t remainingMs = (uint64_t)intervalMs - elapsedMs;
   const uint64_t remainingSec = (remainingMs + 999ULL) / 1000ULL;
   enterDeepSleepForSeconds(remainingSec > 0 ? remainingSec : 1);
-#else
-  (void)status;
-  (void)cycleStartedMs;
-#endif
 }
 #endif

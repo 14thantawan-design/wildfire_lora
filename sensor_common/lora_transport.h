@@ -3,7 +3,7 @@
 /*
   การส่งข้อมูลผ่าน LoRa
   เริ่มวิทยุ สร้าง JSON ของข้อมูลเซนเซอร์ ส่งแพ็กเก็ต
-  และเปิดช่วงรับคำสั่ง GPS จาก Gateway หลังส่ง
+  และเปิดช่วงรับ ACK หรือคำสั่ง GPS จาก Gateway หลังส่ง
 */
 
 // initLoRa: ตั้ง SPI และวิทยุ LoRa แล้วคืน true ถ้าเริ่มได้; ค่าคลื่นต้องสอดคล้องกับ เกตเวย์ จึงสื่อสารกันได้
@@ -57,10 +57,10 @@ String buildJsonPacket(const SensorData &data, FireStatus status) {
 }
 
 // ประกาศล่วงหน้า (ยังไม่มีตัวฟังก์ชัน) เพื่อให้ฟังก์ชันส่งด้านล่างเรียกชื่อที่นิยามทีหลังได้
-void listenForGatewayCommand();
+bool listenForGatewayCommand(bool waitForSensorAck);
 
-// sendLoRaPacket: สุ่มเวลารอเพื่อลดการชนกัน ส่งหนึ่งครั้ง แล้วฟังคำสั่ง GPS
-bool sendLoRaPacket(const String &payload, bool useRandomDelay) {
+// sendLoRaPacket: สุ่มเวลารอ ส่งหนึ่งครั้ง แล้วฟัง ACK/คำสั่ง GPS
+bool sendLoRaPacket(const String &payload, bool useRandomDelay, bool requireGatewayAck = false) {
   if (!ensureLoRaReady()) {
     Serial.println("TX skipped: LoRa is not ready");
     return false;
@@ -77,7 +77,8 @@ bool sendLoRaPacket(const String &payload, bool useRandomDelay) {
   LoRa.beginPacket();
   LoRa.print(payload);
   bool ok = LoRa.endPacket();
-  if (ok) listenForGatewayCommand();
+  bool acknowledged = false;
+  if (ok) acknowledged = listenForGatewayCommand(requireGatewayAck);
   else LoRa.sleep();
 
   Serial.print("TX bytes: ");
@@ -86,5 +87,9 @@ bool sendLoRaPacket(const String &payload, bool useRandomDelay) {
   Serial.println(payload);
   Serial.print("TX status: ");
   Serial.println(ok ? "OK" : "FAILED");
-  return ok;
+  if (requireGatewayAck) {
+    Serial.print("Gateway ACK: ");
+    Serial.println(acknowledged ? "YES" : "NO");
+  }
+  return ok && (!requireGatewayAck || acknowledged);
 }

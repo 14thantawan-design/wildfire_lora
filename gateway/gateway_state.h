@@ -19,6 +19,10 @@ enum CommandReportType : uint8_t {
 };
 
 #if WIFI_HTTP_ENABLED
+struct HttpPacketJob {
+  char payload[MAX_JSON_SIZE + 1];
+};
+
 struct CommandReportJob {
   CommandReportType type;
   char commandId[64];
@@ -36,6 +40,7 @@ unsigned long lastLoRaInitAttemptMs = 0;
 bool loraReady = false;
 
 #if WIFI_HTTP_ENABLED
+QueueHandle_t httpPacketQueue = nullptr;
 QueueHandle_t commandReportQueue = nullptr;
 SemaphoreHandle_t pendingCommandMutex = nullptr;
 #endif

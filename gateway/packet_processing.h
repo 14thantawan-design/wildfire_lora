@@ -41,6 +41,22 @@ bool handleCommandAckPacket(const String &payload) {
   return true;
 }
 
+// sendSensorUplinkAck: ตอบ Node ทันทีว่า Gateway รับข้อมูลเซนเซอร์แล้ว
+bool sendSensorUplinkAck(const String &nodeId) {
+  StaticJsonDocument<96> doc;
+  doc["t"] = "rx_ack";
+  doc["id"] = nodeId;
+  String payload;
+  serializeJson(doc, payload);
+
+  LoRa.idle();
+  LoRa.beginPacket();
+  LoRa.print(payload);
+  bool sent = LoRa.endPacket();
+  LoRa.receive();
+  return sent;
+}
+
 // handleIncomingLoRa: รับหนึ่งแพ็กเก็ตแล้วส่งต่อ Backend โดยไม่ตรวจค่าภายใน
 void handleIncomingLoRa() {
   int packetSize = LoRa.parsePacket();
@@ -62,7 +78,14 @@ void handleIncomingLoRa() {
   // โหนดเปิดช่วงรับหลังส่งทุกครั้ง จึงส่งคำสั่ง GPS ที่ค้างอยู่ได้ทันที
   StaticJsonDocument<MAX_JSON_SIZE> doc;
   deserializeJson(doc, payload);
+  String packetType = String((const char *)(doc["t"] | ""));
   String nodeId = String((const char *)(doc["id"] | ""));
+  if (packetType == "s") {
+    if (sendSensorUplinkAck(nodeId)) {
+      Serial.print("Sensor ACK sent to ");
+      Serial.println(nodeId);
+    }
+  }
   doc["rssi"] = rssi;
   doc["snr"] = snr;
   payload = "";
@@ -73,7 +96,9 @@ void handleIncomingLoRa() {
   Serial.print(" SNR="); Serial.println(snr);
 
 #if WIFI_HTTP_ENABLED
-  postPacketToBackend(payload);
+  if (!enqueuePacketForBackend(payload)) {
+    Serial.println("HTTP queue unavailable/full; packet dropped");
+  }
 #endif
   LoRa.receive();
 }

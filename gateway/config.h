@@ -13,7 +13,6 @@
   Gateway receives packets from multiple sensor nodes.
 */
 
-#define TEST_MODE 0
 #define MAX_JSON_SIZE 512
 
 // LoRa config - must match sensor nodes. You said your module is 433 MHz.
@@ -45,10 +44,6 @@
 #define BACKEND_NTP_SERVER_SECONDARY "pool.ntp.org"
 #define BACKEND_TIME_SYNC_TIMEOUT_MS 15000UL
 #define BACKEND_MIN_VALID_UNIX_TIME 1700000000UL
-#define BACKEND_PACKETS_URL BACKEND_API_BASE_URL "/packets"
-#define BACKEND_COMMANDS_PENDING_URL BACKEND_API_BASE_URL "/commands/pending"
-#define BACKEND_COMMANDS_URL BACKEND_API_BASE_URL "/commands"
-
 // Wi-Fi provisioning:
 // - First boot: connect a phone to the setup AP and choose the site Wi-Fi.
 // - Runtime: hold the TTGO BOOT button to reopen the setup portal.

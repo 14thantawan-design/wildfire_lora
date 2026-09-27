@@ -9,7 +9,7 @@
 // sendMeasurement: วัดหนึ่งรอบแล้วส่งค่าที่วัดได้พร้อมสถานะทันที
 void sendMeasurement(const SensorData &current, FireStatus status) {
   String payload = buildJsonPacket(current, status);
-  sendLoRaPacket(payload, true);
+  sendLoRaPacket(payload, true, true);
 }
 
 // runOneMeasurementCycle: อ่าน → ตัดสินจากเกณฑ์ → ส่งทันที → รอหรือหลับจนถึงรอบถัดไป
@@ -24,9 +24,6 @@ void runOneMeasurementCycle() {
   serviceOneShotGps();
 #endif
 
-#if TEST_MODE
-  delayWithBackgroundTasks(remainingIntervalMs(status, cycleStartedMs));
-#else
   // WARNING ทำงานต่อเนื่อง วัดและส่งทุก 20 วินาที; รอบแรกถูกส่งไปแล้วด้านบนทันที
   if (status == WARNING) {
     delayWithBackgroundTasks(remainingIntervalMs(status, cycleStartedMs));
@@ -39,7 +36,6 @@ void runOneMeasurementCycle() {
   else {
     enterDeepSleepByStatus(status, cycleStartedMs);
   }
-#endif
 }
 
 
@@ -54,7 +50,6 @@ void setupNode() {
   loadLastHandledCommandId();
 
   Serial.println("Starting Wildfire Sensor Node...");
-  Serial.println(String("Mode: ") + (TEST_MODE ? "TEST_MODE" : "DEPLOY_MODE"));
   Serial.println(String("Node ID: ") + NODE_ID);
 
   initSensors();

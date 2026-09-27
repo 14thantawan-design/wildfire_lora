@@ -12,8 +12,8 @@ by responsibility, and every function has a short explanation above it:
 - `backend_http.h` - Wi-Fi/HTTPS requests to the Backend
 - `lora_radio.h` - LoRa initialization
 - `gateway_commands.h` - pending command queue and node downlinks
-- `network_task.h` - background GPS command work
-- `packet_processing.h` - GPS commands and direct packet forwarding
+- `network_task.h` - background sensor packet uploads and GPS command work
+- `packet_processing.h` - LoRa reception, RSSI/SNR, and packet queuing
 - `wifi_provisioning.h/.cpp` - WiFiManager setup portal and reconnection
 
 LoRa is only the local radio link:
@@ -30,10 +30,9 @@ Gateway --Wi-Fi/cellular--> Backend --API--> Dashboard
 
 ## Backend and Wi-Fi
 
-Copy `gateway/secrets.example.h` to `gateway/secrets.h`, then set the backend values there:
+Copy `gateway/secrets.example.h` to `gateway/secrets.h`, then paste the API key and root certificate there:
 
 ```cpp
-#define BACKEND_API_BASE_URL "http://your-backend-host:4000/api"
 #define GATEWAY_API_KEY "same-long-random-key-as-backend-env"
 ```
 

@@ -42,13 +42,11 @@ void setup() {
   for (int i = 0; i < MAX_PENDING_COMMANDS; i++) acknowledgedCommandIds[i] = "";
 
   Serial.println("Starting Wildfire LoRa Gateway ROBUST...");
-  Serial.print("Mode: ");
-  Serial.println(TEST_MODE ? "TEST_MODE" : "DEPLOY_MODE");
   loraReady = initLoRa();
 #if WIFI_HTTP_ENABLED
   beginWifiProvisioning();
   Serial.print("Backend URL: ");
-  Serial.println(BACKEND_PACKETS_URL);
+  Serial.println("https://wildfire.nattaphat.me/api/packets");
   if (!startNetworkTask()) Serial.println("Network task init FAILED");
 #endif
 }

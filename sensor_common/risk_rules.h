@@ -38,12 +38,7 @@ FireStatus evaluateFireStatus(const SensorData &data) {
 
 // plannedReportIntervalSeconds: รอบวัดและส่งเป็นรอบเดียวกันตามสถานะ
 uint32_t plannedReportIntervalSeconds(FireStatus status) {
-#if TEST_MODE
-  return max(1UL, LOOP_INTERVAL_MS / 1000UL);
-#else
   if (status == WATCH) return 120UL;
   if (status == WARNING) return 20UL;
-  if (status == SENSOR_FAULT) return 300UL;
   return 300UL;
-#endif
 }

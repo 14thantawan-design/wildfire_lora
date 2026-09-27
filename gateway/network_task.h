@@ -1,8 +1,8 @@
 #pragma once
 
 /*
-  งาน GPS command เบื้องหลัง
-  ดึงคำสั่งจาก Backend และส่งผล ACK กลับโดยไม่ปนกับทางเดินข้อมูลเซนเซอร์
+  งานเครือข่ายเบื้องหลัง
+  ส่งแพ็กเก็ตเซนเซอร์และรายงานคำสั่ง โดยไม่บล็อกการรับ LoRa
 */
 
 #if WIFI_HTTP_ENABLED
@@ -13,7 +13,7 @@ void pollBackendCommands() {
   HTTPClient http;
   NetworkClientSecure secureClient;
   http.setTimeout(HTTP_POST_TIMEOUT_MS);
-  if (!beginBackendHttp(http, secureClient, BACKEND_COMMANDS_PENDING_URL)) return;
+  if (!beginBackendHttp(http, secureClient, "https://wildfire.nattaphat.me/api/commands/pending")) return;
 
   http.addHeader("X-Gateway-Key", GATEWAY_API_KEY);
   int statusCode = http.GET();
@@ -35,6 +35,14 @@ void pollBackendCommands() {
       String((const char *)(command["command"] | ""))
     );
   }
+}
+
+// enqueuePacketForBackend: พัก JSON ไว้ให้ networkTask ส่ง เพื่อให้ loop กลับไปรับ LoRa ต่อ
+bool enqueuePacketForBackend(const String &payload) {
+  if (!httpPacketQueue || payload.length() > MAX_JSON_SIZE) return false;
+  HttpPacketJob job = {};
+  strlcpy(job.payload, payload.c_str(), sizeof(job.payload));
+  return xQueueSend(httpPacketQueue, &job, 0) == pdTRUE;
 }
 
 // processCommandReport: ส่งสถานะคำสั่งไป Backend และลองใหม่เมื่อส่งไม่สำเร็จ
@@ -60,7 +68,7 @@ void processCommandReport(CommandReportJob &job) {
   }
 }
 
-// networkTask: รายงานผลคำสั่งและตรวจคำสั่งใหม่บนอีกคอร์หนึ่ง
+// networkTask: ส่งแพ็กเก็ตจากคิวและดูแลงานคำสั่งบนอีกคอร์หนึ่ง
 void networkTask(void *parameter) {
   (void)parameter;
 
@@ -68,6 +76,11 @@ void networkTask(void *parameter) {
     CommandReportJob report;
     if (xQueueReceive(commandReportQueue, &report, 0) == pdTRUE) {
       processCommandReport(report);
+    }
+
+    HttpPacketJob packet;
+    if (xQueueReceive(httpPacketQueue, &packet, 0) == pdTRUE) {
+      postPacketToBackend(String(packet.payload));
     }
 
     unsigned long now = millis();
@@ -82,9 +95,10 @@ void networkTask(void *parameter) {
 
 // startNetworkTask: สร้างคิว mutex และ FreeRTOS task สำหรับงานเครือข่าย
 bool startNetworkTask() {
+  httpPacketQueue = xQueueCreate(20, sizeof(HttpPacketJob));
   commandReportQueue = xQueueCreate(COMMAND_REPORT_QUEUE_LENGTH, sizeof(CommandReportJob));
   pendingCommandMutex = xSemaphoreCreateMutex();
-  if (!commandReportQueue || !pendingCommandMutex) return false;
+  if (!httpPacketQueue || !commandReportQueue || !pendingCommandMutex) return false;
 
   return xTaskCreatePinnedToCore(
     networkTask,

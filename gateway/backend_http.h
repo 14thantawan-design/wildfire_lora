@@ -72,7 +72,7 @@ bool postPacketToBackend(const String &payload) {
   NetworkClientSecure secureClient;
   http.setTimeout(HTTP_POST_TIMEOUT_MS);
 
-  if (!beginBackendHttp(http, secureClient, BACKEND_PACKETS_URL)) {
+  if (!beginBackendHttp(http, secureClient, "https://wildfire.nattaphat.me/api/packets")) {
     Serial.println("HTTP begin failed");
     http.end();
     return false;
@@ -122,8 +122,7 @@ bool postCommandAck(const String &commandId, bool accepted, const String &reason
   HTTPClient http;
   NetworkClientSecure secureClient;
   http.setTimeout(HTTP_POST_TIMEOUT_MS);
-  String url = String(BACKEND_COMMANDS_URL) + "/" + commandId + "/ack";
-  if (!beginBackendHttp(http, secureClient, url)) return false;
+  if (!beginBackendHttp(http, secureClient, String("https://wildfire.nattaphat.me/api/commands/") + commandId + "/ack")) return false;
 
   http.addHeader("Content-Type", "application/json");
   http.addHeader("X-Gateway-Key", GATEWAY_API_KEY);
@@ -144,8 +143,7 @@ bool postCommandSent(const String &commandId) {
   HTTPClient http;
   NetworkClientSecure secureClient;
   http.setTimeout(HTTP_POST_TIMEOUT_MS);
-  String url = String(BACKEND_COMMANDS_URL) + "/" + commandId + "/sent";
-  if (!beginBackendHttp(http, secureClient, url)) return false;
+  if (!beginBackendHttp(http, secureClient, String("https://wildfire.nattaphat.me/api/commands/") + commandId + "/sent")) return false;
 
   http.addHeader("Content-Type", "application/json");
   http.addHeader("X-Gateway-Key", GATEWAY_API_KEY);
