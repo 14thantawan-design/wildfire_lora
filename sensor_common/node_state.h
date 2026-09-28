@@ -37,6 +37,10 @@ struct GpsLocation {
 // ออบเจ็กต์สำหรับสั่งเซนเซอร์ผ่านไลบรารี
 Adafruit_SHT31 sht31 = Adafruit_SHT31();
 
+// จำสถานะความเสี่ยงและจำนวนรอบที่ค่าปลอดภัยข้าม deep sleep
+RTC_DATA_ATTR int latchedStatusValue = NORMAL;
+RTC_DATA_ATTR uint8_t releaseCounter = 0;
+
 #if USE_GPS
 // ตัวแปลข้อความจาก GPS ทาง UART; gpsPrefs จัดการข้อมูล GPS ใน NVS เมื่อเปิดตัวเลือกบันทึก
 TinyGPSPlus gps;

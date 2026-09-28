@@ -6,7 +6,7 @@
   และเลือกรอบวัด/ส่งของแต่ละสถานะ
 */
 
-// evaluateRawRisk: ตัดสินจากค่าปัจจุบันเท่านั้นตามเกณฑ์อ้างอิง ไม่มีคะแนนหรืออัตราการเปลี่ยนแปลง
+// evaluateRawRisk: ตัดสินระดับจากค่าที่วัดรอบนี้
 FireStatus evaluateRawRisk(const SensorData &data) {
   if (data.airTemp != data.airTemp ||
       data.humidity != data.humidity ||
@@ -31,9 +31,49 @@ FireStatus evaluateRawRisk(const SensorData &data) {
   return NORMAL;
 }
 
+// applyStateLatch: เพิ่มระดับทันที แต่ลดทีละระดับหลังค่าต่ำกว่าติดต่อกัน 3 รอบ
+FireStatus applyStateLatch(FireStatus raw) {
+  if (latchedStatusValue < NORMAL || latchedStatusValue > SENSOR_FAULT) {
+    latchedStatusValue = NORMAL;
+    releaseCounter = 0;
+  }
+
+  FireStatus latched = (FireStatus)latchedStatusValue;
+
+  if (raw == SENSOR_FAULT) {
+    latchedStatusValue = SENSOR_FAULT;
+    releaseCounter = 0;
+    return SENSOR_FAULT;
+  }
+
+  if (latched == SENSOR_FAULT) {
+    latchedStatusValue = raw;
+    releaseCounter = 0;
+    return raw;
+  }
+
+  if (raw == WARNING || (raw == WATCH && latched == NORMAL)) {
+    latchedStatusValue = raw;
+    releaseCounter = 0;
+    return raw;
+  }
+
+  if (raw == latched) {
+    releaseCounter = 0;
+    return raw;
+  }
+
+  releaseCounter++;
+  if (releaseCounter < 3) return latched;
+
+  releaseCounter = 0;
+  latchedStatusValue = latched == WARNING ? WATCH : NORMAL;
+  return (FireStatus)latchedStatusValue;
+}
+
 // evaluateFireStatus: จุดตัดสินสถานะเพียงจุดเดียวของเฟิร์มแวร์
 FireStatus evaluateFireStatus(const SensorData &data) {
-  return evaluateRawRisk(data);
+  return applyStateLatch(evaluateRawRisk(data));
 }
 
 // plannedReportIntervalSeconds: รอบวัดและส่งเป็นรอบเดียวกันตามสถานะ

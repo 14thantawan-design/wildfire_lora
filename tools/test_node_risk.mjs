@@ -23,6 +23,7 @@ const sharedConfig = readFileSync(resolve(root, 'sensor_common', 'sensor_config.
 
 const names = [
   'evaluateRawRisk',
+  'applyStateLatch',
   'evaluateFireStatus'
 ]
 
@@ -50,7 +51,7 @@ for (const sketch of ['sensor_node', 'sensor_node_2']) {
     'Each node must load the shared sensor configuration')
   assert.match(source, /if \(status == WATCH\) return 120UL/)
   assert.match(source, /if \(status == WARNING\) return 20UL/)
-  assert.match(source, /if \(status == SENSOR_FAULT\) return 300UL/)
+  assert.match(source, /return 300UL/)
   assert.match(source, /data\.particleAdc = readParticleMedianAdc\(\)/,
     'Each measurement cycle must use the median of three smoke readings')
   assert.doesNotMatch(source, /doc\["rb"\]/,
@@ -69,12 +70,17 @@ for (const sketch of ['sensor_node', 'sensor_node_2']) {
     assert.ok(match, 'Missing type: ' + name)
     return match[0]
   }).join('\n')
+  const latchState = source.match(/^RTC_DATA_ATTR int latchedStatusValue = NORMAL;\s*RTC_DATA_ATTR uint8_t releaseCounter = 0;/m)
+  assert.ok(latchState, 'Risk latch state must survive deep sleep')
 
   const cpp = `
 #include "${resolve(root, sketch, 'config.h').replaceAll('\\', '/')}"
+typedef unsigned char uint8_t;
 typedef unsigned short uint16_t;
 typedef unsigned int uint32_t;
+#define RTC_DATA_ATTR
 ${types}
+${latchState[0]}
 ${medianFunction}
 int samples[3];
 int readIndex;
@@ -124,8 +130,17 @@ int raw(float temp, float humidity, int particle) {
   assert.equal(raw(30, 50, 1101), 2, 'Particle ADC above 1100 enters WARNING')
   assert.equal(raw(30, 30, 20), 2, '30C together with 30%RH enters WARNING')
   assert.equal(raw(29.99, 30, 20), 1, 'Humidity alone stays WATCH')
-  assert.equal(run(46, 60, 20), 2, 'Current WARNING reading returns WARNING')
-  assert.equal(run(), 0, 'Next NORMAL reading returns NORMAL immediately')
+  assert.equal(run(46, 60, 20), 2, 'Risk increases to WARNING immediately')
+  assert.equal(run(), 2, 'First lower-risk reading keeps WARNING')
+  assert.equal(run(), 2, 'Second lower-risk reading keeps WARNING')
+  assert.equal(run(), 1, 'Third lower-risk reading steps WARNING down to WATCH')
+  assert.equal(run(), 1, 'First NORMAL reading keeps WATCH')
+  assert.equal(run(), 1, 'Second NORMAL reading keeps WATCH')
+  assert.equal(run(), 0, 'Third NORMAL reading steps WATCH down to NORMAL')
+  assert.equal(run(36, 70, 20), 1, 'Risk increases to WATCH immediately')
+  assert.equal(run(46, 60, 20), 2, 'Risk increases to WARNING immediately')
+  assert.equal(run(30, 70, -1), 3, 'SENSOR_FAULT overrides the risk latch immediately')
+  assert.equal(run(), 0, 'Risk resumes from the current reading after SENSOR_FAULT')
   assert.equal(raw(NaN, 70, 20), 3, 'Failed temperature reading reports SENSOR_FAULT')
   assert.equal(raw(30, NaN, 20), 3, 'Failed humidity reading reports SENSOR_FAULT')
   assert.equal(raw(86, 70, 20), 3, 'Temperature outside sensor range reports SENSOR_FAULT')
