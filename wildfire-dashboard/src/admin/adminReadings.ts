@@ -3,6 +3,7 @@
  * แยกออกจาก Component เพื่อไม่ให้ไฟล์หน้าจอปนกับรายละเอียดการแปลงข้อมูล
  */
 import type { Reading } from '../types'
+import { THAI_TIME_ZONE, toThaiDateTimeInput } from '../thaiTime'
 
 const API_BASE = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '')
 
@@ -48,6 +49,7 @@ export function formatReadingDate(value: string) {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return '—'
   return new Intl.DateTimeFormat('th-TH', {
+    timeZone: THAI_TIME_ZONE,
     day: '2-digit',
     month: 'short',
     year: '2-digit',
@@ -57,19 +59,11 @@ export function formatReadingDate(value: string) {
   }).format(date)
 }
 
-/** แปลงวันเวลาเป็นค่าที่ input ชนิด datetime-local ใช้ได้ */
-function toDateTimeInput(value: string) {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
-  return localDate.toISOString().slice(0, 19)
-}
-
 /** สร้างค่าตั้งต้นของแบบฟอร์มแก้ไขจาก Reading ที่เลือก */
 export function toEditDraft(reading: AdminReading): EditDraft {
   const asInput = (value: number | null | undefined) => value == null ? '' : String(value)
   return {
-    timestamp: toDateTimeInput(reading.timestamp),
+    timestamp: toThaiDateTimeInput(reading.timestamp),
     air_temp: asInput(reading.air_temp),
     humidity: asInput(reading.humidity),
     particle_adc: asInput(reading.particle_adc),

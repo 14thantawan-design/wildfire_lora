@@ -44,7 +44,7 @@ export function ReadingEditorModal({
         <form onSubmit={onSubmit}>
           <div className="reading-editor-grid">
             <label className="wide-field">
-              <span>วันและเวลา</span>
+              <span>วันและเวลา (ไทย)</span>
               <input onChange={(event) => onDraftChange({ ...draft, timestamp: event.target.value })} required step="1" type="datetime-local" value={draft.timestamp} />
             </label>
             <label>

@@ -11,6 +11,7 @@ import {
 } from 'recharts'
 import { getTimeRange, timeRangeOptions, type TimeRangeKey } from '../timeRanges'
 import type { Reading } from '../types'
+import { THAI_TIME_ZONE } from '../thaiTime'
 
 type MetricKey = 'air_temp' | 'humidity' | 'particle_adc'
 
@@ -27,12 +28,14 @@ function formatChartTime(timestamp: string, range: TimeRangeKey) {
 
   if (rangeHours <= 24) {
     return new Intl.DateTimeFormat('th-TH', {
+      timeZone: THAI_TIME_ZONE,
       hour: '2-digit',
       minute: '2-digit',
     }).format(value)
   }
 
   return new Intl.DateTimeFormat('th-TH', {
+    timeZone: THAI_TIME_ZONE,
     day: 'numeric',
     month: 'short',
     hour: '2-digit',

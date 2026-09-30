@@ -4,6 +4,7 @@
  */
 import type { Alert, NodeState, NodeStatus } from './types'
 import { stateLabels } from './nodeStates'
+import { THAI_TIME_ZONE } from './thaiTime'
 
 const ADMIN_HOSTNAME = (import.meta.env.VITE_ADMIN_HOSTNAME || 'admin.nattaphat.me').toLowerCase()
 
@@ -28,6 +29,7 @@ export function isAdminHostname(hostname: string) {
 export function formatTime(value?: string | Date) {
   if (!value) return '—'
   return new Intl.DateTimeFormat('th-TH', {
+    timeZone: THAI_TIME_ZONE,
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',

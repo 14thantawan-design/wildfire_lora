@@ -3,6 +3,7 @@ import { Droplets, RadioTower, ShieldCheck, Thermometer, TriangleAlert, Wind } f
 import type { NodeState, NodeStatus } from '../types'
 import type { SafetyBanner } from '../dashboardView'
 import { stateLabels } from '../nodeStates'
+import { THAI_TIME_ZONE } from '../thaiTime'
 
 type MetricValueProps = {
   value?: number | null
@@ -54,8 +55,8 @@ export function DashboardSummary({
           <p>ติดตามอุณหภูมิ ความชื้น และอนุภาคควันจากเครือข่าย LoRa</p>
         </div>
         <div className="date-chip">
-          <span>{new Intl.DateTimeFormat('th-TH', { weekday: 'long' }).format(now)}</span>
-          <strong>{new Intl.DateTimeFormat('th-TH', { day: 'numeric', month: 'long', year: 'numeric' }).format(now)}</strong>
+          <span>{new Intl.DateTimeFormat('th-TH', { timeZone: THAI_TIME_ZONE, weekday: 'long' }).format(now)}</span>
+          <strong>{new Intl.DateTimeFormat('th-TH', { timeZone: THAI_TIME_ZONE, day: 'numeric', month: 'long', year: 'numeric' }).format(now)}</strong>
         </div>
       </section>
 

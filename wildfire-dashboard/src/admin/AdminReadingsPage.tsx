@@ -15,6 +15,7 @@ import {
   type AdminReadingsResponse,
   type EditDraft,
 } from './adminReadings'
+import { thaiDateTimeInputToIso } from '../thaiTime'
 import { AdminReadingsTable } from './AdminReadingsTable'
 import { ReadingEditorModal } from './ReadingEditorModal'
 
@@ -128,7 +129,7 @@ export function AdminReadingsPage({ onDataChanged }: AdminReadingsPageProps) {
       await adminJson<AdminReading>(`/readings/admin/${encodeURIComponent(editing._id)}`, {
         method: 'PATCH',
         body: JSON.stringify({
-          timestamp: new Date(draft.timestamp).toISOString(),
+          timestamp: thaiDateTimeInputToIso(draft.timestamp),
           air_temp: nullableNumber(draft.air_temp),
           humidity: nullableNumber(draft.humidity),
           particle_adc: nullableNumber(draft.particle_adc),
