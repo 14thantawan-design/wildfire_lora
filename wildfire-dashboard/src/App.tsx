@@ -4,6 +4,7 @@
  */
 import { useCallback, useEffect, useState } from 'react'
 import { AdminReadingsPage } from './admin/AdminReadingsPage'
+import { AdminNodesPage } from './admin/AdminNodesPage'
 import { useDashboard } from './useDashboard'
 import type { TimeRangeKey } from './timeRanges'
 import { assessLiveSafety } from './liveOverview'
@@ -31,6 +32,9 @@ function App() {
   const adminMode = isAdminHostname(window.location.hostname)
   const [adminDataOpen, setAdminDataOpen] = useState(
     () => adminMode && window.location.hash === '#admin-data',
+  )
+  const [adminNodesOpen, setAdminNodesOpen] = useState(
+    () => adminMode && window.location.hash === '#admin-nodes',
   )
   const [deletingAlertId, setDeletingAlertId] = useState<string>()
   const [gpsRequestingNodeId, setGpsRequestingNodeId] = useState<string>()
@@ -76,6 +80,7 @@ function App() {
   useEffect(() => {
     const syncAdminPageWithHash = () => {
       setAdminDataOpen(adminMode && window.location.hash === '#admin-data')
+      setAdminNodesOpen(adminMode && window.location.hash === '#admin-nodes')
     }
     window.addEventListener('hashchange', syncAdminPageWithHash)
     return () => window.removeEventListener('hashchange', syncAdminPageWithHash)
@@ -136,9 +141,12 @@ function App() {
           gatewayConnected={gatewayConnected}
           adminMode={adminMode}
           adminDataOpen={adminDataOpen}
+          adminNodesOpen={adminNodesOpen}
         />
 
-        {adminDataOpen ? (
+        {adminNodesOpen ? (
+          <AdminNodesPage onDataChanged={refresh} />
+        ) : adminDataOpen ? (
           <AdminReadingsPage onDataChanged={refresh} />
         ) : (
           <div className="content" id="overview">

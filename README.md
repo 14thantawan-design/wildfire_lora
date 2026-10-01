@@ -1,5 +1,11 @@
 # Wildfire LoRa — SHT31 + Sharp GP2Y1014AU0F
 
+> FG1 node registration: ใช้บอร์ดเดิม เพิ่ม USB provisioning,
+> NODE01–NODE10, soft deletion และ authenticated/encrypted LoRa ไม่ใช่ LoRaWAN
+> Backend / Dashboard deploy VM และผ่าน tests/build แล้ว; เฟิร์มแวร์ยังไม่คอมไพล์/อัปลงบอร์ด
+> ดู [คู่มือ FG1](docs/FG1_ONBOARDING.md) สำหรับขั้นตอนที่เหลือและข้อจำกัด
+> โหนด legacy ด้านล่างใช้กับ Gateway/Backend FG1 ไม่ได้ ต้องวางแผน migration ก่อน
+
 ระบบต้นแบบตรวจสัญญาณบ่งชี้ไฟป่าจากอุณหภูมิอากาศ ความชื้นสัมพัทธ์ และอนุภาคในอากาศ
 โดย Sensor Node ตัดสินสถานะแล้วส่งผ่าน LoRa ไป Gateway, Backend และ Dashboard
 

@@ -32,7 +32,8 @@ void pollBackendCommands() {
     queuePendingCommand(
       String((const char *)(command["command_id"] | "")),
       String((const char *)(command["node_id"] | "")),
-      String((const char *)(command["command"] | ""))
+      String((const char *)(command["command"] | "")),
+      String((const char *)(command["credential_generation"] | ""))
     );
   }
 }
@@ -71,6 +72,7 @@ void processCommandReport(CommandReportJob &job) {
 // networkTask: ส่งแพ็กเก็ตจากคิวและดูแลงานคำสั่งบนอีกคอร์หนึ่ง
 void networkTask(void *parameter) {
   (void)parameter;
+  unsigned long lastDeviceSyncMs = 0;
 
   for (;;) {
     CommandReportJob report;
@@ -84,6 +86,10 @@ void networkTask(void *parameter) {
     }
 
     unsigned long now = millis();
+    if (lastDeviceSyncMs == 0 || now - lastDeviceSyncMs >= 10000UL) {
+      lastDeviceSyncMs = now;
+      syncFgDevices();
+    }
     if (now - lastCommandPollMs >= COMMAND_POLL_INTERVAL_MS) {
       lastCommandPollMs = now;
       pollBackendCommands();

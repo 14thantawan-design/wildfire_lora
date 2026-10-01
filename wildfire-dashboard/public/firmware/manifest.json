@@ -1,0 +1,7 @@
+{
+  "name": "ForestGuard FG1 LILYGO LoRa32 433",
+  "version": "1.0.0",
+  "new_install_prompt_erase": true,
+  "new_install_improv_wait_time": 0,
+  "builds": []
+}

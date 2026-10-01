@@ -6,6 +6,15 @@ const nodeSchema = new mongoose.Schema(
   {
     // ตัวตนและสถานะล่าสุด
     node_id: { type: String, unique: true, index: true },
+    registration_status: {
+      type: String, enum: ['legacy', 'pending', 'active', 'archived'], default: 'legacy'
+    },
+    credential_generation: { type: String },
+    credential_ciphertext: { type: String, select: false },
+    provisioning_challenge: { type: String, select: false },
+    provisioning_expires_at: { type: Date },
+    uplink_sequence: { type: Number, default: 0, select: false },
+    archived_at: { type: Date },
     state: {
       type: String,
       default: 'UNKNOWN',

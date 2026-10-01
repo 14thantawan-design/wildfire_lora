@@ -73,10 +73,14 @@ bool sendLoRaPacket(const String &payload, bool useRandomDelay, bool requireGate
     delay(d);
   }
 
+#if SECURE_LORA_ENABLED
+  bool ok = transmitSecurePayload(payload);
+#else
   LoRa.idle();
   LoRa.beginPacket();
   LoRa.print(payload);
   bool ok = LoRa.endPacket();
+#endif
   bool acknowledged = false;
   if (ok) acknowledged = listenForGatewayCommand(requireGatewayAck);
   else LoRa.sleep();

@@ -66,7 +66,12 @@
 
 // เปิดรับช่วงสั้นหลังส่งข้อมูลแต่ละครั้ง เพื่อให้เกตเวย์ส่งคำสั่งที่รออยู่มายังโหนดได้
 // เปิดรับ ACK/คำสั่งหลังส่งนานเท่านี้ ms; สั้นไปอาจพลาดคำตอบ ยาวขึ้นใช้เวลาตื่นมากขึ้น
+#if SECURE_LORA_ENABLED
+// A combined authenticated ACK + GPS command is longer at SF12 / 125kHz.
+#define COMMAND_RX_WINDOW_MS 16000UL
+#else
 #define COMMAND_RX_WINDOW_MS 6000UL
+#endif
 // ความจุเอกสาร JSON สำหรับรับคำสั่ง/ACK และสร้างผลตอบคำสั่ง
 #define COMMAND_MAX_JSON_SIZE 192
 

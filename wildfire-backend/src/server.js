@@ -11,6 +11,7 @@ const nodesRouter = require('./routes/nodes');
 const readingsRouter = require('./routes/readings');
 const alertsRouter = require('./routes/alerts');
 const commandsRouter = require('./routes/commands');
+const devicesRouter = require('./routes/devices');
 const { handlePacket } = require('./services/packetHandler');
 const { corsOptions, requireGatewayKey } = require('./middleware/security');
 const { gatewayStatus, markGatewayPacket } = require('./services/gatewayStatus');
@@ -32,7 +33,9 @@ app.get('/api/health', (req, res) => {
   const mongoReady = mongoose.connection.readyState === 1;
   res.status(mongoReady ? 200 : 503).json({
     service: 'wildfire-backend',
-    api_version: 2,
+    api_version: 3,
+    radio_protocol: 'FG1',
+    node_registration_configured: /^[0-9a-f]{64}$/.test(process.env.DEVICE_REGISTRY_KEY || ''),
     ok: mongoReady,
     dashboard_served: dashboardAvailable,
     uptime_sec: Math.round(process.uptime()),
@@ -47,6 +50,7 @@ app.use('/api/nodes', nodesRouter);
 app.use('/api/readings', readingsRouter);
 app.use('/api/alerts', alertsRouter);
 app.use('/api/commands', commandsRouter);
+app.use('/api/devices', devicesRouter);
 
 // POST /api/packets รับแพ็กเก็ตจาก Gateway แล้วส่งไปยัง handler ตามชนิดข้อมูล
 app.post('/api/packets', requireGatewayKey, async (req, res, next) => {

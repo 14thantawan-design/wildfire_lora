@@ -1,14 +1,15 @@
 /** แถบหัวเว็บที่แสดงชื่อระบบ สถานะ Gateway และทางเข้าหน้า Admin */
-import { ArrowLeft, Database, Flame, RadioTower } from 'lucide-react'
+import { ArrowLeft, Database, Flame, RadioTower, Usb } from 'lucide-react'
 
 type DashboardHeaderProps = {
   gatewayConnected: boolean
   adminMode: boolean
   adminDataOpen: boolean
+  adminNodesOpen: boolean
 }
 
 /** แสดงส่วนหัวร่วมกันทั้งหน้าภาพรวมและหน้าจัดการข้อมูล */
-export function DashboardHeader({ gatewayConnected, adminMode, adminDataOpen }: DashboardHeaderProps) {
+export function DashboardHeader({ gatewayConnected, adminMode, adminDataOpen, adminNodesOpen }: DashboardHeaderProps) {
   return (
     <header className="topbar">
       <div className="brand">
@@ -28,6 +29,14 @@ export function DashboardHeader({ gatewayConnected, adminMode, adminDataOpen }: 
       </div>
 
       <div className="topbar-actions">
+        {adminMode && (
+          <a className={`admin-data-link ${adminNodesOpen ? 'active' : ''}`}
+            aria-current={adminNodesOpen ? 'page' : undefined}
+            href={adminNodesOpen ? '#overview' : '#admin-nodes'}>
+            {adminNodesOpen ? <ArrowLeft size={15} /> : <Usb size={15} />}
+            <span>{adminNodesOpen ? 'กลับหน้าภาพรวม' : 'จัดการโหนด'}</span>
+          </a>
+        )}
         {adminMode && (
           <a
             aria-current={adminDataOpen ? 'page' : undefined}

@@ -27,6 +27,7 @@
 #include "gateway_state.h"       // โครงสร้างข้อมูลคำสั่งและสถานะส่วนกลาง
 #include "gateway_helpers.h"     // ปิดวิทยุที่ไม่ใช้
 #include "backend_http.h"        // Wi-Fi, HTTPS และ Backend
+#include "secure_gateway.h"      // FG1 registry, authenticated frames and durable replay protection
 #include "lora_radio.h"          // เริ่มวิทยุ LoRa
 #include "gateway_commands.h"    // คิวและการส่งคำสั่งไปโหนด
 #include "network_task.h"        // งาน GPS command เบื้องหลังบน FreeRTOS

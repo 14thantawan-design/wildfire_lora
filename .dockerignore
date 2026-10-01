@@ -1,0 +1,13 @@
+**
+!deploy/
+!deploy/Dockerfile
+!wildfire-backend/
+!wildfire-backend/package.json
+!wildfire-backend/package-lock.json
+!wildfire-backend/src/
+!wildfire-backend/src/**
+!wildfire-dashboard/
+!wildfire-dashboard/package.json
+!wildfire-dashboard/package-lock.json
+!wildfire-dashboard/dist/
+!wildfire-dashboard/dist/**

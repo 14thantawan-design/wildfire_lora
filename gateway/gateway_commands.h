@@ -36,7 +36,8 @@ bool wasCommandAcknowledgedUnlocked(const String &commandId) {
 }
 
 // queuePendingCommand: เพิ่มคำสั่งจาก Backend ลงคิว หากยังไม่เคยรับหรือทำสำเร็จ
-bool queuePendingCommand(const String &commandId, const String &nodeId, const String &command) {
+bool queuePendingCommand(const String &commandId, const String &nodeId, const String &command,
+                         const String &generation) {
   if (commandId.length() == 0 || nodeId.length() == 0 || command.length() == 0) return false;
   lockPendingCommands();
   if (wasCommandAcknowledgedUnlocked(commandId)) {
@@ -54,6 +55,7 @@ bool queuePendingCommand(const String &commandId, const String &nodeId, const St
       pendingCommands[i].commandId = commandId;
       pendingCommands[i].nodeId = nodeId;
       pendingCommands[i].command = command;
+      pendingCommands[i].generation = generation;
       Serial.print("Command queued: ");
       Serial.print(command);
       Serial.print(" -> ");
@@ -180,34 +182,41 @@ void clearAndRememberAcknowledgedCommand(const String &commandId, const String &
   unlockPendingCommands();
 }
 
-// sendPendingCommandForNode: ส่งคำสั่งที่รอให้โหนด หลังโหนดตื่นและส่ง uplink เข้ามา
-bool sendPendingCommandForNode(const String &nodeId) {
+// One authenticated reply combines receive ACK and the queued GPS command.
+bool sendSecureReplyForNode(const String &nodeId, const FgFrameInfo &info,
+                            const FgGatewayDevice &device, bool sensorAck) {
   String commandId;
   String commandName;
   lockPendingCommands();
   for (int i = 0; i < MAX_PENDING_COMMANDS; i++) {
-    if (!pendingCommands[i].used || pendingCommands[i].nodeId != nodeId) continue;
+    if (!pendingCommands[i].used || pendingCommands[i].nodeId != nodeId ||
+        pendingCommands[i].generation != fgHex(info.generation, 8)) continue;
     commandId = pendingCommands[i].commandId;
     commandName = pendingCommands[i].command;
     break;
   }
   unlockPendingCommands();
-  if (commandId.length() == 0) return false;
-
   StaticJsonDocument<MAX_JSON_SIZE> doc;
-  doc["t"] = "cmd";
+  doc["t"] = "reply";
   doc["id"] = nodeId;
-  doc["cmd"] = commandName;
-  doc["cid"] = commandId;
+  doc["a"] = sensorAck ? 1 : 0;
+  if (commandId.length() > 0) {
+    doc["cmd"] = commandName;
+    doc["cid"] = commandId;
+  }
   String payload;
   serializeJson(doc, payload);
+  uint8_t frame[FG_MAX_FRAME];
+  size_t length = fgEncrypt(payload, device.key, info, "FGD1", frame);
+  if (!length) return false;
 
   LoRa.idle();
   LoRa.beginPacket();
-  LoRa.print(payload);
+  LoRa.write(frame, length);
   bool sent = LoRa.endPacket();
   LoRa.receive();
   if (!sent) return false;
+  if (commandId.length() == 0) return true;
 
   Serial.print("Command sent: ");
   Serial.print(commandName);

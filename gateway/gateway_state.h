@@ -10,6 +10,7 @@ struct PendingCommand {
   String commandId;
   String nodeId;
   String command;
+  String generation;
 };
 
 enum CommandReportType : uint8_t {

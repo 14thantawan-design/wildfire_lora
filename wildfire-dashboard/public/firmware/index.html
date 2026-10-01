@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'">
+  <title>ติดตั้งเฟิร์มแวร์ ForestGuard FG1</title>
+  <link rel="stylesheet" href="installer.css">
+</head>
+<body>
+  <main>
+    <h1>ติดตั้งเฟิร์มแวร์โหนดผ่าน USB</h1>
+    <p>เฉพาะ LILYGO LoRa32 ESP32 รุ่น 433 MHz และการต่อเซนเซอร์ตามโครงงานนี้ ไม่ใช่เฟิร์มแวร์ Gateway</p>
+    <p>การติดตั้งเขียนทับโปรแกรมในบอร์ดที่เลือก ตรวจให้แน่ใจว่าเสียบโหนด ไม่ใช่ Gateway และปิด Serial Monitor ก่อน</p>
+    <p>หลังติดตั้ง ปิดหน้านี้ แล้วกลับหน้าจัดการโหนดเพื่อเลือกเลข 1–10 และตั้งค่ากุญแจผ่าน USB</p>
+    <p id="status" role="status">กำลังตรวจไฟล์ติดตั้ง…</p>
+    <label><input id="confirm" type="checkbox" disabled> ฉันตรวจรุ่นบอร์ด ขาเซนเซอร์ และยืนยันให้เขียนโปรแกรมใหม่ลงโหนดที่เลือกแล้ว</label>
+    <div id="installer" hidden>
+      <esp-web-install-button manifest="manifest.json">
+        <button slot="activate">เลือกพอร์ต USB และติดตั้ง FG1</button>
+        <span slot="unsupported">เบราว์เซอร์นี้ไม่รองรับ Web Serial</span>
+        <span slot="not-allowed">ต้องเปิดหน้านี้บน HTTPS หรือ localhost</span>
+      </esp-web-install-button>
+    </div>
+    <p><a href="/#admin-nodes">กลับหน้าจัดการโหนด</a></p>
+  </main>
+  <script type="module" src="installer.js"></script>
+</body>
+</html>

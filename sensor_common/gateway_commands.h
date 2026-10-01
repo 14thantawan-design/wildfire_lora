@@ -32,17 +32,22 @@ void sendCommandAckPacket(const String &commandId, bool accepted, const String &
 
   String payload;
   serializeJson(doc, payload);
+#if SECURE_LORA_ENABLED
+  transmitSecurePayload(payload);
+#else
   LoRa.idle();
   LoRa.beginPacket();
   LoRa.print(payload);
   LoRa.endPacket();
+#endif
 }
 
 // handleGatewayCommand: แปลง JSON ตรวจชนิด ปลายทาง รหัส และชื่อคำสั่งก่อนทำงาน; คืนรหัสคำสั่งที่รู้จักเพื่อส่งผลตอบกลับ หรือข้อความว่างเมื่อข้ามแพ็กเก็ต
 String handleGatewayCommand(const String &payload) {
   StaticJsonDocument<COMMAND_MAX_JSON_SIZE> doc;
   if (deserializeJson(doc, payload)) return "";
-  if (String((const char *)(doc["t"] | "")) != "cmd") return "";
+  String packetType = String((const char *)(doc["t"] | ""));
+  if (packetType != "cmd" && packetType != "reply") return "";
   if (String((const char *)(doc["id"] | "")) != NODE_ID) return "";
 
   String commandId = String((const char *)(doc["cid"] | ""));
@@ -72,6 +77,9 @@ bool listenForGatewayCommand(bool waitForSensorAck) {
   bool commandAccepted = true;
   String commandResultReason;
   bool sensorUplinkAcknowledged = false;
+#if SECURE_LORA_ENABLED
+  bool secureReplySeen = false;
+#endif
   LoRa.receive();
 
   while (millis() - startedAt < COMMAND_RX_WINDOW_MS) {
@@ -82,14 +90,24 @@ bool listenForGatewayCommand(bool waitForSensorAck) {
     }
 
     String payload;
+#if SECURE_LORA_ENABLED
+    if (!receiveSecureReply(payload) || secureReplySeen) { LoRa.receive(); continue; }
+    secureReplySeen = true;
+#else
     while (LoRa.available()) payload += (char)LoRa.read();
+#endif
 
     StaticJsonDocument<COMMAND_MAX_JSON_SIZE> doc;
     if (!deserializeJson(doc, payload) &&
+#if SECURE_LORA_ENABLED
+        String((const char *)(doc["t"] | "")) == "reply" && (doc["a"] | 0) == 1 &&
+#else
         String((const char *)(doc["t"] | "")) == "rx_ack" &&
+#endif
         String((const char *)(doc["id"] | "")) == NODE_ID) {
       sensorUplinkAcknowledged = waitForSensorAck;
-    } else {
+    }
+    {
       String handledCommandId = handleGatewayCommand(payload);
       if (handledCommandId.length() > 0) {
         commandAckId = handledCommandId;

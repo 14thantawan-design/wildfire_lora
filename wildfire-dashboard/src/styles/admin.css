@@ -1,5 +1,17 @@
 /* ตารางและหน้าต่างแก้ไขข้อมูลของ Admin */
 
+.node-registration-panel { margin-bottom: 18px; padding: 20px; }
+.node-registration-panel h2 { display: flex; align-items: center; gap: 8px; font-size: 16px; }
+.node-registration-panel p, .node-model-confirm { font-size: 12px; line-height: 1.7; }
+.node-model-confirm { display: flex; align-items: flex-start; gap: 8px; margin: 16px 0; }
+.node-model-confirm input { margin-top: 5px; }
+.node-registration-actions { display: flex; align-items: center; gap: 12px; }
+.node-registration-actions button { display: inline-flex; align-items: center; gap: 6px; padding: 9px 12px; border: 1px solid #a9c8b7; border-radius: 7px; background: #f1f8f4; cursor: pointer; }
+.node-registration-actions button:disabled, .node-management-table button:disabled { opacity: .5; cursor: not-allowed; }
+.node-management-table { min-width: 740px; font-size: 11px; }
+.node-management-table th { font-size: 10px; }
+.node-management-table button { margin-right: 8px; }
+
 .admin-data-page {
   min-height: calc(100vh - 72px);
 }
@@ -510,4 +522,3 @@
   opacity: .55;
   cursor: not-allowed;
 }
-

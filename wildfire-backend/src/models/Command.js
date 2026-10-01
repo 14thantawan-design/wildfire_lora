@@ -6,6 +6,7 @@ const commandSchema = new mongoose.Schema(
     // ตัวตน คำสั่ง และสถานะการส่ง
     command_id: { type: String, required: true, unique: true, index: true },
     node_id: { type: String, required: true, index: true, trim: true },
+    credential_generation: { type: String },
     command: {
       type: String,
       required: true,

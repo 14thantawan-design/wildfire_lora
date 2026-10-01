@@ -112,12 +112,14 @@ test('node listing keeps offline nodes so the dashboard can show their last data
     {
       node_id: 'NODE01',
       last_seen: new Date(),
+      registration_status: 'active',
       report_interval_sec: 300,
       state: 'NORMAL'
     },
     {
       node_id: 'NODE02',
       last_seen: new Date(0),
+      registration_status: 'active',
       report_interval_sec: 300,
       state: 'NORMAL'
     }

@@ -1,6 +1,7 @@
 // จัดคิวและติดตามสถานะคำสั่ง GPS ที่ Backend รอส่งผ่าน Gateway
 const crypto = require('crypto');
 const Command = require('../models/Command');
+const NodeModel = require('../models/Node');
 
 const COMMAND_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -16,6 +17,7 @@ function serializeCommand(command) {
   return {
     command_id: value.command_id,
     node_id: value.node_id,
+    credential_generation: value.credential_generation,
     command: value.command,
     status: value.status,
     created_at: value.created_at,
@@ -28,10 +30,11 @@ function serializeCommand(command) {
 }
 
 // เพิ่มคำสั่งใหม่ หรือคืนคำสั่งเดิมเมื่อมีคำสั่งชนิดเดียวกันรออยู่แล้ว
-async function enqueueCommand(nodeId, commandName) {
+async function enqueueCommand(nodeId, commandName, generation) {
   const now = new Date();
   const existing = await Command.findOne({
     node_id: nodeId,
+    credential_generation: generation,
     command: commandName,
     status: { $in: ['pending', 'sent'] },
     completed_at: null,
@@ -43,6 +46,7 @@ async function enqueueCommand(nodeId, commandName) {
   const command = await Command.create({
     command_id: createCommandId(),
     node_id: nodeId,
+    credential_generation: generation,
     command: commandName,
     status: 'pending',
     expires_at: new Date(now.getTime() + COMMAND_TTL_MS)
@@ -60,7 +64,7 @@ function oppositeGpsCommand(commandName) {
 }
 
 // ยกเลิกคำสั่ง GPS เดิมที่ขัดแย้ง แล้วเก็บคำสั่งล่าสุดไว้เพียงชนิดเดียว
-async function enqueueLatestGpsCommand(nodeId, commandName) {
+async function enqueueLatestGpsCommand(nodeId, commandName, generation) {
   const supersededCommand = oppositeGpsCommand(commandName);
   if (!supersededCommand) {
     throw new Error('unsupported GPS command');
@@ -70,6 +74,7 @@ async function enqueueLatestGpsCommand(nodeId, commandName) {
   await Command.updateMany(
     {
       node_id: nodeId,
+      credential_generation: generation,
       command: supersededCommand,
       status: { $in: ['pending', 'sent'] },
       completed_at: null,
@@ -84,7 +89,7 @@ async function enqueueLatestGpsCommand(nodeId, commandName) {
     }
   );
 
-  return enqueueCommand(nodeId, commandName);
+  return enqueueCommand(nodeId, commandName, generation);
 }
 
 // คืนคำสั่งที่ยังไม่หมดอายุและยังรอ Gateway ดำเนินการ
@@ -95,7 +100,10 @@ async function listPendingCommands() {
     completed_at: null,
     expires_at: { $gt: new Date() }
   }).sort({ created_at: 1 });
-  return commands.map(serializeCommand);
+  const activeNodes = await NodeModel.find({ registration_status: 'active' });
+  return commands.filter((command) => activeNodes.some((node) =>
+    node.node_id === command.node_id && node.credential_generation === command.credential_generation
+  )).map(serializeCommand);
 }
 
 // เปลี่ยนสถานะเป็น sent และนับจำนวนครั้งที่ Gateway พยายามส่ง
@@ -117,10 +125,11 @@ async function markCommandSent(commandId) {
 }
 
 // ปิดคำสั่งด้วยผล acknowledged หรือ rejected จากโหนด
-async function completeCommand(commandId, accepted = true, reason = '') {
+async function completeCommand(commandId, accepted, reason, nodeId, generation) {
   const status = accepted ? 'acknowledged' : 'rejected';
   const command = await Command.findOneAndUpdate(
-    { command_id: commandId, status: { $in: ['pending', 'sent'] }, completed_at: null },
+    { command_id: commandId, node_id: nodeId, credential_generation: generation,
+      status: { $in: ['pending', 'sent'] }, completed_at: null, expires_at: { $gt: new Date() } },
     {
       $set: {
         status,

@@ -4,7 +4,7 @@ const Reading = require('../../models/Reading');
 const { processAlertForReading } = require('../alertService');
 
 // รับข้อมูลเซนเซอร์ บันทึก Reading และอัปเดตค่าล่าสุดของ Node
-async function handleSensorPacket(packet) {
+async function handleSensorPacket(packet, generation) {
   const nodeId = packet.id;
   const now = new Date();
 
@@ -18,13 +18,14 @@ async function handleSensorPacket(packet) {
     snr: packet.snr
   };
 
-  const reading = await Reading.create({ node_id: nodeId, timestamp: now, ...values });
-
-  await NodeModel.findOneAndUpdate(
-    { node_id: nodeId },
-    { $set: { ...values, last_seen: now }, $setOnInsert: { node_id: nodeId } },
-    { upsert: true, new: true, setDefaultsOnInsert: true }
+  const node = await NodeModel.findOneAndUpdate(
+    { node_id: nodeId, registration_status: 'active', credential_generation: generation },
+    { $set: { ...values, last_seen: now } },
+    { new: true }
   );
+  if (!node) return { ignored: true, reason: 'node credentials revoked' };
+  const reading = await Reading.create({ node_id: nodeId, credential_generation: generation,
+    timestamp: now, ...values });
 
   const alertResult = await processAlertForReading(reading);
   return {

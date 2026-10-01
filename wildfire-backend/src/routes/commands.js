@@ -1,7 +1,6 @@
 // API ระหว่าง Gateway กับคิวคำสั่ง GPS ใน Backend
 const express = require('express');
 const {
-  completeCommand,
   listPendingCommands,
   markCommandSent
 } = require('../services/commandQueue');
@@ -34,22 +33,9 @@ router.post('/:command_id/sent', async (req, res, next) => {
   }
 });
 
-// POST /api/commands/:command_id/ack บันทึกผลตอบรับจากโหนด
-router.post('/:command_id/ack', async (req, res, next) => {
-  try {
-    markGatewayPacket('http');
-    const accepted = req.body?.accepted !== false;
-    const command = accepted
-      ? await completeCommand(req.params.command_id, true)
-      : await completeCommand(req.params.command_id, false, req.body?.reason);
-    return res.json({
-      acknowledged: Boolean(command),
-      accepted,
-      command
-    });
-  } catch (error) {
-    return next(error);
-  }
+// Legacy ACK cannot prove which node sent it. Only /api/packets accepts signed ACK.
+router.post('/:command_id/ack', (req, res) => {
+  res.status(401).json({ error: 'authenticated node ACK must be forwarded through /api/packets' });
 });
 
 module.exports = router;

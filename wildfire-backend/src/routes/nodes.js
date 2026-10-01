@@ -22,8 +22,12 @@ function offlineTimeoutMs(node) {
 // เพิ่ม field online ให้ข้อมูล Node ก่อนส่งไปยัง Dashboard
 function withOnlineStatus(node) {
   const obj = normalizeNodeRisk(node);
+  delete obj.credential_ciphertext;
+  delete obj.provisioning_challenge;
+  delete obj.uplink_sequence;
   const lastSeen = obj.last_seen ? new Date(obj.last_seen).getTime() : 0;
-  obj.online = lastSeen > 0 && Date.now() - lastSeen <= offlineTimeoutMs(obj);
+  obj.online = obj.registration_status === 'active' &&
+    lastSeen > 0 && Date.now() - lastSeen <= offlineTimeoutMs(obj);
   // สถานะการเชื่อมต่อแยกจากระดับความเสี่ยงล่าสุดที่โหนดประเมิน
   if (!obj.location_source && obj.gps_fixed && obj.lat !== undefined && obj.lng !== undefined) {
     obj.location_source = 'gps';
@@ -33,7 +37,8 @@ function withOnlineStatus(node) {
 
 // เพิ่มสถานะ online ให้ Node ทุกตัวในผลลัพธ์
 function buildNodeStatusList(nodes) {
-  return nodes.map(withOnlineStatus);
+  return nodes.filter((node) => !['pending', 'archived'].includes(node.registration_status))
+    .map(withOnlineStatus);
 }
 
 // สร้างคำสั่งอัปเดต Node เมื่อ Admin ขอให้ค้นหา GPS ใหม่
@@ -57,7 +62,7 @@ function buildGpsReacquireUpdate(node) {
 // GET /api/nodes คืน snapshot ล่าสุดของทุกโหนดพร้อมสถานะ online
 router.get('/', async (req, res, next) => {
   try {
-    const nodes = await NodeModel.find().sort({ node_id: 1 });
+    const nodes = await NodeModel.find({ registration_status: { $nin: ['pending', 'archived'] } }).sort({ node_id: 1 });
     return res.json(buildNodeStatusList(nodes));
   } catch (error) {
     return next(error);
@@ -67,7 +72,8 @@ router.get('/', async (req, res, next) => {
 // GET /api/nodes/:node_id คืนข้อมูลล่าสุดของโหนดที่ระบุ
 router.get('/:node_id', async (req, res, next) => {
   try {
-    const node = await NodeModel.findOne({ node_id: req.params.node_id });
+    const node = await NodeModel.findOne({ node_id: req.params.node_id,
+      registration_status: { $nin: ['pending', 'archived'] } });
     if (!node) {
       return res.status(404).json({ error: 'node not found' });
     }
@@ -81,14 +87,14 @@ router.get('/:node_id', async (req, res, next) => {
 // POST /api/nodes/:node_id/gps/reacquire สร้างคำสั่งให้โหนดค้นหา GPS ใหม่
 router.post('/:node_id/gps/reacquire', requireLocalAdmin, async (req, res, next) => {
   try {
-    const node = await NodeModel.findOne({ node_id: req.params.node_id });
+    const node = await NodeModel.findOne({ node_id: req.params.node_id, registration_status: 'active' });
     if (!node) {
       return res.status(404).json({ error: 'node not found' });
     }
 
-    const { command, duplicate } = await enqueueLatestGpsCommand(node.node_id, 'gps_reacquire');
+    const { command, duplicate } = await enqueueLatestGpsCommand(node.node_id, 'gps_reacquire', node.credential_generation);
     await NodeModel.updateOne(
-      { _id: node._id }, buildGpsReacquireUpdate(node)
+      { _id: node._id, registration_status: 'active', credential_generation: node.credential_generation }, buildGpsReacquireUpdate(node)
     );
 
     return res.status(202).json({ ...command, duplicate });
@@ -102,9 +108,13 @@ router.post('/:node_id/location/manual', requireLocalAdmin, async (req, res, nex
   try {
     const latitude = req.body.lat;
     const longitude = req.body.lng;
+    if (typeof latitude !== 'number' || !Number.isFinite(latitude) || Math.abs(latitude) > 90 ||
+        typeof longitude !== 'number' || !Number.isFinite(longitude) || Math.abs(longitude) > 180) {
+      return res.status(400).json({ error: 'invalid coordinates' });
+    }
 
     const node = await NodeModel.findOneAndUpdate(
-      { node_id: req.params.node_id },
+      { node_id: req.params.node_id, registration_status: 'active' },
       {
         $set: {
           lat: latitude,
@@ -123,7 +133,7 @@ router.post('/:node_id/location/manual', requireLocalAdmin, async (req, res, nex
     }
 
     // พิกัดที่ Admin กรอกมีสิทธิ์สูงกว่า จึงสั่งโหนดหยุดค้นหา GPS ในรอบสื่อสารถัดไป
-    await enqueueLatestGpsCommand(node.node_id, 'gps_manual');
+    await enqueueLatestGpsCommand(node.node_id, 'gps_manual', node.credential_generation);
 
     return res.json(withOnlineStatus(node));
   } catch (error) {

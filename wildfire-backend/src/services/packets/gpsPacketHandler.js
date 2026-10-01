@@ -2,7 +2,7 @@
 const NodeModel = require('../../models/Node');
 
 // อัปเดตพิกัดล่าสุดของโหนดเมื่อได้รับแพ็กเก็ต GPS
-async function handleGpsPacket(packet) {
+async function handleGpsPacket(packet, generation) {
   const nodeId = packet.id;
   const now = new Date();
   const gpsFixed = packet.gf === 1;
@@ -13,7 +13,7 @@ async function handleGpsPacket(packet) {
     snr: packet.snr
   };
 
-  const update = { $set: nodeSet, $setOnInsert: { node_id: nodeId } };
+  const update = { $set: nodeSet };
   if (gpsFixed) {
     nodeSet.lat = packet.la;
     nodeSet.lng = packet.ln;
@@ -24,11 +24,12 @@ async function handleGpsPacket(packet) {
     nodeSet.gps_error = packet.er;
   }
 
-  await NodeModel.findOneAndUpdate(
-    { node_id: nodeId },
+  const node = await NodeModel.findOneAndUpdate(
+    { node_id: nodeId, registration_status: 'active', credential_generation: generation },
     update,
-    { upsert: true, new: true, setDefaultsOnInsert: true }
+    { new: true }
   );
+  if (!node) return { ignored: true, reason: 'node credentials revoked' };
   return { type: 'gps', node_id: nodeId, gps_fixed: gpsFixed };
 }
 

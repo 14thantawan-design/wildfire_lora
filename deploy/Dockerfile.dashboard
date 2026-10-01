@@ -1,0 +1,8 @@
+# ponytail: UI-only overlay; use deploy/Dockerfile for backend changes or long layer chains.
+ARG BASE_IMAGE=forestguard-backend:latest
+FROM ${BASE_IMAGE}
+USER root
+RUN rm -rf /app/wildfire-dashboard/dist/assets
+COPY wildfire-dashboard/dist/index.html /app/wildfire-dashboard/dist/index.html
+COPY wildfire-dashboard/dist/assets /app/wildfire-dashboard/dist/assets
+USER node

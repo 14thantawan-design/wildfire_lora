@@ -6,6 +6,7 @@ const readingSchema = new mongoose.Schema(
   {
     // ตัวตนของ Reading และเวลาที่ Backend รับข้อมูล
     node_id: { type: String, index: true },
+    credential_generation: { type: String },
     report_interval_sec: { type: Any },
     timestamp: { type: Date, default: Date.now, index: true },
     // ผลประเมินจาก firmware และค่าที่เซนเซอร์วัดได้

@@ -43,6 +43,9 @@ void runOneMeasurementCycle() {
 void setupNode() {
   Serial.begin(115200);
   delay(1000);
+#if SECURE_LORA_ENABLED
+  setupSecureNode();
+#endif
 
   disableUnusedRadios();
   randomSeed(esp_random());
