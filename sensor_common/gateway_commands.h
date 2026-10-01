@@ -79,6 +79,7 @@ bool listenForGatewayCommand(bool waitForSensorAck) {
   bool sensorUplinkAcknowledged = false;
 #if SECURE_LORA_ENABLED
   bool secureReplySeen = false;
+  bool gatewayReplyCompleted = false;
 #endif
   LoRa.receive();
 
@@ -100,12 +101,19 @@ bool listenForGatewayCommand(bool waitForSensorAck) {
     StaticJsonDocument<COMMAND_MAX_JSON_SIZE> doc;
     if (!deserializeJson(doc, payload) &&
 #if SECURE_LORA_ENABLED
-        String((const char *)(doc["t"] | "")) == "reply" && (doc["a"] | 0) == 1 &&
+        String((const char *)(doc["t"] | "")) == "reply" &&
 #else
         String((const char *)(doc["t"] | "")) == "rx_ack" &&
 #endif
         String((const char *)(doc["id"] | "")) == NODE_ID) {
+#if SECURE_LORA_ENABLED
+      int ack = doc["a"] | -1;
+      sensorUplinkAcknowledged = waitForSensorAck && ack == 1;
+      // GPS uplinks receive a=0 (no sensor ACK); their authenticated reply also completes RX.
+      gatewayReplyCompleted = (ack == 0 || ack == 1) && (!waitForSensorAck || ack == 1);
+#else
       sensorUplinkAcknowledged = waitForSensorAck;
+#endif
     }
     {
       String handledCommandId = handleGatewayCommand(payload);
@@ -115,6 +123,10 @@ bool listenForGatewayCommand(bool waitForSensorAck) {
         commandResultReason = lastCommandResultReason;
       }
     }
+#if SECURE_LORA_ENABLED
+    // The queued command is in this SAME authenticated reply; handle it before exiting.
+    if (gatewayReplyCompleted) break;
+#endif
     LoRa.receive();
   }
 

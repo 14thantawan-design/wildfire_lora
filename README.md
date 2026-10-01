@@ -103,6 +103,7 @@ bandwidth, coding rate และ sync word ตรงกัน
 
 ```powershell
 node tools/test_node_risk.mjs
+node tools/test_node_ack.mjs
 cd wildfire-backend
 npm test
 cd ..\wildfire-dashboard

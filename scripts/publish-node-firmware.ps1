@@ -80,7 +80,7 @@ foreach ($path in @($parts.path) + @('manifest.json')) {
 }
 foreach ($part in $sources) { Copy-Item -LiteralPath $part.source -Destination (Join-Path $destination $part.path) }
 $manifest = @{
-  name = 'ForestGuard FG1 LILYGO LoRa32 433'; version = '1.1.0'; protocol = 'FG1'
+  name = 'ForestGuard FG1 LILYGO LoRa32 433'; version = '1.1.1'; protocol = 'FG1'
   board_fqbn = $options.fqbn; builds = @(@{ chipFamily = 'ESP32'; parts = @($parts) })
 }
 [IO.File]::WriteAllText((Join-Path $destination 'manifest.json'), ($manifest | ConvertTo-Json -Depth 8), [Text.UTF8Encoding]::new($false))

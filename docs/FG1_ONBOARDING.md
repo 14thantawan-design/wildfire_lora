@@ -67,7 +67,11 @@ Gateway เก็บ high-watermark ต่อ slot/generation ลง NVS ก่�
 downlink เป็น **หนึ่ง reply ต่อหนึ่ง uplink** รวม ACK กับคำสั่ง เพื่อไม่ใช้ GCM nonce เดิมกับข้อความต่างกัน
 โหนดรับเฉพาะ reply ของ generation และ sequence ที่เพิ่งส่ง และรับได้ครั้งเดียวในรอบนั้น
 รองรับ **Gateway ที่ไว้ใจหนึ่งตัวเท่านั้น**; หลาย Gateway ต้องออกแบบ key/nonce domains ใหม่ก่อน
-ช่วงรับของ managed node เพิ่มจาก legacy 6 วินาทีเป็น 16 วินาที เพราะ airtime SF12 ของ encrypted reply
+ช่วงรับของ managed node สูงสุด 6 วินาทีหลังส่ง ถ้าได้ ACK ที่ตรวจยืนยัน key/generation/sequence/id และ a=1 จะจบรอทันที
+จัดการคำสั่งที่แนบมากับ reply และส่ง cmd_ack ก่อนปิดวิทยุ; GPS uplink จบรอเมื่อได้ reply ที่ถูกต้องแม้ a=0
+ACK ผิด/ไม่มี ACK ไม่จบรอก่อนเวลา และไม่เพิ่ม retry; ที่ SF12 ต้องทดสอบเวลาส่ง reply จริงว่าเสร็จภายใน 6 วินาที
+เมื่อจบรอจะกลับสู่ลูปเดิม: NORMAL/WATCH ที่ไม่มีงาน GPS ค้างเข้าสู่ deep sleep ส่วน WARNING/การค้น GPS ยังตื่นต่อ
+ตรวจลูป C++ ด้วย `node tools/test_node_ack.mjs` (ใช้ clang++/wasm-ld ชุดเดียวกับ test_node_risk); ไม่ใช่การทดสอบคลื่นจริง
 รอบ WARNING เป้าหมาย 20 วินาทีอาจทำไม่ได้เมื่อรวม airtime/random delay ต้องวัดจริง ไม่กล่าวอ้างคาบที่ยังไม่ทดสอบ
 
 `GATEWAY_API_KEY` เดิมยังยืนยัน Gateway ↔ Backend ผ่าน HTTPS
