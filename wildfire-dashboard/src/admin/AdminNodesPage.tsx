@@ -28,10 +28,11 @@ export function AdminNodesPage({ onDataChanged }: { onDataChanged?: () => void |
   }, [load])
 
   const register = async (number: number, replace = false) => {
-    if (!modelConfirmed) { setError('ยืนยันรุ่นบอร์ดและการติดตั้งเฟิร์มแวร์ก่อน'); return }
+    if (!modelConfirmed) { setError('ยืนยันว่าเสียบบอร์ดโหนดรุ่นที่รองรับก่อน'); return }
     if (replace && !window.confirm(
       `ติดตั้งใหม่สำหรับ NODE${String(number).padStart(2, '0')} หรือไม่\n` +
-      'กุญแจของบอร์ดเดิมจะถูกยกเลิกทันที ประวัติยังอยู่ ถ้าตั้งค่าไม่สำเร็จโหนดจะยังไม่รับข้อมูล',
+      'เว็บจะติดตั้งโปรแกรม FG1 ลงบอร์ดที่เสียบ USB และตั้งค่ากุญแจใหม่\n' +
+      'กุญแจเดิมจะถูกยกเลิกเมื่อเริ่มตั้งค่าหลังติดตั้ง ประวัติยังอยู่ ถ้าตั้งค่าไม่สำเร็จโหนดจะยังไม่รับข้อมูล',
     )) return
     setBusy(true); setError(''); setNotice('')
     try {
@@ -60,17 +61,16 @@ export function AdminNodesPage({ onDataChanged }: { onDataChanged?: () => void |
     <div className="content admin-data-page" id="admin-nodes">
       <section className="page-heading"><div><span className="eyebrow">ADMIN · NODE REGISTRATION</span>
         <h1>จัดการโหนด NODE01–NODE10</h1>
-        <p>เฉพาะ Admin · ตั้งค่าผ่าน USB · ลบแล้วเก็บประวัติ · ใช้บอร์ดและ Gateway เดิม</p>
+        <p>เฉพาะ Admin · ติดตั้งและลงทะเบียนผ่าน USB ในปุ่มเดียว · ลบแล้วเก็บประวัติ</p>
       </div></section>
       <section className="panel node-registration-panel">
-        <h2><Usb size={20} /> เตรียมบอร์ดก่อนลงทะเบียน</h2>
+        <h2><Usb size={20} /> เพิ่มโหนดและติดตั้งโปรแกรมในปุ่มเดียว</h2>
         <p>1. เสียบบอร์ดโหนดด้วยสาย USB ที่ส่งข้อมูลได้ แล้วปิด Serial Monitor ของ Arduino</p>
-        <p>2. ติดตั้งเฟิร์มแวร์ FG1 ของโครงงาน จากนั้นปิดหน้าติดตั้งเพื่อคืนพอร์ต USB</p>
-        <a className="admin-data-link" href="/firmware/index.html" target="_blank" rel="noopener noreferrer">เปิดหน้าติดตั้งเฟิร์มแวร์ผ่าน USB</a>
-        <p>3. กดเพิ่ม / คืนโหนด หรือ ติดตั้งใหม่ / เปลี่ยนบอร์ด ในแถว NODE ที่ต้องการ เว็บจะตั้งค่าบอร์ดตามรหัสของแถวนั้น ไม่ต้องกรอกเลขหรือแก้โค้ด</p>
+        <p>2. ยืนยันรุ่นบอร์ด แล้วกดเพิ่ม / คืนโหนดในแถว NODE ที่ต้องการ และเลือกพอร์ต USB</p>
+        <p>3. รอเว็บติดตั้ง FG1 แล้วตั้งรหัสและกุญแจโหนดต่อให้เอง ไม่ต้องติดตั้งล่วงหน้า ไม่ต้องไปอีกหน้า และไม่ต้องแก้โค้ด</p>
         <label className="node-model-confirm">
           <input checked={modelConfirmed} disabled={busy} onChange={(event) => setModelConfirmed(event.target.checked)} type="checkbox" />
-          บอร์ดเป็น LILYGO LoRa32 ESP32 รุ่น 433 MHz ใช้การต่อเซนเซอร์ตามโครงงาน และติดตั้งเฟิร์มแวร์ FG1 แล้ว
+          เสียบบอร์ดโหนด LILYGO LoRa32 ESP32 แฟลช 4 MB รุ่น 433 MHz ตามการต่อเซนเซอร์ของโครงงาน (ไม่ใช่ Gateway) และยินยอมให้แทนที่โปรแกรมบนบอร์ดนี้ด้วย FG1
         </label>
         {!supportsNodeUsb() && <p role="alert">เบราว์เซอร์นี้ยังใช้ USB ไม่ได้ เปิดบน HTTPS/localhost ด้วยเบราว์เซอร์ที่รองรับ Web Serial</p>}
         <div className="node-registration-actions">

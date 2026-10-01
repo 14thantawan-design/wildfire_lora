@@ -5,4 +5,6 @@ USER root
 RUN rm -rf /app/wildfire-dashboard/dist/assets
 COPY wildfire-dashboard/dist/index.html /app/wildfire-dashboard/dist/index.html
 COPY wildfire-dashboard/dist/assets /app/wildfire-dashboard/dist/assets
+RUN rm -rf /app/wildfire-dashboard/dist/firmware
+COPY wildfire-dashboard/dist/firmware /app/wildfire-dashboard/dist/firmware
 USER node

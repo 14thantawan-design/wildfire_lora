@@ -23,7 +23,9 @@ def directory(parent, name):
     return os.open(name, flags, dir_fd=parent)
 
 static = {"index.html", "favicon.svg", "icons.svg", "firmware/index.html",
-          "firmware/installer.js", "firmware/installer.css", "firmware/manifest.json"}
+          "firmware/installer.css", "firmware/manifest.json",
+          "firmware/node-bootloader.bin", "firmware/node-partitions.bin",
+          "firmware/node-boot-app.bin", "firmware/node-app.bin"}
 asset = re.compile(r"assets/[A-Za-z0-9._-]+\.(?:js|css|svg|png|woff2)")
 limits = {"files": 0, "bytes": 0}
 

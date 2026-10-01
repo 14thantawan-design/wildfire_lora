@@ -1,13 +1,8 @@
 // USB provisioning for FG1 firmware. Credentials never go to storage or logs.
 import { adminJson } from './adminReadings'
+import { installNodeFirmware, type NodeSerialPort } from './flashNodeFirmware'
 
-type SerialPort = {
-  readable: ReadableStream<Uint8Array> | null
-  writable: WritableStream<Uint8Array> | null
-  open(options: { baudRate: number }): Promise<void>
-  close(): Promise<void>
-  setSignals(signals: { dataTerminalReady?: boolean; requestToSend?: boolean }): Promise<void>
-}
+type SerialPort = NodeSerialPort
 type SerialNavigator = Navigator & { serial?: { requestPort(): Promise<SerialPort> } }
 type Registration = { node_id: string; generation: string; challenge: string; key: string; protocol: string }
 
@@ -20,6 +15,7 @@ export async function registerNodeThroughUsb(slot: number, replace: boolean, onP
   if (!serial || !window.isSecureContext) throw new Error('ใช้เบราว์เซอร์ที่รองรับ Web Serial บน HTTPS หรือ localhost')
   // User gesture: request the local USB port BEFORE awaiting any API.
   const port = await serial.requestPort()
+  await installNodeFirmware(port, onProgress)
   await port.open({ baudRate: 115200 })
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
   let writer: WritableStreamDefaultWriter<Uint8Array> | undefined
@@ -54,14 +50,16 @@ export async function registerNodeThroughUsb(slot: number, replace: boolean, onP
         }
       } finally { window.clearTimeout(timer) }
     }
-    onProgress('เชื่อมต่อ USB และตรวจเฟิร์มแวร์…')
+    onProgress('รอ FG1 เริ่มทำงาน แล้วตั้งค่าโหนดต่อให้อัตโนมัติ…')
     // Normal application reset: GPIO0 (DTR) released, EN (RTS) briefly asserted.
     await port.setSignals({ dataTerminalReady: false, requestToSend: true })
     await new Promise((resolve) => window.setTimeout(resolve, 150))
     await port.setSignals({ requestToSend: false })
     await new Promise((resolve) => window.setTimeout(resolve, 1800))
     await send('FG_SETUP')
-    await readLine((line) => line === 'FG1_READY', 12000)
+    await readLine((line) => line === 'FG1_READY', 12000).catch(() => {
+      throw new Error('ติดตั้งโปรแกรมแล้ว แต่บอร์ดยังไม่ตอบ FG1_READY ตรวจรุ่นบอร์ดและกดเพิ่มโหนดเพื่อลองใหม่')
+    })
     setupReady = true
     onProgress('ลงทะเบียนเลขโหนดและสร้างกุญแจเฉพาะเครื่อง…')
     const registration = await adminJson<Registration>('/devices', {

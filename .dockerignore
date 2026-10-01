@@ -1,6 +1,7 @@
 **
 !deploy/
 !deploy/Dockerfile
+!deploy/Dockerfile.dashboard
 !wildfire-backend/
 !wildfire-backend/package.json
 !wildfire-backend/package-lock.json

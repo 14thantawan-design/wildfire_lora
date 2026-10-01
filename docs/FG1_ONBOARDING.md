@@ -1,10 +1,11 @@
 # FG1: ใช้บอร์ดเดิม เพิ่มการยืนยันตัวตนและจัดการ NODE01–NODE10
 
 สถานะ ณ 1 ตุลาคม 2569: Backend / Dashboard FG1 deploy บน VM แล้ว (`api_version: 3`)
-ทดสอบ Backend 24 รายการ, Dashboard 7 รายการ และ TypeScript / production build ผ่านใน Docker แยกเครือข่าย
+ทดสอบ Backend 24 รายการในรอบก่อน; Dashboard ล่าสุด 16 รายการ และ TypeScript / production build ผ่าน
 ตรวจจากเครื่องผู้ใช้แล้ว: Dashboard HTTP 200, API / MongoDB พร้อม และ master key สำหรับลงทะเบียนตั้งค่าแล้ว
-เฟิร์มแวร์โหนด / Gateway ยังไม่คอมไพล์และยังไม่อัปลงบอร์ด จึงยังไม่ได้ทดสอบการสื่อสารจริงครบเส้นทาง
-หน้าติดตั้งจะปิดไว้จนมี binary ที่คอมไพล์และตรวจรุ่นบอร์ดแล้ว ไม่ใส่ไฟล์ .bin ปลอม
+เฟิร์มแวร์โหนดคอมไพล์ด้วย ESP32 core 3.3.6 และ `esp32:esp32:ttgo-lora32:FlashFreq=40` แล้ว
+ยังไม่ได้อัปลงบอร์ดจริงหรือทดสอบ USB / LoRa ครบเส้นทาง และยังต้องเตรียม / อัป Gateway FG1
+ปุ่มเพิ่ม / คืนโหนดติดตั้ง FG1 แล้วตั้งค่ารหัสและกุญแจต่อโดยอัตโนมัติ ไม่ต้องติดตั้งแยกหน้า
 การ deploy ครั้งนี้ไม่สร้าง backup ระบบเก่าตามคำขอ แต่คง MongoDB / ประวัติและค่าลับเดิมไว้
 หลังเปลี่ยน Backend โหนด legacy ไม่สามารถส่งข้อมูลใหม่ได้ ต้องเตรียม firmware FG1 ทั้ง Gateway และโหนดก่อน
 
@@ -27,20 +28,25 @@
 ใช้บอร์ด LILYGO LoRa32 ESP32 433 MHz และ wiring ใน `sensor_common/sensor_config.h` เท่านั้น
 Web installer ตรวจ chip family ESP32 ได้ แต่ตรวจ RF band / wiring แทนคนไม่ได้
 
-หน้า Admin `#admin-nodes` มีลิงก์ `/firmware/index.html` สำหรับติดตั้งโปรแกรมผ่าน USB
-หลังติดตั้งให้ปิดหน้าติดตั้ง แล้วกลับมาตั้งค่ากุญแจผ่านหน้า Admin; ไม่ใช้ Wi-Fi บนโหนด
+หน้า Admin `#admin-nodes`: เสียบ USB → ยืนยันบอร์ดโหนด → กดปุ่มในแถว NODE → เลือกพอร์ตครั้งเดียว
+เว็บใช้ `esptool-js@0.6.0` ติดตั้ง FG1 แล้วตรวจข้อมูลในแฟลชก่อนเปิดพอร์ตเดิมเพื่อส่ง `FG_SETUP`
+เมื่อบอร์ดตอบ `FG1_READY` จึง reserve กุญแจ เขียน config ตรวจ proof และ activate ต่อเอง
+ถ้าติดตั้ง / checksum / รุ่นบอร์ดไม่ผ่าน จะไม่เรียก API reserve และไม่ยกเลิก credential เดิม
+การตั้ง config ไม่ใช่การอัปโปรแกรมครั้งที่สอง และไม่ใช้ Wi-Fi บนโหนด
+หน้าติดตั้งเดิม `/firmware/index.html` เป็นคำแนะนำให้กลับมากดปุ่มรวมในหน้า Admin
 Web Serial ต้องเป็น secure context (HTTPS หรือ localhost) และเบราว์เซอร์ที่รองรับ
 ต้องปิด Arduino Serial Monitor และใช้สาย USB ที่ส่งข้อมูลได้
 เฟิร์มแวร์มีช่วงตั้งค่า 10 วินาทีหลัง cold reset; `FG_SETUP` ทำให้รอ USB ต่อ
 ถ้าไม่มีการลงทะเบียนจะรอ USB และไม่เริ่มส่งข้อมูล
 
-ผู้พัฒนาต้อง build `provisioned_sensor` ด้วย toolchain/libraries ของบอร์ดเดิม และทดสอบจริงก่อน
-สร้าง **merged binary** ตามคำแนะนำ ESP Web Tools / Espressif; ห้ามใช้ application-only .bin ที่ offset 0
-ใช้ assets `dist/web` จากแพ็กเกจทางการ `esp-web-tools@10.4.0` (รวมไฟล์ chunk ทุกตัว)
-จากนั้นใช้ `scripts/publish-node-firmware.ps1` โดยระบุ `MergedFirmware` และ `WebToolsWebDirectory`
-สคริปต์สำรองไฟล์เดิมก่อนคัดลอก ตรวจ header ESP32 และสร้าง manifest พร้อม SHA-256
-ไม่ดาวน์โหลด dependency ไม่ build ไม่ flash และไม่ deploy ให้เอง
-ไฟล์ติดตั้ง self-host ทั้งหมด ไม่มี script จาก CDN ทำงานบนโดเมน Admin
+ผู้พัฒนา build `provisioned_sensor` ด้วย Arduino CLI / ESP32 core 3.3.6 และ FQBN ด้านบน
+ใช้ `scripts/publish-node-firmware.ps1` ระบุ `BuildDirectory` ที่มี `build.options.json` กับไฟล์ .bin
+และ `BootAppFirmware` จาก `tools/partitions/boot_app0.bin` ของ core ที่ใช้ build
+สคริปต์ตรวจ profile, header และ default partition table; สร้าง manifest / SHA-256 / MD5
+เขียนแยก bootloader 0x1000, partitions 0x8000, boot_app 0xe000 และ app 0x10000 ไม่ใช้ merged padding ทับ NVS
+ไม่ erase flash ทั้งหมด และคง durable counter / NVS เดิม; config ใหม่จะเปลี่ยน key/generation ตาม registration
+สำรองไฟล์เผยแพร่เดิมเฉพาะใน `.codex-build/firmware-releases` ไม่เผยแพร่ backup ให้เว็บ
+สคริปต์ไม่ดาวน์โหลด ไม่ build ไม่ flash และไม่ deploy; ไฟล์กับเครื่องมือติดตั้ง self-host ทั้งหมด
 
 ## โปรโตคอลและกุญแจ
 
@@ -118,4 +124,4 @@ ACK ยืนยันว่า Gateway ตรวจแล้วและเข�
 ถ้า erase/restore Gateway NVS จน high-watermark หาย ให้เพิกถอนและออก key ใหม่ให้ทุกโหนดก่อนรับต่อ
 หลัง restore ฐานข้อมูลหรือเสีย counter state ให้เพิกถอนและ provision ด้วย key/generation ใหม่ก่อนเปิดรับ
 
-อ้างอิง: https://esphome.github.io/esp-web-tools/ และเอกสาร mbedTLS ใน ESP32 core ที่ติดตั้ง
+อ้างอิง: https://github.com/espressif/esptool-js และเอกสาร mbedTLS ใน ESP32 core ที่ติดตั้ง

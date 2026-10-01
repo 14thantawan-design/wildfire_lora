@@ -2,7 +2,8 @@
 
 > FG1 node registration: ใช้บอร์ดเดิม เพิ่ม USB provisioning,
 > NODE01–NODE10, soft deletion และ authenticated/encrypted LoRa ไม่ใช่ LoRaWAN
-> Backend / Dashboard deploy VM และผ่าน tests/build แล้ว; เฟิร์มแวร์ยังไม่คอมไพล์/อัปลงบอร์ด
+> Backend / Dashboard deploy VM แล้ว; ปุ่มเพิ่มโหนดติดตั้ง FG1 และตั้งค่าผ่าน USB ต่อกันได้
+> เฟิร์มแวร์โหนดคอมไพล์แล้ว แต่ยังต้องทดสอบติดตั้งบนบอร์ดจริงและอัป Gateway FG1
 > ดู [คู่มือ FG1](docs/FG1_ONBOARDING.md) สำหรับขั้นตอนที่เหลือและข้อจำกัด
 > โหนด legacy ด้านล่างใช้กับ Gateway/Backend FG1 ไม่ได้ ต้องวางแผน migration ก่อน
 

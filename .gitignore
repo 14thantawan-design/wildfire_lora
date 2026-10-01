@@ -1,6 +1,7 @@
 gateway/secrets.h
 wildfire-dashboard/public/firmware/vendor/
 wildfire-dashboard/public/firmware/node-merged.bin
+wildfire-dashboard/public/firmware/node-*.bin
 wildfire-dashboard/public/firmware/releases/
 .codex-build/
 .fg1-deploy/
